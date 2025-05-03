@@ -1,12 +1,15 @@
-use dust::prelude::*;
+use std::sync::Arc;
 
-fn my_system(base: In<u32>, count: Res<u32>) {
-    println!("{}", base.0 + *count);
-}
+use dust::{prelude::*, system_fn::SystemFn};
+
+#[derive(Clone)]
+struct State {}
+
+impl Resource for State {}
+
+async fn my_system(state: Res<State>) {}
 
 fn main() {
-    let mut dust = dust::dust::Dust::default();
-    dust.resources.insert::<u32>(42);
-
-    my_system.into_system().run(&dust, 1);
+    let mut dust = Dust::default();
+    dust.resources.insert(State {});
 }
