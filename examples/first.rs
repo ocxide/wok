@@ -12,4 +12,6 @@ async fn my_system(state: Res<State>) {}
 fn main() {
     let mut dust = Dust::default();
     dust.resources.insert(State {});
+
+    let system = my_system.into_system();
 }

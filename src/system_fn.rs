@@ -18,19 +18,17 @@ pub trait SystemFn<Marker>: Send + Sync + 'static {
     ) -> impl Future<Output = Self::Output> + Send + 'static;
 }
 
-impl<Func, P1, O, Fut> SystemFn<fn(O, P1) -> Fut> for Func
+impl<Func, P1> SystemFn<fn(P1)> for Func
 where
-    O: Send + Sync + 'static,
     P1: Param,
-    Fut: Future<Output = O> + Send + Sync + 'static,
-    Self: Fn(P1) -> Fut + Send + 'static,
-    Self: Send + Sync + Copy + 'static,
+    Func: async_fn_traits::AsyncFn1<P1> + Sync + Send + 'static,
+    <Func as async_fn_traits::AsyncFn1<P1>>::Output: Sync + Send + 'static,
+    <Func as async_fn_traits::AsyncFn1<P1>>::OutputFuture: Send 
 {
     type Input = ();
     type Params = P1;
-    type Output = O;
+    type Output = <Func as async_fn_traits::AsyncFn1<P1>>::Output;
 
-    #[inline]
     fn run(
         &self,
         _input: Self::Input,
