@@ -1,192 +1,219 @@
 use std::marker::PhantomData;
 
-use crate::system::{IntoSystem, System};
+use crate::{
+    param::Param,
+    system::{IntoSystem, System},
+};
 
 pub struct FunctionSystem<Marker, F> {
     func: F,
     _marker: PhantomData<fn(Marker)>,
 }
 
-pub trait IsSystemFn<Marker>: Send + Sync + 'static {
+type ParamBorrow<'p, T> = <T as Param>::AsRef<'p>;
+type ParamOwned<T> = <T as Param>::Owned;
+
+pub trait SystemFn<Marker>: Sized + Send + Sync + 'static {
     type Input;
-    type Params;
+    type Params: Param;
     type Output;
+
+    fn run(
+        self,
+        input: Self::Input,
+        params: ParamBorrow<'_, Self::Params>,
+    ) -> impl Future<Output = Self::Output> + Send;
+
+    fn run_owned(
+        self,
+        input: Self::Input,
+        params: ParamOwned<Self::Params>,
+    ) -> impl Future<Output = Self::Output> + Send + 'static
+    where
+        Self::Input: Send + 'static,
+        Self::Output: Send + 'static;
 }
 
+impl<Marker, Func> System for FunctionSystem<Marker, Func>
+where
+    Marker: 'static,
+    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Copy,
+{
+    type Input = Func::Input;
+    type Output = Func::Output;
+
+    fn run(
+        &self,
+        dust: &crate::Dust,
+        input: Self::Input,
+    ) -> impl Future<Output = Self::Output> + Send + 'static {
+        let func = self.func;
+        let params = Func::Params::get(dust);
+
+        func.run_owned(input, params)
+    }
+}
+
+pub trait IsSystemFn<Marker>: Sized + Send + Sync + 'static {
+    type Input;
+    type Params;
+}
+
+#[doc(hidden)]
+pub struct HasSystemInput;
+
+#[doc(hidden)]
+pub struct InputLessSystem;
+
 mod impls {
-    use super::{FunctionSystem, IsSystemFn};
-    use crate::{
-        Dust,
-        param::{In, Param},
-        system::System,
-    };
+    use super::{HasSystemInput, InputLessSystem, SystemFn};
+    use crate::param::{In, Param};
     use async_fn_traits::{
         AsyncFn0, AsyncFn1, AsyncFn2, AsyncFn3, AsyncFn4, AsyncFn5, AsyncFn6, AsyncFn7, AsyncFn8,
     };
     use std::future::Future;
 
     type ParamBorrow<'p, T> = <T as Param>::AsRef<'p>;
+    type ParamOwned<T> = <T as Param>::Owned;
 
-    #[doc(hidden)]
-    pub struct HasSystemInput;
-
-    impl<Func, O> System for FunctionSystem<fn(O), Func>
+    impl<Func, O> SystemFn<fn(O)> for Func
     where
-        O: Send + Sync + 'static,
-        Func: Send + Sync + 'static + Copy,
-        Func: AsyncFn0<OutputFuture: Send, Output = O>,
+        Func: AsyncFn0<Output = O, OutputFuture: Send> + Send + Sync + 'static,
     {
         type Input = ();
+        type Params = ();
         type Output = O;
 
         fn run(
-            &self,
-            _dust: &Dust,
+            self,
+            _: Self::Input,
+            _: ParamBorrow<'_, Self::Params>,
+        ) -> impl Future<Output = Self::Output> + Send {
+            self()
+        }
+
+        fn run_owned(
+            self,
             _input: Self::Input,
-        ) -> impl Future<Output = Self::Output> + Send + 'static {
-            let func = self.func;
-
-            async move { func().await }
+            _params: ParamOwned<Self::Params>,
+        ) -> impl Future<Output = Self::Output> + Send + 'static
+        where
+            Self::Input: Send + 'static,
+        {
+            self()
         }
     }
 
-    impl<Func, O> IsSystemFn<fn(O)> for Func
+    impl<Func, I> SystemFn<(HasSystemInput, fn(I))> for Func
     where
-        Func: AsyncFn0 + Send + Sync + 'static,
-    {
-        type Input = ();
-        type Params = ();
-        type Output = O;
-    }
-
-    impl<Func, I, O> System for FunctionSystem<(HasSystemInput, fn(I, O)), Func>
-    where
-        O: Send + Sync + 'static,
-        I: Send + Sync + 'static,
-        Func: Send + Sync + 'static + Copy,
-        Func: AsyncFn1<In<I>, OutputFuture: Send, Output = O>,
+        Func: AsyncFn1<In<I>, OutputFuture: Send> + Send + Sync + 'static,
     {
         type Input = I;
-        type Output = O;
+        type Params = ();
+        type Output = <Func as AsyncFn1<In<I>>>::Output;
 
         fn run(
-            &self,
-            _dust: &Dust,
+            self,
             input: Self::Input,
-        ) -> impl Future<Output = Self::Output> + Send + 'static {
-            let func = self.func;
-
-            async move { func(In(input)).await }
+            _: ParamBorrow<'_, Self::Params>,
+        ) -> impl Future<Output = Self::Output> + Send {
+            self(In(input))
         }
-    }
 
-    impl<Func, I, O> IsSystemFn<(HasSystemInput, fn(I, O))> for Func
-    where
-        Func: AsyncFn1<In<I>> + Send + Sync + 'static,
-    {
-        type Input = I;
-        type Params = ();
-        type Output = O;
+        fn run_owned(
+            self,
+            input: Self::Input,
+            _params: ParamOwned<Self::Params>,
+        ) -> impl Future<Output = Self::Output> + Send + 'static
+        where
+            Self::Input: Send + 'static,
+            Self::Output: Send + 'static,
+        {
+            self.run(input, ())
+        }
     }
 
     macro_rules! impl_system_fn {
-    ($async_trait: ident; $($params:ident : $time: lifetime),* ) => {
-        impl<Func, $($params),*, O> System for FunctionSystem<fn($(&'static $params),*, O), Func>
+        ($async_trait: ident; $($params:ident : $time: lifetime),* ) => {
+        impl<Func, $($params),*, O> SystemFn<(InputLessSystem, fn($($params),*) -> O)> for Func
         where
             $($params: Param),*,
-            O: Send + Sync + 'static,
             Func: Send + Sync + 'static + Copy,
-            Func: $async_trait<$($params),* >,
+            Func: $async_trait<$($params),*, Output = O>,
             Func: for<$($time),*> $async_trait<$(ParamBorrow<$time, $params>),* , OutputFuture: Send, Output = O>,
-        {
-            type Input = ();
-            type Output = O;
-
-            fn run(
-                &self,
-                dust: &Dust,
-                _input: Self::Input,
-            ) -> impl Future<Output = Self::Output> + Send + 'static {
-                $(
-                #[allow(non_snake_case)]
-                let $params = $params::get(dust)
-                );*;
-                let func = self.func;
-
-                async move {
-                    $(
-                    #[allow(non_snake_case)]
-                    let $params = $params::as_ref(&$params);
-                    )*
-                    func(
-                        $($params),*
-                    ).await
-                }
-            }
-        }
-
-        impl<Func, $($params),*, O> IsSystemFn<fn($(&'static $params),*, O)> for Func
-        where
-            $($params: Param),*,
-            Func: $async_trait<$($params),*, Output = O> + Send + Sync + 'static,
         {
             type Input = ();
             #[allow(unused_parens)]
             type Params = ($($params),*);
             type Output = O;
-        }
-    };
 
-    ($marker: ident; $async_trait: ident; $($params:ident : $time: lifetime),* ) => {
-        impl<Func, I, $($params),*, O> System for FunctionSystem<(HasSystemInput, fn(I, $(&'static $params),*), O), Func>
+            fn run(
+                self,
+                _input: Self::Input,
+                #[allow(non_snake_case, unused_parens)]
+                ($($params),*): ParamBorrow<'_, Self::Params>,
+            ) -> impl Future<Output = Self::Output> + Send {
+                self($($params),*)
+            }
+
+            #[allow(clippy::manual_async_fn, reason = "listening to clippy causes compile errors, screw you clippy")]
+            fn run_owned(
+                self,
+                input: Self::Input,
+                params: super::ParamOwned<Self::Params>,
+            ) -> impl Future<Output = Self::Output> + Send + 'static
+            where
+                Self::Input: Send + 'static,
+            {
+                async move {
+                    let params = Self::Params::as_ref(&params);
+                    self.run(input, params).await
+                }
+            }
+        }
+        };
+
+        (HasSystemInput; $async_trait: ident; $($params:ident : $time: lifetime),* ) => {
+        impl<Func, I, $($params),*, O> SystemFn<(HasSystemInput, fn(I, $(&'static $params),*, O))> for Func
         where
-            I: Send + Sync + 'static,
             $($params: Param),*,
-            O: Send + Sync + 'static,
             Func: Send + Sync + 'static + Copy,
             Func: $async_trait<In<I>, $($params),* >,
             Func: for<$($time),*> $async_trait<In<I>, $(ParamBorrow<$time, $params>),* , OutputFuture: Send, Output = O>,
         {
             type Input = I;
-            type Output = O;
-
-            fn run(
-                &self,
-                dust: &Dust,
-                input: Self::Input,
-            ) -> impl Future<Output = Self::Output> + Send + 'static {
-                $(
-                #[allow(non_snake_case)]
-                let $params = $params::get(dust)
-                );*;
-                let func = self.func;
-
-                async move {
-                    $(
-                    #[allow(non_snake_case)]
-                    let $params = $params::as_ref(&$params);
-                    )*
-                    func(
-                        In(input),
-                        $($params),*
-                    ).await
-                }
-            }
-        }
-
-        impl<Func, I, $($params),*, O> IsSystemFn<(HasSystemInput, fn(I, $(&'static $params),*), O)> for Func
-        where
-            Func: $async_trait<In<I>, $($params),*, Output = O> + Send + Sync + 'static,
-        {
-            type Input = I;
             #[allow(unused_parens)]
             type Params = ($($params),*);
             type Output = O;
-        }
-    };
-}
 
-    // AsyncFn0 is already implemented
+            fn run(
+                self,
+                input: Self::Input,
+                #[allow(non_snake_case, unused_parens)]
+                ($($params),*): ParamBorrow<'_, Self::Params>,
+            ) -> impl Future<Output = Self::Output> + Send {
+                self(In(input), $($params),*)
+            }
+
+            #[allow(clippy::manual_async_fn, reason = "listening to clippy causes compile errors, screw you clippy")]
+            fn run_owned(
+                self,
+                input: Self::Input,
+                params: super::ParamOwned<Self::Params>,
+            ) -> impl Future<Output = Self::Output> + Send + 'static
+            where
+                Self::Input: Send + 'static,
+            {
+                async move {
+                    let params = Self::Params::as_ref(&params);
+                    self.run(input, params).await
+                }
+            }
+        }
+        };
+    }
+
+    // // AsyncFn0 is already implemented
     impl_system_fn!(AsyncFn1; P1: 'p1);
     impl_system_fn!(AsyncFn2; P1: 'p1, P2: 'p2);
     impl_system_fn!(AsyncFn3; P1: 'p1, P2: 'p2, P3: 'p3);
@@ -208,11 +235,10 @@ mod impls {
 impl<Marker, Func> IntoSystem<Marker> for Func
 where
     Marker: 'static,
-    Func: IsSystemFn<Marker>,
-    FunctionSystem<Marker, Func>: System<Input = Func::Input, Output = Func::Output>,
+    Func: SystemFn<Marker, Input: Send, Output: Send + Sync + 'static> + Copy,
 {
-    type In = Func::Input;
-    type Out = Func::Output;
+    type In = <Func as SystemFn<Marker>>::Input;
+    type Out = <Func as SystemFn<Marker>>::Output;
     type System = FunctionSystem<Marker, Func>;
 
     #[inline]

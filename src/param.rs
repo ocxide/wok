@@ -20,31 +20,38 @@ impl Param for () {
     fn as_ref(_dust: &()) -> Self::AsRef<'_> {}
 }
 
-// macro_rules! impl_param {
-//      ($($params:ident),*) => {
-//          impl<$($params),*> Param for ($($params),*)
-//          where
-//              $($params: Param),*
-//          {
-//              type Param<'p> = ($($params::Param<'p>),*);
-//
-//              #[allow(clippy::needless_lifetimes)]
-//              fn from_dust<'p>(dust: &'p Dust) -> Self::Param<'p> {
-//                  ($($params::from_dust(dust)),*)
-//              }
-//          }
-//      };
-//  }
-//
-// impl_param!(A, B);
-// impl_param!(A, B, C);
-// impl_param!(A, B, C, D);
-// impl_param!(A, B, C, D, E);
-// impl_param!(A, B, C, D, E, F);
-// impl_param!(A, B, C, D, E, F, G);
-// impl_param!(A, B, C, D, E, F, G, H);
-// impl_param!(A, B, C, D, E, F, G, H, I);
-// impl_param!(A, B, C, D, E, F, G, H, I, J);
+macro_rules! impl_param {
+    ($($params:ident),*) => {
+    impl<$($params),*> Param for ($($params),*)
+    where
+        $($params: Param),*
+    {
+        type Owned = ($($params::Owned),*);
+        type AsRef<'p> = ($($params::AsRef<'p>),*);
+
+        fn get(dust: &Dust) -> Self::Owned {
+            ($($params::get(dust)),*)
+        }
+
+        #[allow(clippy::needless_lifetimes)]
+        fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
+            #[allow(non_snake_case)]
+            let ($($params),*) = owned;
+            ($($params::as_ref($params)),*)
+        }
+     }
+     };
+ }
+
+impl_param!(A, B);
+impl_param!(A, B, C);
+impl_param!(A, B, C, D);
+impl_param!(A, B, C, D, E);
+impl_param!(A, B, C, D, E, F);
+impl_param!(A, B, C, D, E, F, G);
+impl_param!(A, B, C, D, E, F, G, H);
+impl_param!(A, B, C, D, E, F, G, H, I);
+impl_param!(A, B, C, D, E, F, G, H, I, J);
 
 pub struct Res<'r, R: Resource>(&'r R);
 

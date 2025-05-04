@@ -34,3 +34,30 @@ pub struct Dust {
 }
 
 pub trait Resource: Send + Sync + 'static {}
+
+mod commands {
+    use crate::{Dust, param::Param};
+
+    pub trait Command: Send + 'static {
+        fn execute(self, dust: &mut Dust);
+    }
+
+    #[derive(Default)]
+    pub struct Commands {
+        commands: Vec<Box<dyn Command>>,
+    }
+
+    impl Param for Commands {
+        type Owned = ();
+        type AsRef<'r> = Commands;
+
+        fn get(_: &Dust) -> Self::Owned {}
+        fn as_ref(_: &Self::Owned) -> Self::AsRef<'_> {
+            Commands::default()
+        }
+    }
+}
+
+mod callcenter {
+    pub struct CallCenter;
+}
