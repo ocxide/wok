@@ -8,9 +8,9 @@ mod system;
 pub mod system_fn;
 
 pub mod prelude {
-    pub use crate::{Dust, Resource};
     pub use crate::param::*;
     pub use crate::system::*;
+    pub use crate::{Dust, Resource};
 }
 
 #[derive(Default)]

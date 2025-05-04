@@ -7,44 +7,14 @@ pub struct FunctionSystem<Marker, F> {
     _marker: PhantomData<fn(Marker)>,
 }
 
-pub trait IsSystemFn {
+pub trait IsSystemFn<Marker>: Send + Sync + 'static {
     type Input;
+    type Params;
     type Output;
 }
 
-// impl<Func, P1, P2, O> System for FunctionSystem<fn(&'static P1, &'static P2, O), Func>
-// where
-//     P1: Param,
-//     P2: Param,
-//     O: Send + Sync + 'static,
-//     Func: Send + Sync + 'static + Copy,
-//     Func: async_fn_traits::AsyncFn2<P1, P2, OutputFuture: Send, Output = O> + Send,
-//     Func: for<'p, 'w> async_fn_traits::AsyncFn2<ParamBorrow<'p, P1>, ParamBorrow<'w, P2>, OutputFuture: Send, Output = O> + Send,
-// {
-//     type Input = ();
-//     type Output = O;
-//
-//     fn run(
-//         &self,
-//         dust: &Dust,
-//         _input: Self::Input,
-//     ) -> impl Future<Output = Self::Output> + Send + 'static {
-//         let param1 = P1::get(dust);
-//         let param2 = P2::get(dust);
-//
-//         let func = self.func;
-//
-//         async move {
-//             let param1 = P1::as_ref(&param1);
-//             let param2 = P2::as_ref(&param2);
-//
-//             func(param1, param2).await
-//         }
-//     }
-// }
-
 mod impls {
-    use super::FunctionSystem;
+    use super::{FunctionSystem, IsSystemFn};
     use crate::{
         Dust,
         param::{In, Param},
@@ -80,6 +50,15 @@ mod impls {
         }
     }
 
+    impl<Func, O> IsSystemFn<fn(O)> for Func
+    where
+        Func: AsyncFn0 + Send + Sync + 'static,
+    {
+        type Input = ();
+        type Params = ();
+        type Output = O;
+    }
+
     impl<Func, I, O> System for FunctionSystem<(HasSystemInput, fn(I, O)), Func>
     where
         O: Send + Sync + 'static,
@@ -99,6 +78,15 @@ mod impls {
 
             async move { func(In(input)).await }
         }
+    }
+
+    impl<Func, I, O> IsSystemFn<(HasSystemInput, fn(I, O))> for Func
+    where
+        Func: AsyncFn1<In<I>> + Send + Sync + 'static,
+    {
+        type Input = I;
+        type Params = ();
+        type Output = O;
     }
 
     macro_rules! impl_system_fn {
@@ -135,6 +123,17 @@ mod impls {
                     ).await
                 }
             }
+        }
+
+        impl<Func, $($params),*, O> IsSystemFn<fn($(&'static $params),*, O)> for Func
+        where
+            $($params: Param),*,
+            Func: $async_trait<$($params),*, Output = O> + Send + Sync + 'static,
+        {
+            type Input = ();
+            #[allow(unused_parens)]
+            type Params = ($($params),*);
+            type Output = O;
         }
     };
 
@@ -175,6 +174,15 @@ mod impls {
             }
         }
 
+        impl<Func, I, $($params),*, O> IsSystemFn<(HasSystemInput, fn(I, $(&'static $params),*), O)> for Func
+        where
+            Func: $async_trait<In<I>, $($params),*, Output = O> + Send + Sync + 'static,
+        {
+            type Input = I;
+            #[allow(unused_parens)]
+            type Params = ($($params),*);
+            type Output = O;
+        }
     };
 }
 
@@ -197,10 +205,14 @@ mod impls {
     impl_system_fn!(HasSystemInput; AsyncFn8; P1: 'p1, P2: 'p2, P3: 'p3, P4: 'p4, P5: 'p5, P6: 'p6, P7: 'p7);
 }
 
-impl<Marker, I, Func> IntoSystem<I, fn(I, Marker)> for Func
+impl<Marker, Func> IntoSystem<Marker> for Func
 where
-    FunctionSystem<Marker, Func>: System<Input = I>,
+    Marker: 'static,
+    Func: IsSystemFn<Marker>,
+    FunctionSystem<Marker, Func>: System<Input = Func::Input, Output = Func::Output>,
 {
+    type In = Func::Input;
+    type Out = Func::Output;
     type System = FunctionSystem<Marker, Func>;
 
     #[inline]

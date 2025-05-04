@@ -11,8 +11,10 @@ pub trait System: Send + Sync + 'static {
     ) -> impl Future<Output = Self::Output> + Send + 'static;
 }
 
-pub trait IntoSystem<In, Marker> {
-    type System: System<Input = In>;
+pub trait IntoSystem<Marker> {
+    type In;
+    type Out;
+    type System: System<Input = Self::In, Output = Self::Out>;
 
     fn into_system(self) -> Self::System;
 }
