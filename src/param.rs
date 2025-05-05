@@ -1,6 +1,9 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
-use crate::{Dust, Resource};
+use crate::{
+    Dust, Resource,
+    any_handle::{AnyHandle, HandleRead},
+};
 
 pub struct In<T>(pub T);
 
@@ -53,27 +56,26 @@ impl_param!(A, B, C, D, E, F, G, H);
 impl_param!(A, B, C, D, E, F, G, H, I);
 impl_param!(A, B, C, D, E, F, G, H, I, J);
 
-pub struct Res<'r, R: Resource>(&'r R);
+pub struct Res<'r, R: Resource>(HandleRead<'r, R>);
 
 impl<R: Resource> Deref for Res<'_, R> {
     type Target = R;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.0
+        &self.0
     }
 }
 
 impl<R: Resource + Clone> Param for Res<'_, R> {
-    type Owned = Arc<R>;
+    type Owned = AnyHandle<R>;
     type AsRef<'r> = Res<'r, R>;
 
     fn get(dust: &Dust) -> Self::Owned {
-        let r: &R = dust.resources.get().unwrap();
-        Arc::new(r.clone())
+        dust.resources.handle().expect("resource not found")
     }
 
-    fn as_ref(dust: &Self::Owned) -> Self::AsRef<'_> {
-        Res(dust.deref())
+    fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {
+        Res(handle.read().expect("to read"))
     }
 }

@@ -1,7 +1,6 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-};
+use std::{any::TypeId, collections::HashMap};
+
+use any_handle::AnyHandle;
 
 mod param;
 mod system;
@@ -13,18 +12,22 @@ pub mod prelude {
     pub use crate::{Dust, Resource};
 }
 
+mod any_handle;
+
 #[derive(Default)]
-pub struct Resources(HashMap<TypeId, Box<dyn Any>>);
+pub struct Resources(HashMap<TypeId, AnyHandle>);
 
 impl Resources {
     pub fn insert<R: Resource>(&mut self, value: R) {
-        self.0.insert(TypeId::of::<R>(), Box::new(value));
+        self.0.insert(TypeId::of::<R>(), AnyHandle::new_any(value));
     }
 
-    pub fn get<R: Resource>(&self) -> Option<&R> {
-        self.0
-            .get(&TypeId::of::<R>())
-            .and_then(|v| v.downcast_ref())
+    pub fn handle<R: Resource>(&self) -> Option<AnyHandle<R>> {
+        let wrapped = self.0.get(&TypeId::of::<R>())?;
+        // Safety: The type is guaranteed to be R
+        let read = unsafe { wrapped.clone().unchecked_downcast::<R>() };
+
+        Some(read)
     }
 }
 
@@ -35,11 +38,18 @@ pub struct Dust {
 
 pub trait Resource: Send + Sync + 'static {}
 
+pub struct DustMutations {}
+
+pub struct MutDust<'d> {
+    dust: &'d mut Dust,
+    mutations: &'d mut DustMutations,
+}
+
 mod commands {
-    use crate::{Dust, param::Param};
+    use crate::{Dust, MutDust, param::Param};
 
     pub trait Command: Send + 'static {
-        fn execute(self, dust: &mut Dust);
+        fn execute(self, dust: MutDust<'_>);
     }
 
     #[derive(Default)]
