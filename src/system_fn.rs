@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     param::Param,
-    system::{IntoSystem, System},
+    system::{IntoSystem, System, SystemFuture},
 };
 
 pub struct FunctionSystem<Marker, F> {
@@ -39,18 +39,15 @@ where
     Marker: 'static,
     Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Copy,
 {
-    type Input = Func::Input;
-    type Output = Func::Output;
+    type In = Func::Input;
+    type Out = Func::Output;
 
-    fn run(
-        &self,
-        dust: &crate::Dust,
-        input: Self::Input,
-    ) -> impl Future<Output = Self::Output> + Send + 'static {
+    fn run(&self, dust: &crate::Dust, input: Self::In) -> SystemFuture<Self> {
         let func = self.func;
         let params = Func::Params::get(dust);
 
-        func.run_owned(input, params)
+        let fut = func.run_owned(input, params);
+        Box::new(fut)
     }
 }
 
@@ -237,8 +234,6 @@ where
     Marker: 'static,
     Func: SystemFn<Marker, Input: Send, Output: Send + Sync + 'static> + Copy,
 {
-    type In = <Func as SystemFn<Marker>>::Input;
-    type Out = <Func as SystemFn<Marker>>::Output;
     type System = FunctionSystem<Marker, Func>;
 
     #[inline]
