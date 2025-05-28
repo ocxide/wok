@@ -1,0 +1,10 @@
+[package]
+name = "dust_db"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = "1.0.219"
+surrealdb = "^2.0.0"
+take_mut = "0.2.2"
+dust = { path = "../../" }

@@ -3,6 +3,9 @@ name = "dust"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["libs/dust_db"]
+
 [dependencies]
 async_fn_traits = "0.1.1"
 parking_lot = { version = "0.12.3", features = ["send_guard"] }

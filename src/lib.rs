@@ -37,3 +37,9 @@ pub struct Dust {
 }
 
 pub trait Resource: Send + Sync + 'static {}
+
+pub mod entity {
+    pub trait Entity: Send + Sync + 'static + Clone + Copy {
+        fn unique_new() -> Self;
+    }
+}
