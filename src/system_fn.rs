@@ -2,13 +2,27 @@ use std::marker::PhantomData;
 
 use crate::{
     param::Param,
-    system::{IntoSystem, System, SystemFuture},
+    system::{IntoSystem, StaticSystem, System, SystemFuture},
 };
 
 pub struct FunctionSystem<Marker, F> {
     func: F,
     _marker: PhantomData<fn(Marker)>,
 }
+
+impl<Marker, F> Clone for FunctionSystem<Marker, F>
+where
+    F: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            func: self.func.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<Marker, F> Copy for FunctionSystem<Marker, F> where F: Copy {}
 
 type ParamBorrow<'p, T> = <T as Param>::AsRef<'p>;
 type ParamOwned<T> = <T as Param>::Owned;
@@ -48,6 +62,26 @@ where
 
         let fut = func.run_owned(input, params);
         Box::new(fut)
+    }
+}
+
+impl<Marker, Func> StaticSystem for FunctionSystem<Marker, Func>
+where
+    Marker: 'static,
+    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Copy,
+{
+    type Params = ParamOwned<Func::Params>;
+
+    fn get_params(dust: &crate::Dust) -> Self::Params {
+        Func::Params::get(dust)
+    }
+
+    fn run_static(
+        &self,
+        params: Self::Params,
+        input: Self::In,
+    ) -> impl Future<Output = Self::Out> + Send + 'static {
+        self.func.run_owned(input, params)
     }
 }
 
