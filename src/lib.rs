@@ -1,6 +1,7 @@
 use std::{any::TypeId, collections::HashMap};
 
 use any_handle::AnyHandle;
+use commands::{CommandSender, CommandsReceiver};
 
 mod param;
 mod system;
@@ -10,6 +11,7 @@ pub mod prelude {
     pub use crate::param::*;
     pub use crate::system::*;
     pub use crate::{Dust, Resource};
+    pub use crate::commands::{Commands, Command};
 }
 
 mod any_handle;
@@ -31,12 +33,48 @@ impl Resources {
     }
 }
 
-#[derive(Default)]
 pub struct Dust {
     pub resources: Resources,
+    commands_buf: CommandsReceiver,
+    commands_sx: CommandSender,
+}
+
+impl Dust {
+    pub fn tick_commands(&mut self) {
+        loop {
+            match self.commands_buf.0.try_recv() {
+                Ok(command) => command.apply(self),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    eprintln!("WARNING: Commands buffer disconnected");
+                    return;
+                }
+            };
+        }
+    }
+}
+
+impl Default for Dust {
+    fn default() -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel::<commands::DynCommand>();
+
+        Self {
+            resources: Resources::default(),
+            commands_buf: CommandsReceiver::new(receiver),
+            commands_sx: CommandSender::new(sender),
+        }
+    }
 }
 
 pub trait Resource: Sized + Send + Sync + 'static {}
+
+#[allow(dead_code)]
+fn dust_is_send() {
+    fn assert_send<T: Send>() {}
+    assert_send::<Dust>();
+}
+
+pub mod commands;
 
 pub mod error {
     use std::{fmt::Display, panic::Location};
