@@ -36,10 +36,38 @@ pub struct Dust {
     pub resources: Resources,
 }
 
-pub trait Resource: Send + Sync + 'static {}
+pub trait Resource: Sized + Send + Sync + 'static {}
 
-pub mod entity {
-    pub trait Entity: Send + Sync + 'static + Clone + Copy {
-        fn unique_new() -> Self;
+pub mod error {
+    use std::{fmt::Display, panic::Location};
+
+    #[derive(Debug)]
+    pub struct DustUnknownError {
+        inner: Box<dyn std::error::Error + Send + Sync + 'static>,
+        location: &'static Location<'static>,
+    }
+
+    impl DustUnknownError {
+        #[track_caller]
+        #[inline]
+        pub fn new<E: std::error::Error + Send + Sync + 'static>(value: E) -> Self {
+            Self {
+                inner: Box::new(value),
+                location: Location::caller(),
+            }
+        }
+    }
+
+    impl Display for DustUnknownError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "({}:{}:{}): {}",
+                self.location.file(),
+                self.location.line(),
+                self.location.column(),
+                self.inner
+            )
+        }
     }
 }

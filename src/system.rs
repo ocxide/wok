@@ -1,8 +1,10 @@
+use std::pin::Pin;
+
 use combinator::IntoSystemPipe;
 
 use crate::Dust;
 
-pub type SystemFuture<S> = Box<dyn Future<Output = <S as System>::Out> + Send + 'static>;
+pub type SystemFuture<S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'static>>;
 
 // Dyn compatible
 pub trait System: Send + Sync + 'static {
@@ -109,7 +111,7 @@ mod combinator {
         type Out = S2::Out;
 
         fn run(&self, dust: &Dust, input: Self::In) -> SystemFuture<Self> {
-            Box::new(self.run_static((S1::get_params(dust), S2::get_params(dust)), input))
+            Box::pin(self.run_static((S1::get_params(dust), S2::get_params(dust)), input))
         }
     }
 }

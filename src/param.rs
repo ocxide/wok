@@ -7,6 +7,14 @@ use crate::{
 
 pub struct In<T>(pub T);
 
+impl<T> Deref for In<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub trait Param: Send {
     type Owned: Send + 'static;
     type AsRef<'r>;
@@ -67,7 +75,7 @@ impl<R: Resource> Deref for Res<'_, R> {
     }
 }
 
-impl<R: Resource + Clone> Param for Res<'_, R> {
+impl<R: Resource> Param for Res<'_, R> {
     type Owned = AnyHandle<R>;
     type AsRef<'r> = Res<'r, R>;
 

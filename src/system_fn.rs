@@ -51,24 +51,24 @@ pub trait SystemFn<Marker>: Sized + Send + Sync + 'static {
 impl<Marker, Func> System for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Copy,
+    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
 {
     type In = Func::Input;
     type Out = Func::Output;
 
     fn run(&self, dust: &crate::Dust, input: Self::In) -> SystemFuture<Self> {
-        let func = self.func;
+        let func = self.func.clone();
         let params = Func::Params::get(dust);
 
         let fut = func.run_owned(input, params);
-        Box::new(fut)
+        Box::pin(fut)
     }
 }
 
 impl<Marker, Func> StaticSystem for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Copy,
+    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
 {
     type Params = ParamOwned<Func::Params>;
 
@@ -81,7 +81,7 @@ where
         params: Self::Params,
         input: Self::In,
     ) -> impl Future<Output = Self::Out> + Send + 'static {
-        self.func.run_owned(input, params)
+        self.func.clone().run_owned(input, params)
     }
 }
 
@@ -169,7 +169,7 @@ mod impls {
         impl<Func, $($params),*, O> SystemFn<(InputLessSystem, fn($($params),*) -> O)> for Func
         where
             $($params: Param),*,
-            Func: Send + Sync + 'static + Copy,
+            Func: Send + Sync + 'static + Clone,
             Func: $async_trait<$($params),*, Output = O>,
             Func: for<$($time),*> $async_trait<$(ParamBorrow<$time, $params>),* , OutputFuture: Send, Output = O>,
         {
@@ -208,7 +208,7 @@ mod impls {
         impl<Func, I, $($params),*, O> SystemFn<(HasSystemInput, fn(I, $(&'static $params),*, O))> for Func
         where
             $($params: Param),*,
-            Func: Send + Sync + 'static + Copy,
+            Func: Send + Sync + 'static + Clone,
             Func: $async_trait<In<I>, $($params),* >,
             Func: for<$($time),*> $async_trait<In<I>, $(ParamBorrow<$time, $params>),* , OutputFuture: Send, Output = O>,
         {
@@ -266,7 +266,7 @@ mod impls {
 impl<Marker, Func> IntoSystem<Marker> for Func
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Input: Send, Output: Send + Sync + 'static> + Copy,
+    Func: SystemFn<Marker, Input: Send, Output: Send + Sync + 'static> + Clone,
 {
     type System = FunctionSystem<Marker, Func>;
 

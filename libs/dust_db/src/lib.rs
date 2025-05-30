@@ -1,89 +1,105 @@
-use dust::{
-    Resource,
-    entity::Entity,
-    prelude::{In, Res},
-};
-
-pub trait DbCreateFactory<E>: 'static {
-    type CreateQuery<'q>: DbCreate;
-    type Leftover;
-
-    fn create<'q>(
-        &'q self,
-        table: &'static str,
-        data: E,
-    ) -> (Self::CreateQuery<'q>, Self::Leftover);
-}
-
-pub trait DbCreate {
-    fn create(self) -> impl Future<Output = ()>;
-}
-
-pub trait EntityCreate: Entity {
-    type Data;
+pub trait Record: Send + Sync + 'static + Clone + Copy {
     const TABLE: &'static str;
+    fn generate() -> Self;
 }
 
-pub async fn create<E, Db>(entity: In<E::Data>, db: Res<'_, Db>) -> (E, Db::Leftover)
-where
-    E: EntityCreate,
-    Db: DbCreateFactory<E::Data> + Resource,
-{
-    let id = E::unique_new();
-    let (query, left) = db.create(E::TABLE, entity.0);
+pub mod db {
+    use dust::error::DustUnknownError;
 
-    query.create().await;
-    (id, left)
+    pub trait Query<O> {
+        fn execute(self) -> impl Future<Output = Result<O, DustUnknownError>> + Send;
+    }
+
+    pub trait DbOwnedCreate<D>: 'static {
+        type CreateQuery<'q>: Query<()>;
+        fn create<'q>(&'q self, table: &'static str, data: D) -> Self::CreateQuery<'q>;
+    }
+
+    pub trait DbList<D>: 'static {
+        type ListQuery<'q>: Query<Vec<D>>;
+        fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q>;
+    }
 }
 
-mod surrealdb {
-    use surrealdb::{Connection, opt::Resource};
+pub mod surrealdb {
+    use dust::error::DustUnknownError;
+    use serde::{Serialize, de::DeserializeOwned};
+    use surrealdb::{Connection, Surreal, opt::Resource};
 
-    use crate::{DbCreate, DbCreateFactory};
+    use crate::db::{DbList, DbOwnedCreate};
 
-    pub struct SurrealDb<C: Connection>(surrealdb::Surreal<C>);
+    pub struct SurrealDb<C: Connection>(Surreal<C>);
 
-    impl<E, C> DbCreateFactory<E> for SurrealDb<C>
-    where
-        C: Connection,
-        E: serde::Serialize + 'static,
-    {
-        type CreateQuery<'q> = Create<'q, C, E>;
-        type Leftover = ();
-
-        fn create<'q>(
-            &'q self,
-            table: &'static str,
-            data: E,
-        ) -> (Self::CreateQuery<'q>, Self::Leftover) {
-            (
-                Create {
-                    db: &self.0,
-                    table,
-                    data,
-                },
-                (),
-            )
+    impl<C: Connection> SurrealDb<C> {
+        #[inline]
+        pub fn new(db: Surreal<C>) -> Self {
+            SurrealDb(db)
         }
     }
 
-    impl<C> dust::Resource for SurrealDb<C> where C: Connection {}
+    impl<C: Connection> dust::prelude::Resource for SurrealDb<C> {}
 
-    pub struct Create<'s, C: Connection, T> {
-        db: &'s surrealdb::Surreal<C>,
-        table: &'static str,
-        data: T,
+    impl<C, D> DbOwnedCreate<D> for SurrealDb<C>
+    where
+        C: Connection,
+        D: Serialize + 'static + Send,
+    {
+        type CreateQuery<'q> = SurrealCreate<'q, C, D>;
+
+        fn create<'q>(&'q self, table: &'static str, data: D) -> Self::CreateQuery<'q> {
+            SurrealCreate {
+                db: &self.0,
+                table,
+                data,
+            }
+        }
     }
 
-    impl<'s, C: Connection, T> DbCreate for Create<'s, C, T>
+    pub struct SurrealCreate<'db, C: Connection, D> {
+        db: &'db Surreal<C>,
+        table: &'static str,
+        data: D,
+    }
+
+    impl<'db, C: Connection, D> crate::db::Query<()> for SurrealCreate<'db, C, D>
     where
-        T: serde::Serialize + 'static,
+        D: Serialize + 'static + Send,
     {
-        async fn create(self) {
-            let _ = self.db
+        async fn execute(self) -> Result<(), dust::error::DustUnknownError> {
+            self.db
                 .create(Resource::Table(self.table.to_owned()))
                 .content(self.data)
-                .await;
+                .await
+                .map_err(DustUnknownError::new)?;
+            Ok(())
+        }
+    }
+
+    pub struct SurrealList<'db, C: Connection> {
+        db: &'db Surreal<C>,
+        table: &'static str,
+    }
+
+    impl<'db, C: Connection, D> crate::db::Query<Vec<D>> for SurrealList<'db, C>
+    where
+        D: DeserializeOwned,
+    {
+        async fn execute(self) -> Result<Vec<D>, dust::error::DustUnknownError> {
+            self.db
+                .select(self.table.to_owned())
+                .await
+                .map_err(DustUnknownError::new)
+        }
+    }
+
+    impl<C, D> DbList<D> for SurrealDb<C>
+    where
+        C: Connection,
+        D: DeserializeOwned,
+    {
+        type ListQuery<'q> = SurrealList<'q, C>;
+        fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q> {
+            SurrealList { db: &self.0, table }
         }
     }
 }
