@@ -1,5 +1,5 @@
 use dust::{
-    Dust,
+    dust::Dust,
     prelude::{In, IntoSystem, System},
 };
 

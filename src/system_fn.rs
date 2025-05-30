@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    param::Param,
-    system::{IntoSystem, StaticSystem, System, SystemFuture},
+    dust::Dust, param::Param, system::{IntoSystem, StaticSystem, System, SystemFuture}
 };
 
 pub struct FunctionSystem<Marker, F> {
@@ -56,7 +55,7 @@ where
     type In = Func::Input;
     type Out = Func::Output;
 
-    fn run(&self, dust: &crate::Dust, input: Self::In) -> SystemFuture<Self> {
+    fn run(&self, dust: &Dust, input: Self::In) -> SystemFuture<Self> {
         let func = self.func.clone();
         let params = Func::Params::get(dust);
 
@@ -72,7 +71,7 @@ where
 {
     type Params = ParamOwned<Func::Params>;
 
-    fn get_params(dust: &crate::Dust) -> Self::Params {
+    fn get_params(dust: &Dust) -> Self::Params {
         Func::Params::get(dust)
     }
 

@@ -1018,6 +1018,7 @@ dependencies = [
  "clap",
  "dust",
  "dust_db",
+ "futures",
  "take_mut",
 ]
 

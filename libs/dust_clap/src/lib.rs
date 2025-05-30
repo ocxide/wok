@@ -1,11 +1,12 @@
 use std::{collections::HashMap, fmt::Display};
 
 use clap::{ArgMatches, Args, FromArgMatches};
-use dust::{Resource, prelude::*};
+use dust::{dust::ConfigureDust, prelude::*};
 use dust_db::{
     Record,
     db::{DbList, DbOwnedCreate, Query},
 };
+use futures::StreamExt;
 
 type DynClapSystem = Box<dyn System<In = ArgMatches, Out = ()>>;
 
@@ -97,5 +98,39 @@ impl<Db: Resource, R: Record> ClapRecordSystems<Db, R> {
 
     pub fn build(self) -> (clap::Command, SubCommandSystems) {
         (self.command, self.systems)
+    }
+}
+
+#[derive(Default)]
+pub struct App {
+    dust: dust::prelude::Dust,
+    startup_systems: Vec<DynSystem<(), ()>>,
+}
+
+impl ConfigureDust for App {
+    fn dust(&mut self) -> &mut Dust {
+        &mut self.dust
+    }
+}
+
+impl App {
+    pub fn add_startup_system<S, Marker>(&mut self, system: S)
+    where
+        S: IntoSystem<Marker, System: System<In = (), Out = ()>>,
+    {
+        self.startup_systems.push(Box::new(system.into_system()));
+    }
+
+    pub fn run(self) -> impl Future<Output = ()> {
+        use futures::stream::FuturesUnordered;
+
+        let fut = self.startup_systems
+            .iter()
+            .map(|system| system.run(&self.dust, ()))
+            .collect::<FuturesUnordered<_>>();
+
+        async move {
+            let _ = fut.into_future().await;
+        }
     }
 }

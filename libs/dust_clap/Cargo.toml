@@ -7,4 +7,5 @@ edition = "2024"
 clap = "4.5.39"
 dust = { path = "../../" }
 dust_db = { path = "../dust_db" }
+futures = { version = "0.3.31", no-default-features = true, features = ["std", "async-await"] }
 take_mut = "0.2.2"

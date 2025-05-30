@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    Dust, Resource,
+    prelude::{Dust, Resource},
     any_handle::{AnyHandle, HandleRead},
 };
 

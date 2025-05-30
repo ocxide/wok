@@ -2,9 +2,10 @@ use std::pin::Pin;
 
 use combinator::IntoSystemPipe;
 
-use crate::Dust;
+use crate::prelude::Dust;
 
 pub type SystemFuture<S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'static>>;
+pub type DynSystem<In, Out> = Box<dyn System<In = In, Out = Out> + Send + Sync + 'static>;
 
 // Dyn compatible
 pub trait System: Send + Sync + 'static {
@@ -39,7 +40,7 @@ pub trait IntoSystem<Marker> {
 }
 
 mod combinator {
-    use crate::Dust;
+    use crate::prelude::Dust;
 
     use super::{IntoSystem, StaticSystem, System, SystemFuture};
 

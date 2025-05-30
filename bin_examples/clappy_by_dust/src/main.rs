@@ -1,5 +1,8 @@
 use dust_db::{Record, surrealdb::SurrealDb};
-use surrealdb::{engine::remote::ws::{Client, Ws}, opt::auth::Root};
+use surrealdb::{
+    engine::remote::ws::{Client, Ws},
+    opt::auth::Root,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct PersonId;
@@ -23,7 +26,9 @@ async fn main() {
     db.signin(Root {
         username: "root",
         password: "root",
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     db.use_ns("test").use_db("test").await.unwrap();
 
     dust.resources.insert(SurrealDb::<Client>::new(db));

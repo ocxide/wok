@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::{Dust, Resource, param::Param};
+use crate::{dust::Dust, param::Param, prelude::Resource};
 
 pub type DynCommand = Box<dyn Command>;
 
