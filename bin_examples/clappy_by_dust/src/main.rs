@@ -1,3 +1,5 @@
+use dust::prelude::Commands;
+use dust_clap::RouterBuilder;
 use dust_db::{Record, surrealdb::SurrealDb};
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
@@ -17,10 +19,7 @@ impl Record for PersonId {
 #[derive(Debug, clap::Args, serde::Serialize)]
 pub struct CreatePerson {}
 
-#[tokio::main]
-async fn main() {
-    let mut dust = dust::Dust::default();
-
+async fn connect_db(commands: Commands<'_>) {
     let db = surrealdb::Surreal::<Client>::init();
     db.connect::<Ws>("localhost:8080").await.unwrap();
     db.signin(Root {
@@ -31,19 +30,17 @@ async fn main() {
     .unwrap();
     db.use_ns("test").use_db("test").await.unwrap();
 
-    dust.resources.insert(SurrealDb::<Client>::new(db));
+    commands.insert_resource(SurrealDb::new(db));
+}
 
-    let (command, systems) = dust_clap::ClapRecordSystems::<SurrealDb<Client>, PersonId>::default()
-        .create_by::<CreatePerson>()
+#[tokio::main]
+async fn main() {
+    let router = RouterBuilder::<SurrealDb<Client>>::default()
+        .by_record::<PersonId>(|r| r.create_by::<CreatePerson>())
         .build();
 
-    if let Some((command_name, args)) = command
-        .subcommand_required(true)
-        .arg_required_else_help(true)
-        .get_matches()
-        .remove_subcommand()
-    {
-        let system = systems.get(&command_name).unwrap();
-        system.run(&dust, args).await;
-    }
+    dust_clap::App::default()
+        .add_startup_system(connect_db)
+        .run(router)
+        .await;
 }
