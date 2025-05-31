@@ -46,4 +46,15 @@ pub mod error {
             )
         }
     }
+
+    impl<E> From<E> for DustUnknownError
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        #[track_caller]
+        #[inline]
+        fn from(value: E) -> Self {
+            Self::new(value)
+        }
+    }
 }

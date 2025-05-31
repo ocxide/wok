@@ -1,5 +1,6 @@
 use dust::{
     dust::{ConfigureDust, Dust},
+    error::DustUnknownError,
     prelude::{DynSystem, IntoSystem, System},
 };
 use futures::StreamExt;
@@ -120,9 +121,18 @@ mod record_systems {
             {
                 let data = D::from_arg_matches(&args).unwrap();
                 db.create(R::TABLE, data).execute().await.unwrap();
+
+                println!("Created {}", R::TABLE);
             }
 
-            self.add(COMMAND_NAME, |c| c.alias("c"), create_system::<Db, D, R>);
+            self.add(
+                COMMAND_NAME,
+                |c| {
+                    let command = c.alias("c");
+                    D::augment_args(command)
+                },
+                create_system::<Db, D, R>,
+            );
             self
         }
 
@@ -139,8 +149,13 @@ mod record_systems {
             {
                 let items = db.list(R::TABLE).execute().await.unwrap();
 
+                if items.is_empty() {
+                    println!("<None>");
+                    return;
+                }
+
                 for item in items {
-                    println!("{}", item);
+                    println!("#: {}", item);
                 }
             }
 
@@ -179,7 +194,7 @@ pub use router::RouterBuilder;
 #[derive(Default)]
 pub struct App {
     dust: dust::prelude::Dust,
-    startup_systems: Vec<DynSystem<(), ()>>,
+    startup_systems: Vec<DynSystem<(), Result<(), DustUnknownError>>>,
 }
 
 impl ConfigureDust for App {
@@ -191,7 +206,7 @@ impl ConfigureDust for App {
 impl App {
     pub fn add_startup_system<S, Marker>(mut self, system: S) -> Self
     where
-        S: IntoSystem<Marker, System: System<In = (), Out = ()>>,
+        S: IntoSystem<Marker, System: System<In = (), Out = Result<(), DustUnknownError>>>,
     {
         self.startup_systems.push(Box::new(system.into_system()));
         self
@@ -213,22 +228,37 @@ impl App {
                 return;
             };
 
-            let systems = router.systems.get(command_name.as_str()).unwrap();
+            let systems = router
+                .systems
+                .get(command_name.as_str())
+                .expect("clap unmatched command");
 
             let Some((command_name, args)) = args.remove_subcommand() else {
                 return;
             };
 
-            let fut = self
+            let mut fut = self
                 .startup_systems
                 .iter()
                 .map(|system| system.run(&self.dust, ()))
                 .collect::<FuturesUnordered<_>>();
 
-            let _ = fut.into_future().await;
+            loop {
+                let (out, fut_) = fut.into_future().await;
+                fut = fut_;
+
+                match out {
+                    Some(Ok(_)) => {}
+                    Some(Err(err)) => panic!("Startup failed: {}", err),
+                    None => break,
+                }
+            }
+
             self.dust.tick_commands();
 
-            let system = systems.get(&command_name).unwrap();
+            let system = systems
+                .get(&command_name)
+                .expect("clap unmatched subcommand");
             system.run(&self.dust, args).await;
         }
     }
