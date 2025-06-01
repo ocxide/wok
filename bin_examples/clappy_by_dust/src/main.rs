@@ -80,7 +80,7 @@ async fn main() {
             .use_db::<SurrealDb<Client>>()
             .use_id_strat::<GenerateId>(),
     )
-    .by_record::<PersonId>(|r| r.create_by::<Person>().list_by::<Person>().build())
+    .by_record::<PersonId>(|r| r.create_by::<Person>().list_by::<Person>().delete().build())
     .build();
 
     dust_clap::App::default()

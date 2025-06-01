@@ -63,6 +63,11 @@ pub mod db {
         fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q>;
     }
 
+    pub trait DbDelete<R>: 'static {
+        type DeleteQuery<'q>: Query<()>;
+        fn delete<'q>(&'q self, table: &'static str, id: R) -> Self::DeleteQuery<'q>;
+    }
+
     pub trait IdStrategy<I>: Sized + Send + Sync + 'static {
         type Wrap<D>;
         fn wrap<D>(body: D) -> Self::Wrap<D>;
@@ -90,7 +95,7 @@ pub mod surrealdb {
 
     use crate::{
         Record,
-        db::{DbList, DbOwnedCreate},
+        db::{DbDelete, DbList, DbOwnedCreate},
     };
 
     pub struct SurrealDb<C: Connection>(Surreal<C>);
@@ -165,6 +170,35 @@ pub mod surrealdb {
         type ListQuery<'q> = SurrealList<'q, C>;
         fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q> {
             SurrealList { db: &self.0, table }
+        }
+    }
+
+    impl<C: Connection, R: Record + Serialize> DbDelete<R> for SurrealDb<C> {
+        type DeleteQuery<'q> = SurrealDelete<'q, C, R>;
+        fn delete<'q>(&'q self, table: &'static str, id: R) -> Self::DeleteQuery<'q> {
+            SurrealDelete {
+                db: &self.0,
+                table,
+                id,
+            }
+        }
+    }
+
+    pub struct SurrealDelete<'db, C: Connection, R: Record> {
+        db: &'db Surreal<C>,
+        table: &'static str,
+        id: R,
+    }
+
+    impl<'db, C: Connection, R: Record + Serialize> crate::db::Query<()> for SurrealDelete<'db, C, R> {
+        async fn execute(self) -> Result<(), dust::error::DustUnknownError> {
+            self.db
+                .query("DELETE type::thing($table, $id)")
+                .bind(("table", self.table))
+                .bind(("id", self.id))
+                .await?;
+
+            Ok(())
         }
     }
 

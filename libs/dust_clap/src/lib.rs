@@ -111,13 +111,16 @@ mod router {
 }
 
 mod record_systems {
-    use std::{collections::HashMap, fmt::Display};
+    use std::{collections::HashMap, fmt::Display, str::FromStr};
 
     use clap::{ArgMatches, Args, FromArgMatches};
-    use dust::{error::DustUnknownError, prelude::{DynSystem, In, IntoSystem, Res, Resource, System}};
+    use dust::{
+        error::DustUnknownError,
+        prelude::{DynSystem, In, IntoSystem, Res, Resource, System},
+    };
     use dust_db::{
         Record,
-        db::{DbList, DbOwnedCreate, IdStrategy, Query},
+        db::{DbDelete, DbList, DbOwnedCreate, IdStrategy, Query},
     };
 
     use crate::router::RouterConfig;
@@ -167,7 +170,10 @@ mod record_systems {
         {
             const COMMAND_NAME: &str = "create";
 
-            async fn create_system<Db, IdStrat, D, R>(args: In<ArgMatches>, db: Res<'_, Db>) -> Result<(), DustUnknownError>
+            async fn create_system<Db, IdStrat, D, R>(
+                args: In<ArgMatches>,
+                db: Res<'_, Db>,
+            ) -> Result<(), DustUnknownError>
             where
                 Db: Resource + DbOwnedCreate<IdStrat::Wrap<D>>,
                 IdStrat: IdStrategy<R>,
@@ -200,7 +206,10 @@ mod record_systems {
             D: Display + 'static,
             R: Display,
         {
-            async fn list_system<Db, D, R>(_: In<ArgMatches>, db: Res<'_, Db>) -> Result<(), DustUnknownError>
+            async fn list_system<Db, D, R>(
+                _: In<ArgMatches>,
+                db: Res<'_, Db>,
+            ) -> Result<(), DustUnknownError>
             where
                 Db: Resource + DbList<dust_db::data_wrappers::KeyValue<R, D>>,
                 D: Display,
@@ -224,11 +233,53 @@ mod record_systems {
             self
         }
 
+        pub fn delete(mut self) -> Self
+        where
+            Config::Db: DbDelete<R>,
+            R: FromStr<Err: std::error::Error>,
+        {
+            const COMMAND_NAME: &str = "delete";
+
+            async fn delete_system<Db, R>(
+                args: In<ArgMatches>,
+                db: Res<'_, Db>,
+            ) -> Result<(), DustUnknownError>
+            where
+                Db: Resource + DbDelete<R>,
+                R: Record + FromStr<Err: std::error::Error>,
+            {
+                let id = args.get_one::<String>("id").expect("failed to get id");
+                let id = match R::from_str(id) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        eprintln!("Failed to parse id: {}", e);
+                        return Ok(());
+                    }
+                };
+
+                db.delete(R::TABLE, id).execute().await?;
+
+                println!("Deleted {}", R::TABLE);
+                Ok(())
+            }
+
+            self.add(
+                COMMAND_NAME,
+                |c| c.alias("d").arg(clap::Arg::new("id").required(true)),
+                delete_system::<Config::Db, R>,
+            );
+
+            self
+        }
+
         fn add<M>(
             &mut self,
             command_name: &'static str,
             command_factory: impl FnOnce(clap::Command) -> clap::Command,
-            system: impl IntoSystem<M, System: System<In = ArgMatches, Out = Result<(), DustUnknownError>>>,
+            system: impl IntoSystem<
+                M,
+                System: System<In = ArgMatches, Out = Result<(), DustUnknownError>>,
+            >,
         ) {
             let subcommand = command_factory(clap::Command::new(command_name));
             take_mut::take(&mut self.subsystems.command, |command| {
