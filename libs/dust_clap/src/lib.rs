@@ -119,8 +119,7 @@ mod record_systems {
         prelude::{DynSystem, In, IntoSystem, Res, Resource, System},
     };
     use dust_db::{
-        Record,
-        db::{DbDelete, DbList, DbOwnedCreate, IdStrategy, Query},
+        db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate, IdStrategy, Query}, Record
     };
 
     use crate::router::RouterConfig;
@@ -237,7 +236,7 @@ mod record_systems {
         pub fn delete(mut self) -> Self
         where
             Config::Db: DbDelete<R>,
-            R: FromStr<Err: std::error::Error>,
+            R: FromStr<Err: std::error::Error> + Display,
         {
             const COMMAND_NAME: &str = "delete";
 
@@ -247,7 +246,7 @@ mod record_systems {
             ) -> Result<(), DustUnknownError>
             where
                 Db: Resource + DbDelete<R>,
-                R: Record + FromStr<Err: std::error::Error>,
+                R: Record + FromStr<Err: std::error::Error> + Display,
             {
                 let id = args.get_one::<String>("id").expect("failed to get id");
                 let id = match R::from_str(id) {
@@ -258,9 +257,16 @@ mod record_systems {
                     }
                 };
 
-                db.delete(R::TABLE, id).execute().await?;
+                let result = db.delete(R::TABLE, id).execute().await?;
+                match result {
+                    Ok(()) => {
+                        println!("Deleted {}:{}", R::TABLE, id);
+                    }
+                    Err(DbDeleteError::None) => {
+                        eprintln!("Failed to delete {}:{}; Not found", R::TABLE, id);
+                    }
+                }
 
-                println!("Deleted {}", R::TABLE);
                 Ok(())
             }
 

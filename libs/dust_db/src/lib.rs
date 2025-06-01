@@ -63,8 +63,12 @@ pub mod db {
         fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q>;
     }
 
+    pub enum DbDeleteError {
+        None,
+    }
+
     pub trait DbDelete<R>: 'static {
-        type DeleteQuery<'q>: Query<()>;
+        type DeleteQuery<'q>: Query<Result<(), DbDeleteError>>;
         fn delete<'q>(&'q self, table: &'static str, id: R) -> Self::DeleteQuery<'q>;
     }
 
@@ -95,7 +99,7 @@ pub mod surrealdb {
 
     use crate::{
         Record,
-        db::{DbDelete, DbList, DbOwnedCreate},
+        db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate},
     };
 
     pub struct SurrealDb<C: Connection>(Surreal<C>);
@@ -199,15 +203,24 @@ pub mod surrealdb {
         id: R,
     }
 
-    impl<'db, C: Connection, R: Record + Serialize> crate::db::Query<()> for SurrealDelete<'db, C, R> {
-        async fn execute(self) -> Result<(), dust::error::DustUnknownError> {
-            self.db
-                .query("DELETE type::thing($table, $id)")
+    impl<'db, C: Connection, R: Record + Serialize> crate::db::Query<Result<(), DbDeleteError>>
+        for SurrealDelete<'db, C, R>
+    {
+        async fn execute(self) -> Result<Result<(), DbDeleteError>, dust::error::DustUnknownError> {
+            let response = self
+                .db
+                .query("DELETE ONLY type::thing($table, $id)")
                 .bind(("table", self.table))
                 .bind(("id", self.id))
-                .await?;
+                .await?
+                .check();
 
-            Ok(())
+            let result = match response {
+                Ok(_) => Ok(()),
+                Err(_) => Err(DbDeleteError::None),
+            };
+
+            Ok(result)
         }
     }
 
