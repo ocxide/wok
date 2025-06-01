@@ -114,7 +114,7 @@ mod record_systems {
     use std::{collections::HashMap, fmt::Display};
 
     use clap::{ArgMatches, Args, FromArgMatches};
-    use dust::prelude::{DynSystem, In, IntoSystem, Res, Resource, System};
+    use dust::{error::DustUnknownError, prelude::{DynSystem, In, IntoSystem, Res, Resource, System}};
     use dust_db::{
         Record,
         db::{DbList, DbOwnedCreate, IdStrategy, Query},
@@ -122,7 +122,7 @@ mod record_systems {
 
     use crate::router::RouterConfig;
 
-    type DynClapSystem = DynSystem<ArgMatches, ()>;
+    type DynClapSystem = DynSystem<ArgMatches, Result<(), DustUnknownError>>;
 
     #[derive(Default)]
     pub struct SubCommandSystems(HashMap<&'static str, DynClapSystem>);
@@ -167,19 +167,20 @@ mod record_systems {
         {
             const COMMAND_NAME: &str = "create";
 
-            async fn create_system<Db, IdStrat, D, R>(args: In<ArgMatches>, db: Res<'_, Db>)
+            async fn create_system<Db, IdStrat, D, R>(args: In<ArgMatches>, db: Res<'_, Db>) -> Result<(), DustUnknownError>
             where
                 Db: Resource + DbOwnedCreate<IdStrat::Wrap<D>>,
                 IdStrat: IdStrategy<R>,
                 D: FromArgMatches,
                 R: Record,
             {
-                let data = D::from_arg_matches(&args).unwrap();
+                let data = D::from_arg_matches(&args).expect("failed to parse data");
                 let data = IdStrat::wrap(data);
 
-                db.create(R::TABLE, data).execute().await.unwrap();
+                db.create(R::TABLE, data).execute().await?;
 
                 println!("Created {}", R::TABLE);
+                Ok(())
             }
 
             self.add(
@@ -199,22 +200,24 @@ mod record_systems {
             D: Display + 'static,
             R: Display,
         {
-            async fn list_system<Db, D, R>(_: In<ArgMatches>, db: Res<'_, Db>)
+            async fn list_system<Db, D, R>(_: In<ArgMatches>, db: Res<'_, Db>) -> Result<(), DustUnknownError>
             where
                 Db: Resource + DbList<dust_db::data_wrappers::KeyValue<R, D>>,
                 D: Display,
                 R: Record + Display,
             {
-                let items = db.list(R::TABLE).execute().await.unwrap();
+                let items = db.list(R::TABLE).execute().await?;
 
                 if items.is_empty() {
                     println!("<None>");
-                    return;
+                    return Ok(());
                 }
 
                 for kv in items {
                     println!("#({}): {}", kv.id, kv.data);
                 }
+
+                Ok(())
             }
 
             self.add("list", |c| c.alias("ls"), list_system::<Config::Db, D, R>);
@@ -225,7 +228,7 @@ mod record_systems {
             &mut self,
             command_name: &'static str,
             command_factory: impl FnOnce(clap::Command) -> clap::Command,
-            system: impl IntoSystem<M, System: System<In = ArgMatches, Out = ()>>,
+            system: impl IntoSystem<M, System: System<In = ArgMatches, Out = Result<(), DustUnknownError>>>,
         ) {
             let subcommand = command_factory(clap::Command::new(command_name));
             take_mut::take(&mut self.subsystems.command, |command| {
@@ -316,7 +319,11 @@ impl App {
             let system = systems
                 .get(&command_name)
                 .expect("clap unmatched subcommand");
-            system.run(&self.dust, args).await;
+
+            let result = system.run(&self.dust, args).await;
+            if let Err(err) = result {
+                eprintln!("ERROR: {}", err);
+            }
         }
     }
 }

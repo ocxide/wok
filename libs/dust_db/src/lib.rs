@@ -7,18 +7,47 @@ pub trait RecordGenerate: Record {
 }
 
 pub mod data_wrappers {
-    #[derive(serde::Serialize, serde::Deserialize)]
+    use serde::de::DeserializeOwned;
+
+    use crate::surrealdb::{IdKind, SurrealRecord, TakeInto};
+
+    #[derive(serde::Serialize)]
     pub struct KeyValue<I, D> {
         pub id: I,
         #[serde(flatten)]
         pub data: D,
+    }
+
+    impl<'de, I: DeserializeOwned + SurrealRecord, B: serde::Deserialize<'de>>
+        serde::Deserialize<'de> for KeyValue<I, B>
+    {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            #[derive(serde::Deserialize)]
+            struct KeyValueInner<D> {
+                id: surrealdb::sql::Thing,
+                #[serde(flatten)]
+                data: D,
+            }
+
+            let inner = KeyValueInner::deserialize(deserializer)?;
+            let id = <I::IdKind as IdKind<I>>::IdWrapper::try_from(inner.id.id)
+                .map_err(serde::de::Error::custom)?;
+
+            Ok(KeyValue {
+                id: id.take_into(),
+                data: inner.data,
+            })
+        }
     }
 }
 
 pub mod db {
     use dust::error::DustUnknownError;
 
-    use crate::{data_wrappers::KeyValue, RecordGenerate};
+    use crate::{RecordGenerate, data_wrappers::KeyValue};
 
     pub trait Query<O> {
         fn execute(self) -> impl Future<Output = Result<O, DustUnknownError>> + Send;
@@ -53,11 +82,16 @@ pub mod db {
 }
 
 pub mod surrealdb {
+    use std::str::FromStr;
+
     use dust::error::DustUnknownError;
     use serde::{Serialize, de::DeserializeOwned};
     use surrealdb::{Connection, Surreal, opt::Resource};
 
-    use crate::db::{DbList, DbOwnedCreate};
+    use crate::{
+        Record,
+        db::{DbList, DbOwnedCreate},
+    };
 
     pub struct SurrealDb<C: Connection>(Surreal<C>);
 
@@ -132,5 +166,80 @@ pub mod surrealdb {
         fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q> {
             SurrealList { db: &self.0, table }
         }
+    }
+
+    pub trait SurrealRecord: Record {
+        type IdKind: IdKind<Self>;
+    }
+
+    pub trait IdKind<I> {
+        type IdWrapper: TryFrom<surrealdb::sql::Id, Error: std::error::Error> + TakeInto<I>;
+    }
+
+    pub struct IdString;
+
+    pub struct IdStringKind<I>(I);
+
+    #[derive(Debug)]
+    pub enum IdKindErr<E> {
+        Inner(E),
+        WrongType {
+            expected: &'static str,
+            actual: &'static str,
+        },
+    }
+
+    impl<E: std::error::Error> std::fmt::Display for IdKindErr<E> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                IdKindErr::Inner(e) => write!(f, "{}", e),
+                IdKindErr::WrongType { expected, actual } => {
+                    write!(f, "Expected {} but got {}", expected, actual)
+                }
+            }
+        }
+    }
+    impl<E: std::error::Error> std::error::Error for IdKindErr<E> {}
+
+    impl<I: FromStr> TryFrom<surrealdb::sql::Id> for IdStringKind<I> {
+        type Error = IdKindErr<I::Err>;
+
+        fn try_from(value: surrealdb::sql::Id) -> Result<Self, Self::Error> {
+            let value = match value {
+                surrealdb::sql::Id::String(s) => s,
+                surrealdb::sql::Id::Number(_) => {
+                    return Err(IdKindErr::WrongType {
+                        expected: "String",
+                        actual: "Number",
+                    });
+                }
+                _ => {
+                    return Err(IdKindErr::WrongType {
+                        expected: "String",
+                        actual: "Unknown",
+                    });
+                }
+            };
+
+            let id = IdStringKind(I::from_str(&value).map_err(IdKindErr::Inner)?);
+            Ok(id)
+        }
+    }
+
+    pub trait TakeInto<I> {
+        fn take_into(self) -> I;
+    }
+
+    impl<I> TakeInto<I> for IdStringKind<I> {
+        fn take_into(self) -> I {
+            self.0
+        }
+    }
+
+    impl<I> IdKind<I> for IdString
+    where
+        I: FromStr<Err: std::error::Error>,
+    {
+        type IdWrapper = IdStringKind<I>;
     }
 }

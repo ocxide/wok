@@ -2,7 +2,11 @@ use std::{fmt::Display, str::FromStr};
 
 use dust::{error::DustUnknownError, prelude::Commands};
 use dust_clap::{RouterBuilder, RouterCfg};
-use dust_db::{Record, RecordGenerate, db::GenerateId, surrealdb::SurrealDb};
+use dust_db::{
+    Record, RecordGenerate,
+    db::GenerateId,
+    surrealdb::{IdString, SurrealDb, SurrealRecord},
+};
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
     opt::auth::Root,
@@ -33,6 +37,10 @@ impl Display for PersonId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+impl SurrealRecord for PersonId {
+    type IdKind = IdString;
 }
 
 #[derive(Debug, clap::Args, serde::Serialize, serde::Deserialize)]

@@ -57,4 +57,8 @@ pub mod error {
             Self::new(value)
         }
     }
+
+    pub fn panic(e: &DustUnknownError) -> ! {
+        panic!("{}", e);
+    }
 }
