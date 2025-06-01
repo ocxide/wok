@@ -1,21 +1,37 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use dust::{error::DustUnknownError, prelude::Commands};
-use dust_clap::RouterBuilder;
-use dust_db::{Record, surrealdb::SurrealDb};
+use dust_clap::{RouterBuilder, RouterCfg};
+use dust_db::{Record, RecordGenerate, db::GenerateId, surrealdb::SurrealDb};
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
     opt::auth::Root,
 };
 use tokio::time::sleep;
 
-#[derive(Debug, Clone, Copy)]
-pub struct PersonId;
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct PersonId(idn::IdN<4>);
+
+impl FromStr for PersonId {
+    type Err = <idn::IdN<4> as FromStr>::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(PersonId(idn::IdN::from_str(s)?))
+    }
+}
 
 impl Record for PersonId {
     const TABLE: &'static str = "person";
+}
+
+impl RecordGenerate for PersonId {
     fn generate() -> Self {
-        PersonId
+        PersonId(idn::IdN::new())
+    }
+}
+
+impl Display for PersonId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -49,21 +65,18 @@ async fn connect_db(commands: Commands<'_>) -> Result<(), DustUnknownError> {
     Ok(())
 }
 
-async fn sleeeping() -> Result<(), DustUnknownError> {
-    println!("sleeping");
-
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() {
-    let router = RouterBuilder::<SurrealDb<Client>>::default()
-        .by_record::<PersonId>(|r| r.create_by::<Person>().list_by::<Person>())
-        .build();
+    let router = RouterBuilder::new(
+        RouterCfg::new()
+            .use_db::<SurrealDb<Client>>()
+            .use_id_strat::<GenerateId>(),
+    )
+    .by_record::<PersonId>(|r| r.create_by::<Person>().list_by::<Person>().build())
+    .build();
 
     dust_clap::App::default()
         .add_startup_system(connect_db)
-        .add_startup_system(sleeeping)
         .run(router)
         .await;
 }

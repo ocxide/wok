@@ -11,47 +11,92 @@ mod router {
     use dust::prelude::Resource;
     use dust_db::Record;
 
-    use crate::record_systems::{ClapRecordSystems, SubCommandSystems};
+    use crate::record_systems::{ClapRecordSystems, ClapSubSystems, SubCommandSystems};
 
-    pub struct RouterBuilder<Db> {
-        _phantom: std::marker::PhantomData<fn(Db)>,
-        systems: HashMap<&'static str, SubCommandSystems>,
-        command: clap::Command,
+    pub struct RouterCfg<Db = (), IdStrat = ()> {
+        _phantom: std::marker::PhantomData<fn(Db, IdStrat)>,
     }
 
-    impl<Db: Resource> Default for RouterBuilder<Db> {
-        fn default() -> Self {
-            Self {
+    impl RouterCfg<(), ()> {
+        #[inline]
+        pub const fn new() -> RouterCfg {
+            RouterCfg {
                 _phantom: std::marker::PhantomData,
-                systems: Default::default(),
-                command: Default::default(),
             }
         }
     }
 
-    impl<Db: Resource> RouterBuilder<Db> {
+    impl Default for RouterCfg<(), ()> {
+        #[inline]
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<Db, IdStrat> RouterCfg<Db, IdStrat> {
+        #[inline]
+        pub const fn use_db<Db2>(self) -> RouterCfg<Db2, IdStrat> {
+            RouterCfg {
+                _phantom: std::marker::PhantomData,
+            }
+        }
+
+        #[inline]
+        pub const fn use_id_strat<IdStrat2>(self) -> RouterCfg<Db, IdStrat2> {
+            RouterCfg {
+                _phantom: std::marker::PhantomData,
+            }
+        }
+    }
+
+    pub trait RouterConfig {
+        type Db: Resource;
+        type IdStrat;
+    }
+
+    impl<Db: Resource, IdStrat> RouterConfig for RouterCfg<Db, IdStrat> {
+        type Db = Db;
+        type IdStrat = IdStrat;
+    }
+
+    pub struct RouterBuilder<Config = ()> {
+        _phantom: std::marker::PhantomData<fn(Config)>,
+        router: Router,
+    }
+
+    impl RouterBuilder<()> {
+        #[inline]
+        pub fn new<Config>(_config: Config) -> RouterBuilder<Config> {
+            RouterBuilder {
+                _phantom: std::marker::PhantomData,
+                router: Router::default(),
+            }
+        }
+    }
+
+    impl<Config: RouterConfig> RouterBuilder<Config> {
         pub fn by_record<R: Record>(
             mut self,
-            f: impl FnOnce(ClapRecordSystems<Db, R>) -> ClapRecordSystems<Db, R>,
+            f: impl FnOnce(ClapRecordSystems<Config, R>) -> ClapSubSystems,
         ) -> Self {
-            let systems = f(ClapRecordSystems::<Db, R>::default());
+            let subsystems = f(ClapRecordSystems::default());
 
-            let (subcommand, systems) = systems.build();
-            self.systems.insert(R::TABLE, systems);
+            self.router.systems.insert(R::TABLE, subsystems.systems);
 
-            take_mut::take(&mut self.command, |c| c.subcommand(subcommand));
+            take_mut::take(&mut self.router.command, |c| {
+                c.subcommand(subsystems.command)
+            });
 
             self
         }
 
+        #[inline]
         pub fn build(self) -> Router {
-            Router {
-                systems: self.systems,
-                command: self.command,
-            }
+            self.router
         }
     }
 
+    #[derive(Default)]
     pub struct Router {
         pub systems: HashMap<&'static str, SubCommandSystems>,
         pub command: clap::Command,
@@ -72,8 +117,10 @@ mod record_systems {
     use dust::prelude::{DynSystem, In, IntoSystem, Res, Resource, System};
     use dust_db::{
         Record,
-        db::{DbList, DbOwnedCreate, Query},
+        db::{DbList, DbOwnedCreate, IdStrategy, Query},
     };
+
+    use crate::router::RouterConfig;
 
     type DynClapSystem = DynSystem<ArgMatches, ()>;
 
@@ -87,39 +134,49 @@ mod record_systems {
         }
     }
 
-    pub struct ClapRecordSystems<Db, R> {
-        command: clap::Command,
-        systems: SubCommandSystems,
-        _phantom: std::marker::PhantomData<fn(Db, R)>,
+    pub struct ClapSubSystems {
+        pub command: clap::Command,
+        pub systems: SubCommandSystems,
     }
 
-    impl<Db: Resource, R: Record> Default for ClapRecordSystems<Db, R> {
+    pub struct ClapRecordSystems<Config, R> {
+        subsystems: ClapSubSystems,
+        _phantom: std::marker::PhantomData<fn(Config, R)>,
+    }
+
+    impl<Config: RouterConfig, R: Record> Default for ClapRecordSystems<Config, R> {
         fn default() -> Self {
             let command = clap::Command::new(R::TABLE);
 
             Self {
-                command,
-                systems: Default::default(),
+                subsystems: ClapSubSystems {
+                    command,
+                    systems: SubCommandSystems::default(),
+                },
                 _phantom: std::marker::PhantomData,
             }
         }
     }
 
-    impl<Db: Resource, R: Record> ClapRecordSystems<Db, R> {
+    impl<Config: RouterConfig, R: Record> ClapRecordSystems<Config, R> {
         pub fn create_by<D>(mut self) -> Self
         where
             D: Args + 'static,
-            Db: DbOwnedCreate<D>,
+            Config::Db: DbOwnedCreate<<Config::IdStrat as IdStrategy<R>>::Wrap<D>>,
+            Config::IdStrat: IdStrategy<R>,
         {
             const COMMAND_NAME: &str = "create";
 
-            async fn create_system<Db, D, R>(args: In<ArgMatches>, db: Res<'_, Db>)
+            async fn create_system<Db, IdStrat, D, R>(args: In<ArgMatches>, db: Res<'_, Db>)
             where
-                Db: Resource + DbOwnedCreate<D>,
+                Db: Resource + DbOwnedCreate<IdStrat::Wrap<D>>,
+                IdStrat: IdStrategy<R>,
                 D: FromArgMatches,
                 R: Record,
             {
                 let data = D::from_arg_matches(&args).unwrap();
+                let data = IdStrat::wrap(data);
+
                 db.create(R::TABLE, data).execute().await.unwrap();
 
                 println!("Created {}", R::TABLE);
@@ -131,21 +188,22 @@ mod record_systems {
                     let command = c.alias("c");
                     D::augment_args(command)
                 },
-                create_system::<Db, D, R>,
+                create_system::<Config::Db, Config::IdStrat, D, R>,
             );
             self
         }
 
         pub fn list_by<D>(mut self) -> Self
         where
-            Db: DbList<D>,
+            Config::Db: DbList<dust_db::data_wrappers::KeyValue<R, D>>,
             D: Display + 'static,
+            R: Display,
         {
             async fn list_system<Db, D, R>(_: In<ArgMatches>, db: Res<'_, Db>)
             where
-                Db: Resource + DbList<D>,
+                Db: Resource + DbList<dust_db::data_wrappers::KeyValue<R, D>>,
                 D: Display,
-                R: Record,
+                R: Record + Display,
             {
                 let items = db.list(R::TABLE).execute().await.unwrap();
 
@@ -154,12 +212,12 @@ mod record_systems {
                     return;
                 }
 
-                for item in items {
-                    println!("#: {}", item);
+                for kv in items {
+                    println!("#({}): {}", kv.id, kv.data);
                 }
             }
 
-            self.add("list", |c| c.alias("ls"), list_system::<Db, D, R>);
+            self.add("list", |c| c.alias("ls"), list_system::<Config::Db, D, R>);
             self
         }
 
@@ -170,26 +228,25 @@ mod record_systems {
             system: impl IntoSystem<M, System: System<In = ArgMatches, Out = ()>>,
         ) {
             let subcommand = command_factory(clap::Command::new(command_name));
-            take_mut::take(&mut self.command, |command| command.subcommand(subcommand));
+            take_mut::take(&mut self.subsystems.command, |command| {
+                command.subcommand(subcommand)
+            });
 
-            self.systems
+            self.subsystems
+                .systems
                 .0
                 .insert(command_name, Box::new(system.into_system()));
         }
 
-        pub fn build(self) -> (clap::Command, SubCommandSystems) {
-            (
-                self.command
-                    .subcommand_required(true)
-                    .arg_required_else_help(true),
-                self.systems,
-            )
+        #[inline]
+        pub fn build(self) -> ClapSubSystems {
+            self.subsystems
         }
     }
 }
 
 use router::Router;
-pub use router::RouterBuilder;
+pub use router::{RouterBuilder, RouterCfg};
 
 #[derive(Default)]
 pub struct App {

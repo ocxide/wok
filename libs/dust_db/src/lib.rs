@@ -1,10 +1,24 @@
 pub trait Record: Send + Sync + 'static + Clone + Copy {
     const TABLE: &'static str;
+}
+
+pub trait RecordGenerate: Record {
     fn generate() -> Self;
+}
+
+pub mod data_wrappers {
+    #[derive(serde::Serialize, serde::Deserialize)]
+    pub struct KeyValue<I, D> {
+        pub id: I,
+        #[serde(flatten)]
+        pub data: D,
+    }
 }
 
 pub mod db {
     use dust::error::DustUnknownError;
+
+    use crate::{data_wrappers::KeyValue, RecordGenerate};
 
     pub trait Query<O> {
         fn execute(self) -> impl Future<Output = Result<O, DustUnknownError>> + Send;
@@ -18,6 +32,23 @@ pub mod db {
     pub trait DbList<D>: 'static {
         type ListQuery<'q>: Query<Vec<D>>;
         fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q>;
+    }
+
+    pub trait IdStrategy<I>: Sized + Send + Sync + 'static {
+        type Wrap<D>;
+        fn wrap<D>(body: D) -> Self::Wrap<D>;
+    }
+
+    pub struct GenerateId;
+
+    impl<I: RecordGenerate> IdStrategy<I> for GenerateId {
+        type Wrap<D> = KeyValue<I, D>;
+        fn wrap<D>(body: D) -> Self::Wrap<D> {
+            KeyValue {
+                id: I::generate(),
+                data: body,
+            }
+        }
     }
 }
 
