@@ -53,8 +53,8 @@ pub mod db {
         fn execute(self) -> impl Future<Output = Result<O, DustUnknownError>> + Send;
     }
 
-    pub trait DbOwnedCreate<D>: 'static {
-        type CreateQuery<'q>: Query<()>;
+    pub trait DbOwnedCreate<R, D>: 'static {
+        type CreateQuery<'q>: Query<R>;
         fn create<'q>(&'q self, table: &'static str, data: D) -> Self::CreateQuery<'q>;
     }
 
@@ -91,7 +91,7 @@ pub mod surrealdb {
 
     use dust::error::DustUnknownError;
     use serde::{Serialize, de::DeserializeOwned};
-    use surrealdb::{Connection, Surreal, opt::Resource};
+    use surrealdb::{Connection, Surreal};
 
     use crate::{
         Record,
@@ -109,10 +109,11 @@ pub mod surrealdb {
 
     impl<C: Connection> dust::prelude::Resource for SurrealDb<C> {}
 
-    impl<C, D> DbOwnedCreate<D> for SurrealDb<C>
+    impl<C, R, D> DbOwnedCreate<R, D> for SurrealDb<C>
     where
         C: Connection,
         D: Serialize + 'static + Send,
+        R: SurrealRecord,
     {
         type CreateQuery<'q> = SurrealCreate<'q, C, D>;
 
@@ -131,17 +132,25 @@ pub mod surrealdb {
         data: D,
     }
 
-    impl<'db, C: Connection, D> crate::db::Query<()> for SurrealCreate<'db, C, D>
+    impl<'db, C: Connection, D, R: SurrealRecord> crate::db::Query<R> for SurrealCreate<'db, C, D>
     where
         D: Serialize + 'static + Send,
     {
-        async fn execute(self) -> Result<(), dust::error::DustUnknownError> {
-            self.db
-                .create(Resource::Table(self.table.to_owned()))
-                .content(self.data)
+        async fn execute(self) -> Result<R, dust::error::DustUnknownError> {
+            let mut response = self
+                .db
+                .query("LET $response = CREATE type::table($table) CONTENT $data")
+                .query("RETURN $response.id")
+                .bind(("table", self.table))
+                .bind(("data", self.data))
                 .await
                 .map_err(DustUnknownError::new)?;
-            Ok(())
+
+            let id: Option<surrealdb::sql::Thing> = response.take(1)?;
+            let id = id.expect("Id");
+            let id = <R::IdKind as IdKind<R>>::IdWrapper::try_from(id.id)?;
+
+            Ok(id.take_into())
         }
     }
 
@@ -207,7 +216,8 @@ pub mod surrealdb {
     }
 
     pub trait IdKind<I> {
-        type IdWrapper: TryFrom<surrealdb::sql::Id, Error: std::error::Error> + TakeInto<I>;
+        type IdWrapper: TryFrom<surrealdb::sql::Id, Error: std::error::Error + Send + Sync + Sized + 'static>
+            + TakeInto<I>;
     }
 
     pub struct IdString;
@@ -215,7 +225,7 @@ pub mod surrealdb {
     pub struct IdStringKind<I>(I);
 
     #[derive(Debug)]
-    pub enum IdKindErr<E> {
+    pub enum IdKindErr<E: std::error::Error + Send + Sync + Sized + 'static> {
         Inner(E),
         WrongType {
             expected: &'static str,
@@ -223,7 +233,7 @@ pub mod surrealdb {
         },
     }
 
-    impl<E: std::error::Error> std::fmt::Display for IdKindErr<E> {
+    impl<E: std::error::Error + Send + Sync + Sized + 'static> std::fmt::Display for IdKindErr<E> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
                 IdKindErr::Inner(e) => write!(f, "{}", e),
@@ -233,9 +243,11 @@ pub mod surrealdb {
             }
         }
     }
-    impl<E: std::error::Error> std::error::Error for IdKindErr<E> {}
+    impl<E: std::error::Error + Send + Sync + Sized + 'static> std::error::Error for IdKindErr<E> {}
 
-    impl<I: FromStr> TryFrom<surrealdb::sql::Id> for IdStringKind<I> {
+    impl<I: FromStr<Err: std::error::Error + Send + Sync + Sized + 'static>>
+        TryFrom<surrealdb::sql::Id> for IdStringKind<I>
+    {
         type Error = IdKindErr<I::Err>;
 
         fn try_from(value: surrealdb::sql::Id) -> Result<Self, Self::Error> {
@@ -272,7 +284,7 @@ pub mod surrealdb {
 
     impl<I> IdKind<I> for IdString
     where
-        I: FromStr<Err: std::error::Error>,
+        I: FromStr<Err: std::error::Error + Send + Sync + Sized + 'static>,
     {
         type IdWrapper = IdStringKind<I>;
     }

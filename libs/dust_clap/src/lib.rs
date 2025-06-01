@@ -165,8 +165,9 @@ mod record_systems {
         pub fn create_by<D>(mut self) -> Self
         where
             D: Args + 'static,
-            Config::Db: DbOwnedCreate<<Config::IdStrat as IdStrategy<R>>::Wrap<D>>,
+            Config::Db: DbOwnedCreate<R, <Config::IdStrat as IdStrategy<R>>::Wrap<D>>,
             Config::IdStrat: IdStrategy<R>,
+            R: Display,
         {
             const COMMAND_NAME: &str = "create";
 
@@ -175,17 +176,17 @@ mod record_systems {
                 db: Res<'_, Db>,
             ) -> Result<(), DustUnknownError>
             where
-                Db: Resource + DbOwnedCreate<IdStrat::Wrap<D>>,
+                Db: Resource + DbOwnedCreate<R, IdStrat::Wrap<D>>,
                 IdStrat: IdStrategy<R>,
                 D: FromArgMatches,
-                R: Record,
+                R: Record + Display,
             {
                 let data = D::from_arg_matches(&args).expect("failed to parse data");
                 let data = IdStrat::wrap(data);
 
-                db.create(R::TABLE, data).execute().await?;
+                let id = db.create(R::TABLE, data).execute().await?;
 
-                println!("Created {}", R::TABLE);
+                println!("Created {}:{}", R::TABLE, id);
                 Ok(())
             }
 
