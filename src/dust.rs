@@ -1,15 +1,16 @@
 use std::hash::Hash;
 
+use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::Resources;
-use crate::system::{DynSystem, IntoSystem, System};
+use crate::schedule::{LabeledScheduleSystem, ScheduleLabel};
+use crate::system::{IntoSystem, System};
 
 pub struct Dust {
     pub resources: Resources,
     commands_buf: CommandsReceiver,
     pub(crate) commands_sx: CommandSender,
-    systems: Vec<DynSystem<(), ()>>,
 }
 
 impl Dust {
@@ -26,14 +27,19 @@ impl Dust {
         }
     }
 
-    pub fn add_system<S, Marker>(&mut self, system: S) -> SystemId
-    where
-        S: IntoSystem<Marker>,
-        S::System: System<In = (), Out = ()>,
-    {
-        self.systems.push(Box::new(system.into_system()));
+    /// # Panics
+    /// Panics if the resource is not found
+    pub fn get_resource<R: Resource>(&self) -> AnyHandle<R> {
+        self.resources.handle().expect("Resource not found")
+    }
 
-        SystemId(self.systems.len())
+    #[inline]
+    pub fn try_take_resource<R: Resource>(&mut self) -> Option<R> {
+        self.resources.try_take()
+    }
+
+    pub fn init_schedule<S: ScheduleLabel>(&mut self) {
+        self.resources.init::<LabeledScheduleSystem<S>>();
     }
 }
 
@@ -45,7 +51,6 @@ impl Default for Dust {
             resources: Resources::default(),
             commands_buf: CommandsReceiver::new(receiver),
             commands_sx: CommandSender::new(sender),
-            systems: Vec::new(),
         }
     }
 }
@@ -60,10 +65,31 @@ fn dust_is_send() {
 pub struct SystemId(usize);
 
 pub trait ConfigureDust: Sized {
-    fn dust(&mut self) -> &mut Dust;
+    fn dust_mut(&mut self) -> &mut Dust;
+    fn dust(&self) -> &Dust;
 
     fn insert_resource<R: Resource>(mut self, resource: R) -> Self {
-        self.dust().resources.insert(resource);
+        self.dust_mut().resources.insert(resource);
+        self
+    }
+
+    fn add_system<S: ScheduleLabel, Marker>(
+        mut self,
+        _: S,
+        system: impl IntoSystem<Marker, System: System<In = S::SystenIn, Out = S::SystemOut>>,
+    ) -> Self {
+        let schedule = self
+            .dust_mut()
+            .resources
+            .handle::<LabeledScheduleSystem<S>>()
+            .expect("Unsupported schedule");
+
+        schedule
+            .write()
+            .expect("failed to write schedule")
+            .schedule
+            .add_system(system);
+
         self
     }
 }

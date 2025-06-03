@@ -70,6 +70,19 @@ impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
 
         Ok(read)
     }
+
+    pub fn try_take(self) -> Option<T> {
+        let mut this = std::mem::ManuallyDrop::new(self.0);
+        // get_mut guarantees that there is only one owner
+        let this = Arc::get_mut(&mut this)?;
+
+        // SAFETY: The type is guaranteed to be T
+        let value_ref = unsafe { &mut *(this.get_mut() as *mut dyn Any as *mut T) };
+        // SAFETY: We is the only owner
+        let value = unsafe { std::ptr::read(value_ref) };
+
+        Some(value)
+    }
 }
 
 impl<T: ?Sized + Sync + Send + 'static> AnyHandle<T> {
@@ -87,7 +100,8 @@ impl<T: ?Sized + Sync + Send + 'static> AnyHandle<T> {
         AnyHandle(self.0, PhantomData)
     }
 
-    pub fn reference_count(&self) -> usize {
+    #[cfg(test)]
+    fn reference_count(&self) -> usize {
         Arc::strong_count(&self.0)
     }
 }
@@ -135,8 +149,11 @@ impl<T: Sized + Sync + Send + 'static> DerefMut for HandleLock<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::atomic::AtomicU8, thread::sleep, time::Duration};
+
     use super::*;
 
+    #[derive(Debug, PartialEq, Eq)]
     struct SomeStruct {
         value: i32,
     }
@@ -176,5 +193,51 @@ mod tests {
             assert_eq!(handle_two.read().unwrap().value, 24);
         });
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn simple_take() {
+        let handle = AnyHandle::new_any(SomeStruct { value: 12 });
+        let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
+
+        let value = handle.try_take().expect("take failed");
+        assert_eq!(value.value, 12);
+    }
+
+    #[test]
+    fn cannot_take() {
+        let handle = AnyHandle::new_any(SomeStruct { value: 12 });
+        let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
+
+        for _ in 0..2 {
+            let handle_two = handle.clone();
+            std::thread::spawn(move || {
+                sleep(Duration::from_millis(100));
+                let _taken = handle_two.try_take();
+            })
+            .join()
+            .unwrap();
+        }
+
+        assert!(handle.try_take().is_none(), "should not be able to take");
+    }
+
+    struct DropCounter {
+        data: AtomicU8,
+    }
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.data.fetch_add(1, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn does_not_drop() {
+        let handle = AnyHandle::new_any(DropCounter { data: 0.into() });
+        let handle = unsafe { handle.unchecked_downcast::<DropCounter>() };
+
+        let counter = handle.try_take().expect("take failed");
+        assert_eq!(counter.data.load(std::sync::atomic::Ordering::Acquire), 0);
     }
 }

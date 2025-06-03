@@ -1,9 +1,13 @@
 use dust::{
     dust::{ConfigureDust, Dust},
-    error::DustUnknownError,
-    prelude::{DynSystem, IntoSystem, System},
+    schedule::{LabeledScheduleSystem, Startup},
 };
 use futures::StreamExt;
+
+pub mod prelude {
+    pub use crate::App;
+    pub use dust::prelude::*;
+}
 
 mod router {
     use std::collections::HashMap;
@@ -374,27 +378,30 @@ mod record_systems {
 use router::Router;
 pub use router::{RouterBuilder, RouterCfg};
 
-#[derive(Default)]
 pub struct App {
     dust: dust::prelude::Dust,
-    startup_systems: Vec<DynSystem<(), Result<(), DustUnknownError>>>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let mut dust = dust::prelude::Dust::default();
+        dust.init_schedule::<Startup>();
+
+        Self { dust }
+    }
 }
 
 impl ConfigureDust for App {
-    fn dust(&mut self) -> &mut Dust {
+    fn dust_mut(&mut self) -> &mut Dust {
         &mut self.dust
+    }
+
+    fn dust(&self) -> &Dust {
+        &self.dust
     }
 }
 
 impl App {
-    pub fn add_startup_system<S, Marker>(mut self, system: S) -> Self
-    where
-        S: IntoSystem<Marker, System: System<In = (), Out = Result<(), DustUnknownError>>>,
-    {
-        self.startup_systems.push(Box::new(system.into_system()));
-        self
-    }
-
     pub fn run(mut self, mut router: Router) -> impl Future<Output = ()> {
         use futures::stream::FuturesUnordered;
 
@@ -420,9 +427,14 @@ impl App {
                 return;
             };
 
-            let mut fut = self
-                .startup_systems
-                .iter()
+            let schedule = self
+                .dust
+                .try_take_resource::<LabeledScheduleSystem<Startup>>()
+                .expect("startup schedule");
+
+            let mut fut = schedule
+                .schedule
+                .take_systems()
                 .map(|system| system.run(&self.dust, ()))
                 .collect::<FuturesUnordered<_>>();
 

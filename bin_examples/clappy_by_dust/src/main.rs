@@ -1,9 +1,11 @@
 use std::{convert::Infallible, fmt::Display, str::FromStr};
 
-use dust::{error::DustUnknownError, prelude::Commands};
-use dust_clap::{RouterBuilder, RouterCfg};
+use dust::error::DustUnknownError;
+use dust_clap::{RouterBuilder, RouterCfg, prelude::*};
 use dust_db::{
-    db::{GenerateId, NamedBind}, surrealdb::{IdString, SurrealDb, SurrealRecord}, Record, RecordGenerate
+    Record, RecordGenerate,
+    db::{GenerateId, NamedBind},
+    surrealdb::{IdString, SurrealDb, SurrealRecord},
 };
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
@@ -101,7 +103,7 @@ async fn main() {
     .build();
 
     dust_clap::App::default()
-        .add_startup_system(connect_db)
+        .add_system(Startup, connect_db)
         .run(router)
         .await;
 }
