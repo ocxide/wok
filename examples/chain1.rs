@@ -17,5 +17,6 @@ fn main() {
     let dust = Dust::default();
     let sys = first.pipe(second).pipe(third).into_system();
 
-    let _ = sys.run(&dust, 2);
+    let fut = sys.run(&dust, 2);
+    std::mem::drop(fut);
 }

@@ -49,12 +49,12 @@ mod router {
         }
     }
 
-    pub trait RouterConfig {
+    pub trait RouterConfig: 'static {
         type Db: Resource;
         type IdStrat;
     }
 
-    impl<Db: Resource, IdStrat> RouterConfig for RouterCfg<Db, IdStrat> {
+    impl<Db: Resource, IdStrat: 'static> RouterConfig for RouterCfg<Db, IdStrat> {
         type Db = Db;
         type IdStrat = IdStrat;
     }
@@ -119,7 +119,8 @@ mod record_systems {
         prelude::{DynSystem, In, IntoSystem, Res, Resource, System},
     };
     use dust_db::{
-        db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate, IdStrategy, Query}, Record
+        Record,
+        db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate, DbSelectSingle, IdStrategy, Query},
     };
 
     use crate::router::RouterConfig;
@@ -158,6 +159,24 @@ mod record_systems {
                 _phantom: std::marker::PhantomData,
             }
         }
+    }
+
+    async fn delete_system_inner<Db, R>(id: R, db: Res<'_, Db>) -> Result<(), DustUnknownError>
+    where
+        Db: Resource + DbDelete<R>,
+        R: Record + Display,
+    {
+        let result = db.delete(R::TABLE, id).execute().await?;
+        match result {
+            Ok(()) => {
+                println!("Deleted {}:{}", R::TABLE, id);
+            }
+            Err(DbDeleteError::None) => {
+                eprintln!("Failed to delete {}:{}; Not found", R::TABLE, id);
+            }
+        }
+
+        Ok(())
     }
 
     impl<Config: RouterConfig, R: Record> ClapRecordSystems<Config, R> {
@@ -233,6 +252,62 @@ mod record_systems {
             self
         }
 
+        pub fn delete_by_alias<A>(mut self) -> Self
+        where
+            Config::Db: DbDelete<R> + DbSelectSingle<R, A>,
+            R: FromStr<Err: std::error::Error> + Display,
+            A: FromStr<Err: std::error::Error> + 'static,
+        {
+            async fn alias_delete<Config: RouterConfig, R, A>(
+                args: In<ArgMatches>,
+                db: Res<'_, Config::Db>,
+            ) -> Result<(), DustUnknownError>
+            where
+                Config::Db: DbDelete<R> + DbSelectSingle<R, A>,
+                R: FromStr<Err: std::error::Error> + Display + Record,
+                A: FromStr<Err: std::error::Error>,
+            {
+                let id_str = args.get_one::<String>("id").expect("failed to get id");
+                let id: R;
+                if let Some(id_str) = id_str.strip_prefix('#') {
+                    id = match R::from_str(id_str) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            eprintln!("Failed to parse id: {}", e);
+                            return Ok(());
+                        }
+                    };
+                } else {
+                    let alias = match A::from_str(id_str) {
+                        Ok(alias) => alias,
+                        Err(e) => {
+                            eprintln!("Failed to parse alias: {}", e);
+                            return Ok(());
+                        }
+                    };
+
+                    let id_res = db.select(R::TABLE, alias).execute().await?;
+                    match id_res {
+                        Some(found_id) => id = found_id,
+                        None => {
+                            eprintln!("Failed to find by alias");
+                            return Ok(());
+                        }
+                    };
+                }
+
+                delete_system_inner(id, db).await
+            }
+
+            self.add(
+                "delete",
+                |c| c.alias("d").arg(clap::Arg::new("id").required(true)),
+                alias_delete::<Config, R, A>,
+            );
+
+            self
+        }
+
         pub fn delete(mut self) -> Self
         where
             Config::Db: DbDelete<R>,
@@ -240,12 +315,12 @@ mod record_systems {
         {
             const COMMAND_NAME: &str = "delete";
 
-            async fn delete_system<Db, R>(
+            async fn delete<Config: RouterConfig, R>(
                 args: In<ArgMatches>,
-                db: Res<'_, Db>,
+                db: Res<'_, Config::Db>,
             ) -> Result<(), DustUnknownError>
             where
-                Db: Resource + DbDelete<R>,
+                Config::Db: DbDelete<R>,
                 R: Record + FromStr<Err: std::error::Error> + Display,
             {
                 let id = args.get_one::<String>("id").expect("failed to get id");
@@ -257,23 +332,13 @@ mod record_systems {
                     }
                 };
 
-                let result = db.delete(R::TABLE, id).execute().await?;
-                match result {
-                    Ok(()) => {
-                        println!("Deleted {}:{}", R::TABLE, id);
-                    }
-                    Err(DbDeleteError::None) => {
-                        eprintln!("Failed to delete {}:{}; Not found", R::TABLE, id);
-                    }
-                }
-
-                Ok(())
+                delete_system_inner(id, db).await
             }
 
             self.add(
                 COMMAND_NAME,
                 |c| c.alias("d").arg(clap::Arg::new("id").required(true)),
-                delete_system::<Config::Db, R>,
+                delete::<Config, R>,
             );
 
             self

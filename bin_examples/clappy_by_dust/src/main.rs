@@ -1,11 +1,9 @@
-use std::{fmt::Display, str::FromStr};
+use std::{convert::Infallible, fmt::Display, str::FromStr};
 
 use dust::{error::DustUnknownError, prelude::Commands};
 use dust_clap::{RouterBuilder, RouterCfg};
 use dust_db::{
-    Record, RecordGenerate,
-    db::GenerateId,
-    surrealdb::{IdString, SurrealDb, SurrealRecord},
+    db::{GenerateId, NamedBind}, surrealdb::{IdString, SurrealDb, SurrealRecord}, Record, RecordGenerate
 };
 use surrealdb::{
     engine::remote::ws::{Client, Ws},
@@ -57,6 +55,20 @@ impl Display for Person {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PersonName(String);
+
+impl FromStr for PersonName {
+    type Err = Infallible;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(PersonName(s.to_string()))
+    }
+}
+
+impl NamedBind for PersonName {
+    const NAME: &'static str = "name";
+}
+
 async fn connect_db(commands: Commands<'_>) -> Result<(), DustUnknownError> {
     sleep(std::time::Duration::from_secs(1)).await;
 
@@ -80,7 +92,12 @@ async fn main() {
             .use_db::<SurrealDb<Client>>()
             .use_id_strat::<GenerateId>(),
     )
-    .by_record::<PersonId>(|r| r.create_by::<Person>().list_by::<Person>().delete().build())
+    .by_record::<PersonId>(|r| {
+        r.create_by::<Person>()
+            .list_by::<Person>()
+            .delete_by_alias::<PersonName>()
+            .build()
+    })
     .build();
 
     dust_clap::App::default()
