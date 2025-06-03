@@ -1,4 +1,4 @@
-use lump::{
+use lump_core::{
     world::World,
     prelude::{In, IntoSystem, System},
 };

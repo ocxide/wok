@@ -1,6 +1,6 @@
 use std::{convert::Infallible, fmt::Display, str::FromStr};
 
-use lump::error::LumpUnknownError;
+use lump::{prelude::LumpUnknownError, schedules::Startup};
 use lump_clap::{RouterBuilder, RouterCfg, prelude::*};
 use lump_db::{
     Record, RecordGenerate,

@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [ "bin_examples/clappy_by_lump", "libs/lump_clap","libs/lump_db"]
+members = [ "bin_examples/clappy_by_lump", "libs/lump_clap", "libs/lump_core","libs/lump_db"]
 
 [dependencies]
-async_fn_traits = "0.1.1"
-parking_lot = { version = "0.12.3", features = ["send_guard"] }
+lump_core = { path = "libs/lump_core" }

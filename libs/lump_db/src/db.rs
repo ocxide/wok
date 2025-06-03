@@ -1,4 +1,4 @@
-use lump::error::LumpUnknownError;
+use lump::prelude::LumpUnknownError;
 
 use crate::{RecordGenerate, data_wrappers::KeyValue};
 

@@ -7,5 +7,6 @@ edition = "2024"
 clap = "4.5.39"
 lump = { path = "../../" }
 lump_db = { path = "../lump_db" }
+lump_core = { path = "../lump_core" }
 futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
 take_mut = "0.2.2"

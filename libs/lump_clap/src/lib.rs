@@ -1,8 +1,9 @@
-use lump::{
-    world::{ConfigureWorld, World},
-    schedule::{LabeledScheduleSystem, Startup},
-};
 use futures::StreamExt;
+use lump::schedules::Startup;
+use lump_core::{
+    schedule::LabeledScheduleSystem,
+    world::{ConfigureWorld, World},
+};
 
 pub mod prelude {
     pub use crate::App;
@@ -118,10 +119,7 @@ mod record_systems {
     use std::{collections::HashMap, fmt::Display, str::FromStr};
 
     use clap::{ArgMatches, Args, FromArgMatches};
-    use lump::{
-        error::LumpUnknownError,
-        prelude::{DynSystem, In, IntoSystem, Res, Resource, System},
-    };
+    use lump::prelude::{DynSystem, In, IntoSystem, LumpUnknownError, Res, Resource, System};
     use lump_db::{
         Record,
         db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate, DbSelectSingle, IdStrategy, Query},
