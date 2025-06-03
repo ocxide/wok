@@ -1,19 +1,19 @@
-use dust::{
-    dust::{ConfigureDust, Dust},
+use lump::{
+    world::{ConfigureWorld, World},
     schedule::{LabeledScheduleSystem, Startup},
 };
 use futures::StreamExt;
 
 pub mod prelude {
     pub use crate::App;
-    pub use dust::prelude::*;
+    pub use lump::prelude::*;
 }
 
 mod router {
     use std::collections::HashMap;
 
-    use dust::prelude::Resource;
-    use dust_db::Record;
+    use lump::prelude::Resource;
+    use lump_db::Record;
 
     use crate::record_systems::{ClapRecordSystems, ClapSubSystems, SubCommandSystems};
 
@@ -118,18 +118,18 @@ mod record_systems {
     use std::{collections::HashMap, fmt::Display, str::FromStr};
 
     use clap::{ArgMatches, Args, FromArgMatches};
-    use dust::{
-        error::DustUnknownError,
+    use lump::{
+        error::LumpUnknownError,
         prelude::{DynSystem, In, IntoSystem, Res, Resource, System},
     };
-    use dust_db::{
+    use lump_db::{
         Record,
         db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate, DbSelectSingle, IdStrategy, Query},
     };
 
     use crate::router::RouterConfig;
 
-    type DynClapSystem = DynSystem<ArgMatches, Result<(), DustUnknownError>>;
+    type DynClapSystem = DynSystem<ArgMatches, Result<(), LumpUnknownError>>;
 
     #[derive(Default)]
     pub struct SubCommandSystems(HashMap<&'static str, DynClapSystem>);
@@ -165,7 +165,7 @@ mod record_systems {
         }
     }
 
-    async fn delete_system_inner<Db, R>(id: R, db: Res<'_, Db>) -> Result<(), DustUnknownError>
+    async fn delete_system_inner<Db, R>(id: R, db: Res<'_, Db>) -> Result<(), LumpUnknownError>
     where
         Db: Resource + DbDelete<R>,
         R: Record + Display,
@@ -196,7 +196,7 @@ mod record_systems {
             async fn create_system<Db, IdStrat, D, R>(
                 args: In<ArgMatches>,
                 db: Res<'_, Db>,
-            ) -> Result<(), DustUnknownError>
+            ) -> Result<(), LumpUnknownError>
             where
                 Db: Resource + DbOwnedCreate<R, IdStrat::Wrap<D>>,
                 IdStrat: IdStrategy<R>,
@@ -225,16 +225,16 @@ mod record_systems {
 
         pub fn list_by<D>(mut self) -> Self
         where
-            Config::Db: DbList<dust_db::data_wrappers::KeyValue<R, D>>,
+            Config::Db: DbList<lump_db::data_wrappers::KeyValue<R, D>>,
             D: Display + 'static,
             R: Display,
         {
             async fn list_system<Db, D, R>(
                 _: In<ArgMatches>,
                 db: Res<'_, Db>,
-            ) -> Result<(), DustUnknownError>
+            ) -> Result<(), LumpUnknownError>
             where
-                Db: Resource + DbList<dust_db::data_wrappers::KeyValue<R, D>>,
+                Db: Resource + DbList<lump_db::data_wrappers::KeyValue<R, D>>,
                 D: Display,
                 R: Record + Display,
             {
@@ -265,7 +265,7 @@ mod record_systems {
             async fn alias_delete<Config: RouterConfig, R, A>(
                 args: In<ArgMatches>,
                 db: Res<'_, Config::Db>,
-            ) -> Result<(), DustUnknownError>
+            ) -> Result<(), LumpUnknownError>
             where
                 Config::Db: DbDelete<R> + DbSelectSingle<R, A>,
                 R: FromStr<Err: std::error::Error> + Display + Record,
@@ -322,7 +322,7 @@ mod record_systems {
             async fn delete<Config: RouterConfig, R>(
                 args: In<ArgMatches>,
                 db: Res<'_, Config::Db>,
-            ) -> Result<(), DustUnknownError>
+            ) -> Result<(), LumpUnknownError>
             where
                 Config::Db: DbDelete<R>,
                 R: Record + FromStr<Err: std::error::Error> + Display,
@@ -354,7 +354,7 @@ mod record_systems {
             command_factory: impl FnOnce(clap::Command) -> clap::Command,
             system: impl IntoSystem<
                 M,
-                System: System<In = ArgMatches, Out = Result<(), DustUnknownError>>,
+                System: System<In = ArgMatches, Out = Result<(), LumpUnknownError>>,
             >,
         ) {
             let subcommand = command_factory(clap::Command::new(command_name));
@@ -379,25 +379,25 @@ use router::Router;
 pub use router::{RouterBuilder, RouterCfg};
 
 pub struct App {
-    dust: dust::prelude::Dust,
+    lump: lump::prelude::World,
 }
 
 impl Default for App {
     fn default() -> Self {
-        let mut dust = dust::prelude::Dust::default();
-        dust.init_schedule::<Startup>();
+        let mut lump = lump::prelude::World::default();
+        lump.init_schedule::<Startup>();
 
-        Self { dust }
+        Self { lump }
     }
 }
 
-impl ConfigureDust for App {
-    fn dust_mut(&mut self) -> &mut Dust {
-        &mut self.dust
+impl ConfigureWorld for App {
+    fn world_mut(&mut self) -> &mut World {
+        &mut self.lump
     }
 
-    fn dust(&self) -> &Dust {
-        &self.dust
+    fn world(&self) -> &World {
+        &self.lump
     }
 }
 
@@ -428,14 +428,14 @@ impl App {
             };
 
             let schedule = self
-                .dust
+                .lump
                 .try_take_resource::<LabeledScheduleSystem<Startup>>()
                 .expect("startup schedule");
 
             let mut fut = schedule
                 .schedule
                 .take_systems()
-                .map(|system| system.run(&self.dust, ()))
+                .map(|system| system.run(&self.lump, ()))
                 .collect::<FuturesUnordered<_>>();
 
             loop {
@@ -449,13 +449,13 @@ impl App {
                 }
             }
 
-            self.dust.tick_commands();
+            self.lump.tick_commands();
 
             let system = systems
                 .get(&command_name)
                 .expect("clap unmatched subcommand");
 
-            let result = system.run(&self.dust, args).await;
+            let result = system.run(&self.lump, args).await;
             if let Err(err) = result {
                 eprintln!("ERROR: {}", err);
             }

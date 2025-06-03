@@ -1,5 +1,5 @@
-use dust::{
-    dust::Dust,
+use lump::{
+    world::World,
     prelude::{In, IntoSystem, System},
 };
 
@@ -14,9 +14,9 @@ async fn second(input32: In<u32>) -> u64 {
 async fn third(_: In<u64>) {}
 
 fn main() {
-    let dust = Dust::default();
+    let lump = World::default();
     let sys = first.pipe(second).pipe(third).into_system();
 
-    let fut = sys.run(&dust, 2);
+    let fut = sys.run(&lump, 2);
     std::mem::drop(fut);
 }

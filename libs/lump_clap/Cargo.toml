@@ -1,0 +1,11 @@
+[package]
+name = "lump_clap"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = "4.5.39"
+lump = { path = "../../" }
+lump_db = { path = "../lump_db" }
+futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
+take_mut = "0.2.2"

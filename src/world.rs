@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
@@ -7,13 +5,13 @@ use crate::resources::Resources;
 use crate::schedule::{LabeledScheduleSystem, ScheduleLabel};
 use crate::system::{IntoSystem, System};
 
-pub struct Dust {
+pub struct World {
     pub resources: Resources,
     commands_buf: CommandsReceiver,
     pub(crate) commands_sx: CommandSender,
 }
 
-impl Dust {
+impl World {
     pub fn tick_commands(&mut self) {
         loop {
             match self.commands_buf.0.try_recv() {
@@ -43,7 +41,7 @@ impl Dust {
     }
 }
 
-impl Default for Dust {
+impl Default for World {
     fn default() -> Self {
         let (sender, receiver) = std::sync::mpsc::channel::<commands::DynCommand>();
 
@@ -56,20 +54,17 @@ impl Default for Dust {
 }
 
 #[allow(dead_code)]
-fn dust_is_send() {
+fn world_is_send() {
     fn assert_send<T: Send>() {}
-    assert_send::<Dust>();
+    assert_send::<World>();
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SystemId(usize);
-
-pub trait ConfigureDust: Sized {
-    fn dust_mut(&mut self) -> &mut Dust;
-    fn dust(&self) -> &Dust;
+pub trait ConfigureWorld: Sized {
+    fn world_mut(&mut self) -> &mut World;
+    fn world(&self) -> &World;
 
     fn insert_resource<R: Resource>(mut self, resource: R) -> Self {
-        self.dust_mut().resources.insert(resource);
+        self.world_mut().resources.insert(resource);
         self
     }
 
@@ -79,7 +74,7 @@ pub trait ConfigureDust: Sized {
         system: impl IntoSystem<Marker, System: System<In = S::SystenIn, Out = S::SystemOut>>,
     ) -> Self {
         let schedule = self
-            .dust_mut()
+            .world_mut()
             .resources
             .handle::<LabeledScheduleSystem<S>>()
             .expect("Unsupported schedule");

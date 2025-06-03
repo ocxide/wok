@@ -753,14 +753,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 
 [[package]]
-name = "clappy_by_dust"
+name = "clappy_by_lump"
 version = "0.1.0"
 dependencies = [
  "clap",
- "dust",
- "dust_clap",
- "dust_db",
  "idn",
+ "lump",
+ "lump_clap",
+ "lump_db",
  "serde",
  "surrealdb",
  "tokio",
@@ -1002,35 +1002,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
 dependencies = [
  "dtoa",
-]
-
-[[package]]
-name = "dust"
-version = "0.1.0"
-dependencies = [
- "async_fn_traits",
- "parking_lot",
-]
-
-[[package]]
-name = "dust_clap"
-version = "0.1.0"
-dependencies = [
- "clap",
- "dust",
- "dust_db",
- "futures",
- "take_mut",
-]
-
-[[package]]
-name = "dust_db"
-version = "0.1.0"
-dependencies = [
- "dust",
- "serde",
- "surrealdb",
- "take_mut",
 ]
 
 [[package]]
@@ -1924,6 +1895,35 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "lump"
+version = "0.1.0"
+dependencies = [
+ "async_fn_traits",
+ "parking_lot",
+]
+
+[[package]]
+name = "lump_clap"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "futures",
+ "lump",
+ "lump_db",
+ "take_mut",
+]
+
+[[package]]
+name = "lump_db"
+version = "0.1.0"
+dependencies = [
+ "lump",
+ "serde",
+ "surrealdb",
+ "take_mut",
+]
 
 [[package]]
 name = "mac"

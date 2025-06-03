@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    prelude::{Dust, Resource},
+    prelude::{World, Resource},
     any_handle::{AnyHandle, HandleRead},
 };
 
@@ -19,7 +19,7 @@ pub trait Param: Send {
     type Owned: Send + 'static;
     type AsRef<'r>;
 
-    fn get(dust: &Dust) -> Self::Owned;
+    fn get(world: &World) -> Self::Owned;
     fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_>;
 }
 
@@ -27,8 +27,8 @@ impl Param for () {
     type Owned = ();
     type AsRef<'r> = ();
 
-    fn get(_dust: &Dust) -> Self::Owned {}
-    fn as_ref(_dust: &()) -> Self::AsRef<'_> {}
+    fn get(_world: &World) -> Self::Owned {}
+    fn as_ref(_world: &()) -> Self::AsRef<'_> {}
 }
 
 macro_rules! impl_param {
@@ -40,8 +40,8 @@ macro_rules! impl_param {
         type Owned = ($($params::Owned),*);
         type AsRef<'p> = ($($params::AsRef<'p>),*);
 
-        fn get(dust: &Dust) -> Self::Owned {
-            ($($params::get(dust)),*)
+        fn get(world: &World) -> Self::Owned {
+            ($($params::get(world)),*)
         }
 
         #[allow(clippy::needless_lifetimes)]
@@ -79,8 +79,8 @@ impl<R: Resource> Param for Res<'_, R> {
     type Owned = AnyHandle<R>;
     type AsRef<'r> = Res<'r, R>;
 
-    fn get(dust: &Dust) -> Self::Owned {
-        dust.resources.handle().expect("resource not found")
+    fn get(world: &World) -> Self::Owned {
+        world.resources.handle().expect("resource not found")
     }
 
     fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {

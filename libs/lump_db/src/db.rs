@@ -1,9 +1,9 @@
-use dust::error::DustUnknownError;
+use lump::error::LumpUnknownError;
 
 use crate::{RecordGenerate, data_wrappers::KeyValue};
 
 pub trait Query<O> {
-    fn execute(self) -> impl Future<Output = Result<O, DustUnknownError>> + Send;
+    fn execute(self) -> impl Future<Output = Result<O, LumpUnknownError>> + Send;
 }
 
 pub trait DbOwnedCreate<R, D>: 'static {

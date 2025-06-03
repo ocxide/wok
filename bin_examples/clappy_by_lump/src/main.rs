@@ -1,8 +1,8 @@
 use std::{convert::Infallible, fmt::Display, str::FromStr};
 
-use dust::error::DustUnknownError;
-use dust_clap::{RouterBuilder, RouterCfg, prelude::*};
-use dust_db::{
+use lump::error::LumpUnknownError;
+use lump_clap::{RouterBuilder, RouterCfg, prelude::*};
+use lump_db::{
     Record, RecordGenerate,
     db::{GenerateId, NamedBind},
     surrealdb::{IdString, SurrealDb, SurrealRecord},
@@ -71,7 +71,7 @@ impl NamedBind for PersonName {
     const NAME: &'static str = "name";
 }
 
-async fn connect_db(commands: Commands<'_>) -> Result<(), DustUnknownError> {
+async fn connect_db(commands: Commands<'_>) -> Result<(), LumpUnknownError> {
     sleep(std::time::Duration::from_secs(1)).await;
 
     let db = surrealdb::Surreal::<Client>::init();
@@ -102,7 +102,7 @@ async fn main() {
     })
     .build();
 
-    dust_clap::App::default()
+    lump_clap::App::default()
         .add_system(Startup, connect_db)
         .run(router)
         .await;

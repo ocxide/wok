@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use dust::error::DustUnknownError;
+use lump::error::LumpUnknownError;
 use serde::{Serialize, de::DeserializeOwned};
 use surrealdb::{Connection, Surreal};
 
@@ -18,7 +18,7 @@ impl<C: Connection> SurrealDb<C> {
     }
 }
 
-impl<C: Connection> dust::prelude::Resource for SurrealDb<C> {}
+impl<C: Connection> lump::prelude::Resource for SurrealDb<C> {}
 
 impl<C, R, D> DbOwnedCreate<R, D> for SurrealDb<C>
 where
@@ -47,7 +47,7 @@ impl<'db, C: Connection, D, R: SurrealRecord> crate::db::Query<R> for SurrealCre
 where
     D: Serialize + 'static + Send,
 {
-    async fn execute(self) -> Result<R, dust::error::DustUnknownError> {
+    async fn execute(self) -> Result<R, lump::error::LumpUnknownError> {
         let mut response = self
             .db
             .query("LET $response = CREATE type::table($table) CONTENT $data")
@@ -55,7 +55,7 @@ where
             .bind(("table", self.table))
             .bind(("data", self.data))
             .await
-            .map_err(DustUnknownError::new)?;
+            .map_err(LumpUnknownError::new)?;
 
         let id: Option<surrealdb::sql::Thing> = response.take(1)?;
         let id = id.expect("Id");
@@ -74,11 +74,11 @@ impl<'db, C: Connection, D> crate::db::Query<Vec<D>> for SurrealList<'db, C>
 where
     D: DeserializeOwned,
 {
-    async fn execute(self) -> Result<Vec<D>, dust::error::DustUnknownError> {
+    async fn execute(self) -> Result<Vec<D>, lump::error::LumpUnknownError> {
         self.db
             .select(self.table.to_owned())
             .await
-            .map_err(DustUnknownError::new)
+            .map_err(LumpUnknownError::new)
     }
 }
 
@@ -113,7 +113,7 @@ pub struct SurrealDelete<'db, C: Connection, R: Record> {
 impl<'db, C: Connection, R: Record + Serialize> crate::db::Query<Result<(), DbDeleteError>>
     for SurrealDelete<'db, C, R>
 {
-    async fn execute(self) -> Result<Result<(), DbDeleteError>, dust::error::DustUnknownError> {
+    async fn execute(self) -> Result<Result<(), DbDeleteError>, lump::error::LumpUnknownError> {
         let response = self
             .db
             .query("DELETE ONLY type::thing($table, $id) RETURN 0")
@@ -147,7 +147,7 @@ where
     D: DeserializeOwned + NamedBind,
     W: Serialize + NamedBind + 'static + Send + Sync,
 {
-    async fn execute(self) -> Result<Option<D>, dust::error::DustUnknownError> {
+    async fn execute(self) -> Result<Option<D>, lump::error::LumpUnknownError> {
         let mut response = self
             .db
             .query(format!(

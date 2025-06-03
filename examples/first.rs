@@ -1,4 +1,4 @@
-use dust::prelude::*;
+use lump::prelude::*;
 
 #[derive(Clone)]
 struct State {}

@@ -1,10 +1,10 @@
 [package]
-name = "dust"
+name = "lump"
 version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [ "bin_examples/clappy_by_dust", "libs/dust_clap","libs/dust_db"]
+members = [ "bin_examples/clappy_by_lump", "libs/lump_clap","libs/lump_db"]
 
 [dependencies]
 async_fn_traits = "0.1.1"

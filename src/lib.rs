@@ -1,6 +1,6 @@
 mod any_handle;
 pub mod commands;
-pub mod dust;
+pub mod world;
 mod param;
 mod resources;
 mod system;
@@ -8,23 +8,23 @@ pub mod system_fn;
 
 pub mod prelude {
     pub use crate::commands::{Command, Commands};
-    pub use crate::dust::{Dust, ConfigureDust};
+    pub use crate::world::{ConfigureWorld, World};
     pub use crate::param::*;
     pub use crate::resources::Resource;
-    pub use crate::system::*;
     pub use crate::schedule::Startup;
+    pub use crate::system::*;
 }
 
 pub mod error {
     use std::{fmt::Display, panic::Location};
 
     #[derive(Debug)]
-    pub struct DustUnknownError {
+    pub struct LumpUnknownError {
         inner: Box<dyn std::error::Error + Send + Sync + 'static>,
         location: &'static Location<'static>,
     }
 
-    impl DustUnknownError {
+    impl LumpUnknownError {
         #[track_caller]
         #[inline]
         pub fn new<E: std::error::Error + Send + Sync + 'static>(value: E) -> Self {
@@ -35,7 +35,7 @@ pub mod error {
         }
     }
 
-    impl Display for DustUnknownError {
+    impl Display for LumpUnknownError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(
                 f,
@@ -48,7 +48,7 @@ pub mod error {
         }
     }
 
-    impl<E> From<E> for DustUnknownError
+    impl<E> From<E> for LumpUnknownError
     where
         E: std::error::Error + Send + Sync + 'static,
     {
@@ -59,14 +59,16 @@ pub mod error {
         }
     }
 
-    pub fn panic(e: &DustUnknownError) -> ! {
+    pub fn panic(e: &LumpUnknownError) -> ! {
         panic!("{}", e);
     }
 }
 
 pub mod schedule {
     use crate::{
-        error::DustUnknownError, prelude::Resource, system::{DynSystem, IntoSystem, System}
+        error::LumpUnknownError,
+        prelude::Resource,
+        system::{DynSystem, IntoSystem, System},
     };
 
     pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {
@@ -114,6 +116,6 @@ pub mod schedule {
     pub struct Startup;
     impl ScheduleLabel for Startup {
         type SystenIn = ();
-        type SystemOut = Result<(), DustUnknownError>;
+        type SystemOut = Result<(), LumpUnknownError>;
     }
 }
