@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 async_fn_traits = "0.1.1"
-parking_lot = { version = "0.12.3", features = ["send_guard"] }
+parking_lot = { version = "0.12", features = ["send_guard"] }
