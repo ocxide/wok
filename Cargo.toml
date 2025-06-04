@@ -8,3 +8,5 @@ members = [ "bin_examples/clappy_by_lump", "libs/lump_clap", "libs/lump_core","l
 
 [dependencies]
 lump_core = { path = "libs/lump_core" }
+serde = "1.0.219"
+toml = "0.8.22"
