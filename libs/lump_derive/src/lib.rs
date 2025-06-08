@@ -80,9 +80,9 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
     };
 
     let world = match usage {
-        Usage::Core => quote! { crate::prelude::World },
-        Usage::Lib => quote! { lump_core::prelude::World },
-        Usage::Crate => quote! { lump::prelude::World },
+        Usage::Core => quote! { crate::prelude::WorldState },
+        Usage::Lib => quote! { lump_core::prelude::WorldState },
+        Usage::Crate => quote! { lump::prelude::WorldState },
     };
 
     let fields_tyes = match &struct_data.fields {
@@ -231,7 +231,7 @@ fn single() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &lump::prelude::World) -> Self::Owned {
+                fn get(world: &lump::prelude::WorldState) -> Self::Owned {
                     ( <Bar<'w> as Param>::get(world), )
                 }
 
@@ -264,7 +264,7 @@ fn single_for_core() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &crate::prelude::World) -> Self::Owned {
+                fn get(world: &crate::prelude::WorldState) -> Self::Owned {
                     ( <Bar<'w> as Param>::get(world), )
                 }
 
@@ -297,7 +297,7 @@ fn single_for_lib() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &lump_core::prelude::World) -> Self::Owned {
+                fn get(world: &lump_core::prelude::WorldState) -> Self::Owned {
                     ( <Bar<'w> as Param>::get(world), )
                 }
 

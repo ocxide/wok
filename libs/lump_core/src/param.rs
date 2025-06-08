@@ -1,8 +1,9 @@
 use std::ops::Deref;
 
 use crate::{
-    prelude::{World, Resource},
     any_handle::{AnyHandle, HandleRead},
+    prelude::{Resource, World},
+    world::{access::SystemAccess, WorldState},
 };
 
 pub struct In<T>(pub T);
@@ -19,7 +20,9 @@ pub trait Param: Send {
     type Owned: Send + 'static;
     type AsRef<'r>;
 
-    fn get(world: &World) -> Self::Owned;
+    fn init(rw: &mut SystemAccess);
+
+    fn get(world: &WorldState) -> Self::Owned;
     fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_>;
 }
 
@@ -27,7 +30,8 @@ impl Param for () {
     type Owned = ();
     type AsRef<'r> = ();
 
-    fn get(_world: &World) -> Self::Owned {}
+    fn init(_rw: &mut SystemAccess) {}
+    fn get(_world: &WorldState) -> Self::Owned {}
     fn as_ref(_world: &()) -> Self::AsRef<'_> {}
 }
 
@@ -40,7 +44,11 @@ macro_rules! impl_param {
         type Owned = ($($params::Owned),*);
         type AsRef<'p> = ($($params::AsRef<'p>),*);
 
-        fn get(world: &World) -> Self::Owned {
+        fn init(rw: &mut SystemAccess) {
+            $(($params::init(rw)));*
+        }
+
+        fn get(world: &WorldState) -> Self::Owned {
             ($($params::get(world)),*)
         }
 
@@ -79,8 +87,14 @@ impl<R: Resource> Param for Res<'_, R> {
     type Owned = AnyHandle<R>;
     type AsRef<'r> = Res<'r, R>;
 
-    fn get(world: &World) -> Self::Owned {
-        world.resources.handle().expect("resource not found")
+    fn init(rw: &mut SystemAccess) {
+        if rw.register_resource_read(R::id()).is_err() {
+            panic!("Resource of type `{}` was already registered with access mode `Write`", std::any::type_name::<R>());
+        }
+    }
+
+    fn get(world: &WorldState) -> Self::Owned {
+        world.get_resource()
     }
 
     fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {

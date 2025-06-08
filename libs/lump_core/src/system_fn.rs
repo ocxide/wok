@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    world::World, param::Param, system::{IntoSystem, StaticSystem, System, SystemFuture}
+    param::Param, system::{IntoSystem, StaticSystem, System, SystemFuture}, world::{World, WorldState}
 };
 
 pub struct FunctionSystem<Marker, F> {
@@ -55,7 +55,11 @@ where
     type In = Func::Input;
     type Out = Func::Output;
 
-    fn run(&self, world: &World, input: Self::In) -> SystemFuture<Self> {
+    fn init(&self, rw: &mut crate::world::access::SystemAccess) {
+        Func::Params::init(rw);        
+    }
+
+    fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self> {
         let func = self.func.clone();
         let params = Func::Params::get(world);
 
@@ -71,7 +75,7 @@ where
 {
     type Params = ParamOwned<Func::Params>;
 
-    fn get_params(world: &World) -> Self::Params {
+    fn get_params(world: &WorldState) -> Self::Params {
         Func::Params::get(world)
     }
 

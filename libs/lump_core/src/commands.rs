@@ -1,6 +1,6 @@
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::{world::World, param::Param, prelude::Resource};
+use crate::{param::Param, prelude::Resource, world::{World, WorldState}};
 
 pub type DynCommand = Box<dyn Command>;
 
@@ -40,7 +40,9 @@ impl<'s> Param for Commands<'s> {
     type Owned = CommandSender;
     type AsRef<'r> = Commands<'r>;
 
-    fn get(world: &World) -> Self::Owned {
+    fn init(_rw: &mut crate::world::access::SystemAccess) {}
+
+    fn get(world: &WorldState) -> Self::Owned {
         world.commands_sx.clone()
     }
 
@@ -57,6 +59,6 @@ pub struct InsertResource<R: Resource>(R);
 
 impl<R: Resource> Command for InsertResource<R> {
     fn apply(self: Box<Self>, world: &mut World) {
-        world.resources.insert(self.0);
+        world.state.resources.insert(self.0);
     }
 }

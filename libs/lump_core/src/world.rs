@@ -1,30 +1,221 @@
+use std::sync::mpsc::Sender;
+
 use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
-use crate::resources::Resources;
+use crate::resources::{LocalResources, Resources};
 use crate::schedule::{LabeledScheduleSystem, ScheduleLabel};
 use crate::system::{IntoSystem, System};
 
-pub struct World {
-    pub resources: Resources,
-    commands_buf: CommandsReceiver,
-    pub(crate) commands_sx: CommandSender,
-}
+pub use access::SystemAccess;
+pub use meta::SystemId;
 
-impl World {
-    pub fn tick_commands(&mut self) {
-        loop {
-            match self.commands_buf.0.try_recv() {
-                Ok(command) => command.apply(self),
-                Err(std::sync::mpsc::TryRecvError::Empty) => return,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    eprintln!("WARNING: Commands buffer disconnected");
-                    return;
+pub(crate) mod access {
+    use core::panic;
+    use std::{
+        collections::{HashMap, HashSet},
+        num::NonZero,
+    };
+
+    use crate::resources::ResourceId;
+
+    #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+    pub enum AccessMode {
+        Read,
+        Write,
+    }
+
+    #[derive(Debug)]
+    pub enum WorldAccess {
+        Read(NonZero<usize>),
+        Write,
+    }
+
+    #[derive(Default)]
+    pub struct WorldRw {
+        resources: HashMap<ResourceId, WorldAccess>,
+    }
+
+    impl WorldRw {
+        pub fn try_access(&mut self, access: &SystemAccess) -> Result<(), ()> {
+            for (resource_id, mode) in access.resources.iter() {
+                let access = self.resources.get(resource_id);
+                let allow = matches!(
+                    (access, mode),
+                    (None, _) | (Some(WorldAccess::Read(_)), AccessMode::Read)
+                );
+
+                if !allow {
+                    return Err(());
                 }
-            };
+            }
+
+            for &(resource_id, mode) in access.resources.iter() {
+                self.resources
+                    .entry(resource_id)
+                    .and_modify(|access| {
+                        // We know the access is read because we checked above
+                        if let WorldAccess::Read(count) = access {
+                            *count = NonZero::new(count.get() + 1).unwrap();
+                        }
+                    })
+                    .or_insert_with(|| match mode {
+                        AccessMode::Read => WorldAccess::Read(NonZero::new(1).unwrap()),
+                        AccessMode::Write => WorldAccess::Write,
+                    });
+            }
+
+            Ok(())
+        }
+
+        pub fn release_access(&mut self, access: &SystemAccess) {
+            for (resource_id, mode) in access.resources.iter() {
+                let Some(access) = self.resources.get_mut(resource_id) else {
+                    continue;
+                };
+
+                match (access, mode) {
+                    (WorldAccess::Read(count), AccessMode::Read) => {
+                        let value = NonZero::new(count.get() - 1);
+
+                        if let Some(value) = value {
+                            *count = value;
+                        } else {
+                            self.resources.remove(resource_id);
+                        }
+                    }
+                    (WorldAccess::Write, AccessMode::Write) => {
+                        self.resources.remove(resource_id);
+                    }
+                    (world, system) => {
+                        panic!("access are not compatible {:?} != {:?}", world, system)
+                    }
+                }
+            }
         }
     }
 
+    #[derive(Default)]
+    pub struct SystemAccess {
+        resources: HashSet<(ResourceId, AccessMode)>,
+    }
+
+    pub enum AlreadyRegistered {
+        Read,
+        Write,
+    }
+
+    impl SystemAccess {
+        pub fn has_resource_write(&self, resource: ResourceId) -> bool {
+            self.resources.contains(&(resource, AccessMode::Write))
+        }
+
+        pub fn has_resource_read(&self, resource: ResourceId) -> bool {
+            self.resources.contains(&(resource, AccessMode::Read))
+        }
+
+        pub fn register_resource_read(
+            &mut self,
+            resource: ResourceId,
+        ) -> Result<(), AlreadyRegistered> {
+            if self.has_resource_write(resource) {
+                return Err(AlreadyRegistered::Write);
+            }
+
+            self.resources.insert((resource, AccessMode::Read));
+            Ok(())
+        }
+
+        pub fn register_resource_write(
+            &mut self,
+            resource: ResourceId,
+        ) -> Result<(), AlreadyRegistered> {
+            if self.has_resource_read(resource) {
+                return Err(AlreadyRegistered::Read);
+            }
+
+            self.resources.insert((resource, AccessMode::Write));
+            Ok(())
+        }
+    }
+}
+
+pub(crate) mod meta {
+    use std::num::NonZero;
+
+    use super::access::SystemAccess;
+
+    #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+    pub struct SystemId(NonZero<usize>);
+
+    impl SystemId {
+        pub const fn local(self) -> LocalSystemId {
+            LocalSystemId(self.0)
+        }
+    }
+
+    pub struct LocalSystemId(NonZero<usize>);
+
+    impl LocalSystemId {
+        /// Asume the system id is valid for this world
+        pub fn cast_global(self) -> SystemId {
+            SystemId(self.0)
+        }
+    }
+
+    #[derive(Debug, Default)]
+    pub struct SystemsMeta<D>(Vec<D>);
+
+    impl<D> SystemsMeta<D> {
+        pub fn add(&mut self, meta: D) -> LocalSystemId {
+            self.0.push(meta);
+            LocalSystemId(NonZero::new(self.0.len()).expect("vec len to be nonzero"))
+        }
+
+        pub fn get(&self, id: LocalSystemId) -> Option<&D> {
+            self.0.get(id.0.get() - 1)
+        }
+    }
+
+    #[derive(Default)]
+    pub struct SystemsRw(SystemsMeta<SystemAccess>);
+
+    impl SystemsRw {
+        #[inline]
+        pub fn add(&mut self, access: SystemAccess) -> SystemId {
+            self.0.add(access).cast_global()
+        }
+
+        #[inline]
+        pub fn get(&self, id: SystemId) -> Option<&SystemAccess> {
+            self.0.get(id.local())
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum WorldSystemRunError {
+    NotRegistered,
+    InvalidAccess,
+}
+
+pub struct SystemFinisher {
+    systemid: SystemId,
+    sender: Sender<SystemId>,
+}
+
+impl SystemFinisher {
+    pub fn mark_finished(self) -> Result<(), std::sync::mpsc::SendError<SystemId>> {
+        self.sender.send(self.systemid)
+    }
+}
+
+pub struct WorldState {
+    pub resources: Resources,
+    pub(crate) commands_sx: CommandSender,
+}
+
+impl WorldState {
     /// # Panics
     /// Panics if the resource is not found
     pub fn get_resource<R: Resource>(&self) -> AnyHandle<R> {
@@ -35,10 +226,40 @@ impl World {
     pub fn try_take_resource<R: Resource>(&mut self) -> Option<R> {
         self.resources.try_take()
     }
+}
 
-    pub fn init_schedule<S: ScheduleLabel>(&mut self) {
-        self.resources.init::<LabeledScheduleSystem<S>>();
+pub struct WorldCenter {
+    pub(crate) rw: access::WorldRw,
+    pub(crate) systems_rw: meta::SystemsRw,
+    pub(crate) commands_rx: CommandsReceiver,
+    pub resources: LocalResources,
+}
+
+impl WorldCenter {
+    pub fn try_access(&mut self, systemid: SystemId) -> Result<(), WorldSystemRunError> {
+        let rw = self
+            .systems_rw
+            .get(systemid)
+            .ok_or(WorldSystemRunError::NotRegistered)?;
+
+        self.rw
+            .try_access(rw)
+            .map_err(|_| WorldSystemRunError::InvalidAccess)?;
+
+        Ok(())
     }
+
+    pub fn release_access(&mut self, systemid: SystemId) -> Option<()> {
+        let rw = self.systems_rw.get(systemid)?;
+        self.rw.release_access(rw);
+
+        Some(())
+    }
+}
+
+pub struct World {
+    pub state: WorldState,
+    pub center: WorldCenter,
 }
 
 impl Default for World {
@@ -46,17 +267,41 @@ impl Default for World {
         let (sender, receiver) = std::sync::mpsc::channel::<commands::DynCommand>();
 
         Self {
-            resources: Resources::default(),
-            commands_buf: CommandsReceiver::new(receiver),
-            commands_sx: CommandSender::new(sender),
+            center: WorldCenter {
+                rw: access::WorldRw::default(),
+                systems_rw: meta::SystemsRw::default(),
+                commands_rx: CommandsReceiver::new(receiver),
+                resources: LocalResources::default(),
+            },
+            state: WorldState {
+                resources: Resources::default(),
+                commands_sx: CommandSender::new(sender),
+            },
         }
     }
 }
 
-#[allow(dead_code)]
+impl World {
+    pub fn init_schedule<S: ScheduleLabel>(&mut self) {
+        self.center.resources.init::<LabeledScheduleSystem<S>>();
+    }
+
+    pub fn register_system(&mut self, system: &impl System) -> SystemId {
+        let mut rw = SystemAccess::default();
+        system.init(&mut rw);
+
+        self.center.systems_rw.add(rw)
+    }
+
+    pub fn into_parts(self) -> (WorldState, WorldCenter) {
+        (self.state, self.center)
+    }
+}
+
+#[test]
 fn world_is_send() {
-    fn assert_send<T: Send>() {}
-    assert_send::<World>();
+    fn assert_send<T: Send + Sync + 'static>() {}
+    assert_send::<WorldState>();
 }
 
 pub trait ConfigureWorld: Sized {
@@ -64,7 +309,12 @@ pub trait ConfigureWorld: Sized {
     fn world(&self) -> &World;
 
     fn insert_resource<R: Resource>(mut self, resource: R) -> Self {
-        self.world_mut().resources.insert(resource);
+        self.world_mut().state.resources.insert(resource);
+        self
+    }
+
+    fn insert_local_resource<R: Resource>(mut self, resource: R) -> Self {
+        self.world_mut().center.resources.insert(resource);
         self
     }
 
@@ -75,16 +325,30 @@ pub trait ConfigureWorld: Sized {
     ) -> Self {
         let schedule = self
             .world_mut()
+            .state
             .resources
             .handle::<LabeledScheduleSystem<S>>()
             .expect("Unsupported schedule");
+
+        let system = system.into_system();
+        let id = self.world_mut().register_system(&system);
+        let system = Box::new(system);
 
         schedule
             .write()
             .expect("failed to write schedule")
             .schedule
-            .add_system(system);
+            .add_system(id, system);
 
+        self
+    }
+}
+
+impl ConfigureWorld for World {
+    fn world_mut(&mut self) -> &mut World {
+        self
+    }
+    fn world(&self) -> &World {
         self
     }
 }

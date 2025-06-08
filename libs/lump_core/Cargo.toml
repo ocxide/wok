@@ -8,3 +8,4 @@ async_fn_traits = "0.1.1"
 futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
 parking_lot = { version = "^0.12", features = ["send_guard"] }
 lump_derive = { path = "../lump_derive" }
+hashbrown = "0.15.3"

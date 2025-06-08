@@ -1,4 +1,4 @@
-use crate::any_handle::AnyHandle;
+use crate::{any_handle::AnyHandle, local_any_handle::LocalAnyHandle};
 use std::{any::TypeId, collections::HashMap};
 
 #[derive(Default)]
@@ -40,4 +40,28 @@ impl Resources {
     }
 }
 
-pub trait Resource: Sized + Send + Sync + 'static {}
+pub trait Resource: Sized + Send + Sync + 'static {
+    fn id() -> ResourceId {
+        ResourceId(TypeId::of::<Self>())
+    }
+}
+
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+pub struct ResourceId(TypeId);
+
+#[derive(Default)]
+pub struct LocalResources(HashMap<ResourceId, LocalAnyHandle>);
+
+impl LocalResources {
+    pub fn insert<R: Resource>(&mut self, value: R) {
+        self.0.insert(R::id(), LocalAnyHandle::new_any(value));
+    }
+
+    pub fn try_take<R: Resource>(&mut self) -> Option<R> {
+        self.0.remove(&R::id()).and_then(|handle| handle.try_take())
+    }
+
+    pub fn init<R: Resource + Default>(&mut self) {
+        self.insert(R::default());
+    }
+}

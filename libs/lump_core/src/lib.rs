@@ -1,5 +1,6 @@
 mod any_handle;
 pub mod commands;
+mod local_any_handle;
 mod param;
 mod resources;
 mod system;
@@ -11,7 +12,8 @@ pub mod prelude {
     pub use crate::param::*;
     pub use crate::resources::Resource;
     pub use crate::system::*;
-    pub use crate::world::{ConfigureWorld, World};
+    pub use crate::world::{ConfigureWorld, World, WorldState};
+    pub use lump_derive::Param;
 }
 
 pub mod error {
@@ -64,35 +66,49 @@ pub mod error {
 }
 
 pub mod schedule {
-    use crate::{
-        prelude::Resource,
-        system::{DynSystem, IntoSystem, System},
-    };
+    use hashbrown::{HashMap, hash_map::ExtractIf};
+
+    use crate::{prelude::Resource, system::DynSystem, world::meta::SystemId};
 
     pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {
         type SystenIn;
         type SystemOut;
     }
 
-    pub struct ScheduledSystems<I, O>(Vec<DynSystem<I, O>>);
+    pub struct ScheduledSystems<I, O> {
+        systems: HashMap<SystemId, DynSystem<I, O>>,
+    }
 
     impl<I, O> ScheduledSystems<I, O> {
-        pub fn add_system<Marker>(
-            &mut self,
-            system: impl IntoSystem<Marker, System: System<In = I, Out = O>>,
-        ) {
-            self.0.push(Box::new(system.into_system()));
+        pub fn add_system(&mut self, systemid: SystemId, system: DynSystem<I, O>) {
+            self.systems.insert(systemid, system);
         }
 
         #[inline]
-        pub fn take_systems(self) -> impl Iterator<Item = DynSystem<I, O>> {
-            self.0.into_iter()
+        pub fn extract_if(
+            &mut self,
+            mut predicate: impl FnMut(SystemId, &DynSystem<I, O>) -> bool,
+        ) -> impl Iterator<Item = (SystemId, DynSystem<I, O>)> {
+            self.systems
+                .extract_if(move |systemid, system| predicate(*systemid, system))
+        }
+
+        #[inline]
+        pub fn remove_system(&mut self, systemid: SystemId) {
+            self.systems.remove(&systemid);
+        }
+
+        #[inline]
+        pub fn is_empty(&self) -> bool {
+            self.systems.is_empty()
         }
     }
 
     impl<I, O> Default for ScheduledSystems<I, O> {
         fn default() -> Self {
-            Self(Vec::new())
+            Self {
+                systems: Default::default(),
+            }
         }
     }
 

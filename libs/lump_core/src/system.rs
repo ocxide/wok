@@ -2,7 +2,10 @@ use std::pin::Pin;
 
 use combinator::IntoSystemPipe;
 
-use crate::prelude::World;
+use crate::{
+    prelude::World,
+    world::{WorldState, access::SystemAccess},
+};
 
 pub type SystemFuture<S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'static>>;
 pub type DynSystem<In, Out> = Box<dyn System<In = In, Out = Out> + Send + Sync + 'static>;
@@ -12,12 +15,13 @@ pub trait System: Send + Sync + 'static {
     type In;
     type Out: Send + Sync + 'static;
 
-    fn run(&self, world: &World, input: Self::In) -> SystemFuture<Self>;
+    fn init(&self, rw: &mut SystemAccess);
+    fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self>;
 }
 
 pub trait StaticSystem: System {
     type Params;
-    fn get_params(world: &World) -> Self::Params;
+    fn get_params(world: &WorldState) -> Self::Params;
     fn run_static(
         &self,
         params: Self::Params,
@@ -40,7 +44,7 @@ pub trait IntoSystem<Marker> {
 }
 
 mod combinator {
-    use crate::prelude::World;
+    use crate::{prelude::World, world::WorldState};
 
     use super::{IntoSystem, StaticSystem, System, SystemFuture};
 
@@ -84,7 +88,7 @@ mod combinator {
     {
         type Params = (S1::Params, S2::Params);
 
-        fn get_params(world: &World) -> Self::Params {
+        fn get_params(world: &WorldState) -> Self::Params {
             (S1::get_params(world), S2::get_params(world))
         }
 
@@ -111,7 +115,12 @@ mod combinator {
         type In = S1::In;
         type Out = S2::Out;
 
-        fn run(&self, world: &World, input: Self::In) -> SystemFuture<Self> {
+        fn init(&self, rw: &mut crate::world::access::SystemAccess) {
+            self.s1.init(rw);
+            self.s2.init(rw);
+        }
+
+        fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self> {
             Box::pin(self.run_static((S1::get_params(world), S2::get_params(world)), input))
         }
     }

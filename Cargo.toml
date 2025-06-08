@@ -10,3 +10,4 @@ members = [ "bin_examples/clappy_by_lump", "libs/lump_clap", "libs/lump_core","l
 lump_core = { path = "libs/lump_core" }
 serde = "1.0"
 toml = "0.8"
+futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
