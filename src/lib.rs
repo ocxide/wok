@@ -13,6 +13,9 @@ pub mod schedules {
         type SystenIn = ();
         type SystemOut = Result<(), LumpUnknownError>;
     }
+
+    #[derive(Copy, Clone)]
+    pub struct Events;
 }
 
 pub mod config {

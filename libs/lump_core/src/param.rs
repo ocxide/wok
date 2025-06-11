@@ -2,8 +2,8 @@ use std::ops::Deref;
 
 use crate::{
     any_handle::{AnyHandle, HandleRead},
-    prelude::{Resource, World},
-    world::{access::SystemAccess, WorldState},
+    prelude::Resource,
+    world::{WorldState, access::SystemAccess},
 };
 
 pub struct In<T>(pub T);
@@ -89,7 +89,10 @@ impl<R: Resource> Param for Res<'_, R> {
 
     fn init(rw: &mut SystemAccess) {
         if rw.register_resource_read(R::id()).is_err() {
-            panic!("Resource of type `{}` was already registered with access mode `Write`", std::any::type_name::<R>());
+            panic!(
+                "Resource of type `{}` was already registered with access mode `Write`",
+                std::any::type_name::<R>()
+            );
         }
     }
 

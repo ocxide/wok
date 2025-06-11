@@ -6,7 +6,7 @@ use futures::{
 use crate::{
     param::Param,
     prelude::Resource,
-    world::{World, WorldMut, WorldState},
+    world::{WorldMut, WorldState},
 };
 
 pub type DynCommand = Box<dyn Command>;

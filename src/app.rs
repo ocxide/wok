@@ -58,7 +58,7 @@ pub struct Runtime<C: RuntimeConfig> {
 mod startup {
     use futures::{StreamExt, stream::FuturesUnordered};
     use lump_core::{
-        schedule::LabeledScheduleSystem,
+        schedule::HomogenousScheduleSystem,
         world::{SystemId, WorldState, WorldSystemRunError},
     };
 
@@ -69,13 +69,13 @@ mod startup {
     impl<C: RuntimeConfig> Runtime<C> {
         fn pending_systems(
             &mut self,
-            schedule: &mut LabeledScheduleSystem<Startup>,
+            schedule: &mut HomogenousScheduleSystem<Startup>,
             state: &WorldState,
             futures: &mut FuturesUnordered<
                 <C::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>,
             >,
         ) {
-            for _ in schedule.schedule.extract_if(move |id, system| {
+            for _ in schedule.extract_if(move |id, system| {
                 match self.world.try_access(id) {
                     Ok(_) => {}
                     Err(WorldSystemRunError::NotRegistered) => {
@@ -100,7 +100,7 @@ mod startup {
             let mut schedule = self
                 .world
                 .resources
-                .try_take::<LabeledScheduleSystem<Startup>>()
+                .try_take::<HomogenousScheduleSystem<Startup>>()
                 .expect("Failed to take schedule");
 
             let mut futures = FuturesUnordered::new();

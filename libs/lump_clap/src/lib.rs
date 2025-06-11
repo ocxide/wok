@@ -1,9 +1,5 @@
-use futures::StreamExt;
 use lump::schedules::Startup;
-use lump_core::{
-    schedule::LabeledScheduleSystem,
-    world::{ConfigureWorld, World},
-};
+use lump_core::world::{ConfigureWorld, World};
 
 pub mod prelude {
     pub use crate::App;
@@ -400,9 +396,7 @@ impl ConfigureWorld for App {
 }
 
 impl App {
-    pub fn run(mut self, mut router: Router) -> impl Future<Output = ()> {
-        use futures::stream::FuturesUnordered;
-
+    pub fn run(self, mut router: Router) -> impl Future<Output = ()> {
         router.command.build();
         let matches = router
             .command
@@ -425,35 +419,11 @@ impl App {
                 return;
             };
 
-            let schedule = self
-                .lump
-                .try_take_resource::<LabeledScheduleSystem<Startup>>()
-                .expect("startup schedule");
-
-            let mut fut = schedule
-                .schedule
-                .take_systems()
-                .map(|system| system.run(&self.lump, ()))
-                .collect::<FuturesUnordered<_>>();
-
-            loop {
-                let (out, fut_) = fut.into_future().await;
-                fut = fut_;
-
-                match out {
-                    Some(Ok(_)) => {}
-                    Some(Err(err)) => panic!("Startup failed: {}", err),
-                    None => break,
-                }
-            }
-
-            self.lump.tick_commands();
-
             let system = systems
                 .get(&command_name)
                 .expect("clap unmatched subcommand");
 
-            let result = system.run(&self.lump, args).await;
+            let result = system.run(&self.lump.state, args).await;
             if let Err(err) = result {
                 eprintln!("ERROR: {}", err);
             }

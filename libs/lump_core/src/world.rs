@@ -4,7 +4,7 @@ use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::{LocalResources, Resources};
-use crate::schedule::{LabeledScheduleSystem, ScheduleLabel};
+use crate::schedule::{HomogenousScheduleSystem, ScheduleLabel};
 use crate::system::{IntoSystem, System};
 
 pub use access::SystemAccess;
@@ -297,7 +297,7 @@ impl Default for World {
 
 impl World {
     pub fn init_schedule<S: ScheduleLabel>(&mut self) {
-        self.center.resources.init::<LabeledScheduleSystem<S>>();
+        self.center.resources.init::<HomogenousScheduleSystem<S>>();
     }
 
     pub fn register_system(&mut self, system: &impl System) -> SystemId {
@@ -341,7 +341,7 @@ pub trait ConfigureWorld: Sized {
             .world_mut()
             .state
             .resources
-            .handle::<LabeledScheduleSystem<S>>()
+            .handle::<HomogenousScheduleSystem<S>>()
             .expect("Unsupported schedule");
 
         let system = system.into_system();
@@ -351,7 +351,6 @@ pub trait ConfigureWorld: Sized {
         schedule
             .write()
             .expect("failed to write schedule")
-            .schedule
             .add_system(id, system);
 
         self
