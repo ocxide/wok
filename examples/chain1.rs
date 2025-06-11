@@ -1,6 +1,6 @@
 use lump_core::{
     world::World,
-    prelude::{In, IntoSystem, System},
+    prelude::{In, IntoSystem, TaskSystem},
 };
 
 async fn first(input8: In<u8>) -> u32 {

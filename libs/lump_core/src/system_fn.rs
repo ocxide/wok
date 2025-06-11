@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     param::Param,
-    system::{IntoSystem, StaticSystem, System, SystemFuture},
+    system::{IntoSystem, StaticSystem, System, SystemFuture, TaskSystem},
     world::WorldState,
 };
 
@@ -60,7 +60,13 @@ where
     fn init(&self, rw: &mut crate::world::access::SystemLock) {
         Func::Params::init(rw);
     }
+}
 
+impl<Marker, Func> TaskSystem for FunctionSystem<Marker, Func>
+where
+    Marker: 'static,
+    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
+{
     fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self> {
         let func = self.func.clone();
         let params = Func::Params::get(world);

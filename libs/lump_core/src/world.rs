@@ -5,7 +5,7 @@ use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::{LocalResources, Resources};
 use crate::schedule::{HomogenousScheduleSystem, ScheduleLabel};
-use crate::system::{IntoSystem, System};
+use crate::system::{IntoSystem, TaskSystem};
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -300,7 +300,7 @@ impl World {
         self.center.resources.init::<HomogenousScheduleSystem<S>>();
     }
 
-    pub fn register_system(&mut self, system: &impl System) -> SystemId {
+    pub fn register_system(&mut self, system: &impl TaskSystem) -> SystemId {
         let mut rw = SystemLock::default();
         system.init(&mut rw);
 
@@ -335,7 +335,7 @@ pub trait ConfigureWorld: Sized {
     fn add_system<S: ScheduleLabel, Marker>(
         mut self,
         _: S,
-        system: impl IntoSystem<Marker, System: System<In = S::SystenIn, Out = S::SystemOut>>,
+        system: impl IntoSystem<Marker, System: TaskSystem<In = S::SystenIn, Out = S::SystemOut>>,
     ) -> Self {
         let schedule = self
             .world_mut()

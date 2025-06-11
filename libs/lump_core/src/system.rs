@@ -5,14 +5,17 @@ use combinator::IntoSystemPipe;
 use crate::world::{WorldState, access::SystemLock};
 
 pub type SystemFuture<S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'static>>;
-pub type DynSystem<In, Out> = Box<dyn System<In = In, Out = Out> + Send + Sync + 'static>;
+pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync + 'static>;
 
-// Dyn compatible
 pub trait System: Send + Sync + 'static {
     type In;
     type Out: Send + Sync + 'static;
 
     fn init(&self, rw: &mut SystemLock);
+}
+
+// Dyn compatible
+pub trait TaskSystem: System {
     fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self>;
 }
 
@@ -27,7 +30,7 @@ pub trait StaticSystem: System {
 }
 
 pub trait IntoSystem<Marker> {
-    type System: System + StaticSystem;
+    type System: System + TaskSystem + StaticSystem;
 
     fn into_system(self) -> Self::System;
     fn pipe<S2, MarkerS2>(self, s2: S2) -> IntoSystemPipe<Self::System, S2::System>
@@ -43,7 +46,7 @@ pub trait IntoSystem<Marker> {
 mod combinator {
     use crate::world::WorldState;
 
-    use super::{IntoSystem, StaticSystem, System, SystemFuture};
+    use super::{IntoSystem, StaticSystem, System, SystemFuture, TaskSystem};
 
     pub struct IntoSystemPipe<S1, S2> {
         s1: S1,
@@ -78,6 +81,20 @@ mod combinator {
         s2: S2,
     }
 
+    impl<S1, S2> System for SystemPipe<S1, S2>
+    where
+        S1: StaticSystem<In: Send, Out: Send, Params: Send>,
+        S2: StaticSystem<In = S1::Out, Params: Send> + Clone,
+    {
+        type In = S1::In;
+        type Out = S2::Out;
+
+        fn init(&self, rw: &mut crate::world::access::SystemLock) {
+            self.s1.init(rw);
+            self.s2.init(rw);
+        }
+    }
+
     impl<S1, S2> StaticSystem for SystemPipe<S1, S2>
     where
         S1: StaticSystem<In: Send, Out: Send, Params: Send>,
@@ -104,19 +121,11 @@ mod combinator {
         }
     }
 
-    impl<S1, S2> System for SystemPipe<S1, S2>
+    impl<S1, S2> TaskSystem for SystemPipe<S1, S2>
     where
         S1: StaticSystem<In: Send, Out: Send, Params: Send>,
         S2: StaticSystem<In = S1::Out, Params: Send> + Clone,
     {
-        type In = S1::In;
-        type Out = S2::Out;
-
-        fn init(&self, rw: &mut crate::world::access::SystemLock) {
-            self.s1.init(rw);
-            self.s2.init(rw);
-        }
-
         fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self> {
             Box::pin(self.run_static((S1::get_params(world), S2::get_params(world)), input))
         }

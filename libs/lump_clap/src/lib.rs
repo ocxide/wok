@@ -115,7 +115,7 @@ mod record_systems {
     use std::{collections::HashMap, fmt::Display, str::FromStr};
 
     use clap::{ArgMatches, Args, FromArgMatches};
-    use lump::prelude::{DynSystem, In, IntoSystem, LumpUnknownError, Res, Resource, System};
+    use lump::prelude::{DynSystem, In, IntoSystem, LumpUnknownError, Res, Resource, TaskSystem};
     use lump_db::{
         Record,
         db::{DbDelete, DbDeleteError, DbList, DbOwnedCreate, DbSelectSingle, IdStrategy, Query},
@@ -348,7 +348,7 @@ mod record_systems {
             command_factory: impl FnOnce(clap::Command) -> clap::Command,
             system: impl IntoSystem<
                 M,
-                System: System<In = ArgMatches, Out = Result<(), LumpUnknownError>>,
+                System: TaskSystem<In = ArgMatches, Out = Result<(), LumpUnknownError>>,
             >,
         ) {
             let subcommand = command_factory(clap::Command::new(command_name));
