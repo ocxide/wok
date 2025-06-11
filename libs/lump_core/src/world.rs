@@ -7,7 +7,7 @@ use crate::resources::{LocalResources, Resources};
 use crate::schedule::{HomogenousScheduleSystem, ScheduleLabel};
 use crate::system::{IntoSystem, System};
 
-pub use access::SystemAccess;
+pub use access::SystemLock;
 pub use meta::SystemId;
 
 pub(crate) mod access {
@@ -32,12 +32,12 @@ pub(crate) mod access {
     }
 
     #[derive(Default)]
-    pub struct WorldRw {
+    pub struct WorldLocks {
         resources: HashMap<ResourceId, WorldAccess>,
     }
 
-    impl WorldRw {
-        pub fn try_access(&mut self, access: &SystemAccess) -> Result<(), ()> {
+    impl WorldLocks {
+        pub fn try_access(&mut self, access: &SystemLock) -> Result<(), ()> {
             for (resource_id, mode) in access.resources.iter() {
                 let access = self.resources.get(resource_id);
                 let allow = matches!(
@@ -68,7 +68,7 @@ pub(crate) mod access {
             Ok(())
         }
 
-        pub fn release_access(&mut self, access: &SystemAccess) {
+        pub fn release_access(&mut self, access: &SystemLock) {
             for (resource_id, mode) in access.resources.iter() {
                 let Some(access) = self.resources.get_mut(resource_id) else {
                     continue;
@@ -96,7 +96,7 @@ pub(crate) mod access {
     }
 
     #[derive(Default)]
-    pub struct SystemAccess {
+    pub struct SystemLock {
         resources: HashSet<(ResourceId, AccessMode)>,
     }
 
@@ -105,7 +105,7 @@ pub(crate) mod access {
         Write,
     }
 
-    impl SystemAccess {
+    impl SystemLock {
         pub fn has_resource_write(&self, resource: ResourceId) -> bool {
             self.resources.contains(&(resource, AccessMode::Write))
         }
@@ -143,7 +143,7 @@ pub(crate) mod access {
 pub(crate) mod meta {
     use std::num::NonZero;
 
-    use super::access::SystemAccess;
+    use super::access::SystemLock;
 
     #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
     pub struct SystemId(NonZero<usize>);
@@ -178,16 +178,16 @@ pub(crate) mod meta {
     }
 
     #[derive(Default)]
-    pub struct SystemsRw(SystemsMeta<SystemAccess>);
+    pub struct SystemsRw(SystemsMeta<SystemLock>);
 
     impl SystemsRw {
         #[inline]
-        pub fn add(&mut self, access: SystemAccess) -> SystemId {
+        pub fn add(&mut self, access: SystemLock) -> SystemId {
             self.0.add(access).cast_global()
         }
 
         #[inline]
-        pub fn get(&self, id: SystemId) -> Option<&SystemAccess> {
+        pub fn get(&self, id: SystemId) -> Option<&SystemLock> {
             self.0.get(id.local())
         }
     }
@@ -229,7 +229,7 @@ impl WorldState {
 }
 
 pub struct WorldCenter {
-    pub(crate) rw: access::WorldRw,
+    pub(crate) rw: access::WorldLocks,
     pub(crate) systems_rw: meta::SystemsRw,
     pub(crate) commands_rx: CommandsReceiver,
     pub resources: LocalResources,
@@ -282,7 +282,7 @@ impl Default for World {
 
         Self {
             center: WorldCenter {
-                rw: access::WorldRw::default(),
+                rw: access::WorldLocks::default(),
                 systems_rw: meta::SystemsRw::default(),
                 commands_rx: receiver,
                 resources: LocalResources::default(),
@@ -301,7 +301,7 @@ impl World {
     }
 
     pub fn register_system(&mut self, system: &impl System) -> SystemId {
-        let mut rw = SystemAccess::default();
+        let mut rw = SystemLock::default();
         system.init(&mut rw);
 
         self.center.systems_rw.add(rw)

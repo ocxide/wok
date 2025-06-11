@@ -57,7 +57,7 @@ where
     type In = Func::Input;
     type Out = Func::Output;
 
-    fn init(&self, rw: &mut crate::world::access::SystemAccess) {
+    fn init(&self, rw: &mut crate::world::access::SystemLock) {
         Func::Params::init(rw);
     }
 

@@ -60,7 +60,7 @@ impl<'s> Param for Commands<'s> {
     type Owned = CommandSender;
     type AsRef<'r> = Commands<'r>;
 
-    fn init(_rw: &mut crate::world::access::SystemAccess) {}
+    fn init(_rw: &mut crate::world::access::SystemLock) {}
 
     fn get(world: &WorldState) -> Self::Owned {
         world.commands_sx.clone()

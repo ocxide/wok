@@ -74,9 +74,9 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
     let usage = usage()?;
 
     let rw = match usage {
-        Usage::Core => quote! { crate::world::SystemAccess },
-        Usage::Lib => quote! { lump_core::world::SystemAccess },
-        Usage::Crate => quote! { lump::world::SystemAccess },
+        Usage::Core => quote! { crate::world::SystemLock },
+        Usage::Lib => quote! { lump_core::world::SystemLock },
+        Usage::Crate => quote! { lump::world::SystemLock },
     };
 
     let world = match usage {
@@ -227,7 +227,7 @@ fn single() {
                 type Owned = ( <Bar<'w> as Param>::Owned, );
                 type AsRef<'p> = Foo<'p>;
 
-                fn init(rw: &mut lump::world::SystemAccess) {
+                fn init(rw: &mut lump::world::SystemLock) {
                     <Bar<'w> as Param>::init(rw);
                 }
 
@@ -260,7 +260,7 @@ fn single_for_core() {
                 type Owned = ( <Bar<'w> as Param>::Owned, );
                 type AsRef<'p> = Foo<'p>;
 
-                fn init(rw: &mut crate::world::SystemAccess) {
+                fn init(rw: &mut crate::world::SystemLock) {
                     <Bar<'w> as Param>::init(rw);
                 }
 
@@ -293,7 +293,7 @@ fn single_for_lib() {
                 type Owned = ( <Bar<'w> as Param>::Owned, );
                 type AsRef<'p> = Foo<'p>;
 
-                fn init(rw: &mut lump_core::world::SystemAccess) {
+                fn init(rw: &mut lump_core::world::SystemLock) {
                     <Bar<'w> as Param>::init(rw);
                 }
 

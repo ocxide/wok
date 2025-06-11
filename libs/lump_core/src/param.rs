@@ -3,7 +3,7 @@ use std::ops::Deref;
 use crate::{
     any_handle::{AnyHandle, HandleRead},
     prelude::Resource,
-    world::{WorldState, access::SystemAccess},
+    world::{WorldState, access::SystemLock},
 };
 
 pub struct In<T>(pub T);
@@ -20,7 +20,7 @@ pub trait Param: Send {
     type Owned: Send + 'static;
     type AsRef<'r>;
 
-    fn init(rw: &mut SystemAccess);
+    fn init(rw: &mut SystemLock);
 
     fn get(world: &WorldState) -> Self::Owned;
     fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_>;
@@ -30,7 +30,7 @@ impl Param for () {
     type Owned = ();
     type AsRef<'r> = ();
 
-    fn init(_rw: &mut SystemAccess) {}
+    fn init(_rw: &mut SystemLock) {}
     fn get(_world: &WorldState) -> Self::Owned {}
     fn as_ref(_world: &()) -> Self::AsRef<'_> {}
 }
@@ -44,7 +44,7 @@ macro_rules! impl_param {
         type Owned = ($($params::Owned),*);
         type AsRef<'p> = ($($params::AsRef<'p>),*);
 
-        fn init(rw: &mut SystemAccess) {
+        fn init(rw: &mut SystemLock) {
             $(($params::init(rw)));*
         }
 
@@ -87,7 +87,7 @@ impl<R: Resource> Param for Res<'_, R> {
     type Owned = AnyHandle<R>;
     type AsRef<'r> = Res<'r, R>;
 
-    fn init(rw: &mut SystemAccess) {
+    fn init(rw: &mut SystemLock) {
         if rw.register_resource_read(R::id()).is_err() {
             panic!(
                 "Resource of type `{}` was already registered with access mode `Write`",
