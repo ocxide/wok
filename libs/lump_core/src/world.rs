@@ -255,6 +255,20 @@ impl WorldCenter {
 
         Some(())
     }
+
+    pub async fn tick_commands(&mut self, state: &mut WorldState) {
+        while let Some(command) = self.commands_rx.recv().await {
+            command.apply(WorldMut {
+                state,
+                center: self,
+            });
+        }
+    }
+}
+
+pub struct WorldMut<'w> {
+    pub state: &'w mut WorldState,
+    pub center: &'w mut WorldCenter,
 }
 
 pub struct World {
@@ -264,18 +278,18 @@ pub struct World {
 
 impl Default for World {
     fn default() -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel::<commands::DynCommand>();
+        let (sender, receiver) = commands::commands();
 
         Self {
             center: WorldCenter {
                 rw: access::WorldRw::default(),
                 systems_rw: meta::SystemsRw::default(),
-                commands_rx: CommandsReceiver::new(receiver),
+                commands_rx: receiver,
                 resources: LocalResources::default(),
             },
             state: WorldState {
                 resources: Resources::default(),
-                commands_sx: CommandSender::new(sender),
+                commands_sx: sender,
             },
         }
     }

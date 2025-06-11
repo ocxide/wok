@@ -2,10 +2,7 @@ use std::pin::Pin;
 
 use combinator::IntoSystemPipe;
 
-use crate::{
-    prelude::World,
-    world::{WorldState, access::SystemAccess},
-};
+use crate::world::{WorldState, access::SystemAccess};
 
 pub type SystemFuture<S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'static>>;
 pub type DynSystem<In, Out> = Box<dyn System<In = In, Out = Out> + Send + Sync + 'static>;
@@ -44,7 +41,7 @@ pub trait IntoSystem<Marker> {
 }
 
 mod combinator {
-    use crate::{prelude::World, world::WorldState};
+    use crate::world::WorldState;
 
     use super::{IntoSystem, StaticSystem, System, SystemFuture};
 

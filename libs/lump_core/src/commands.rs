@@ -1,8 +1,20 @@
-use std::sync::mpsc::{Receiver, Sender};
+use futures::{
+    StreamExt,
+    channel::mpsc::{Receiver, Sender},
+};
 
-use crate::{param::Param, prelude::Resource, world::{World, WorldState}};
+use crate::{
+    param::Param,
+    prelude::Resource,
+    world::{World, WorldMut, WorldState},
+};
 
 pub type DynCommand = Box<dyn Command>;
+
+pub fn commands() -> (CommandSender, CommandsReceiver) {
+    let (sender, receiver) = futures::channel::mpsc::channel(31);
+    (CommandSender(sender), CommandsReceiver(receiver))
+}
 
 #[derive(Clone)]
 pub struct CommandSender(Sender<DynCommand>);
@@ -19,19 +31,27 @@ impl CommandsReceiver {
     pub(crate) fn new(receiver: Receiver<DynCommand>) -> Self {
         Self(receiver)
     }
+
+    pub async fn recv(&mut self) -> Option<DynCommand> {
+        self.0.next().await
+    }
 }
 
-pub struct Commands<'s>(&'s CommandSender);
+pub struct Commands<'s> {
+    sender: CommandSender,
+    // other senders allow to use lifetimes
+    _marker: std::marker::PhantomData<&'s ()>,
+}
 
 impl Commands<'_> {
-    pub fn add(&self, command: impl Command + 'static) {
-        self.0
+    pub fn add(&mut self, command: impl Command + 'static) {
+        self.sender
             .0
-            .send(Box::new(command))
+            .try_send(Box::new(command))
             .expect("Failed to send command");
     }
 
-    pub fn insert_resource<R: Resource>(&self, resource: R) {
+    pub fn insert_resource<R: Resource>(&mut self, resource: R) {
         self.add(InsertResource(resource));
     }
 }
@@ -47,18 +67,21 @@ impl<'s> Param for Commands<'s> {
     }
 
     fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
-        Commands(owned)
+        Commands {
+            sender: owned.clone(),
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
 pub trait Command: Send {
-    fn apply(self: Box<Self>, world: &mut World);
+    fn apply(self: Box<Self>, world: WorldMut<'_>);
 }
 
 pub struct InsertResource<R: Resource>(R);
 
 impl<R: Resource> Command for InsertResource<R> {
-    fn apply(self: Box<Self>, world: &mut World) {
+    fn apply(self: Box<Self>, world: WorldMut<'_>) {
         world.state.resources.insert(self.0);
     }
 }

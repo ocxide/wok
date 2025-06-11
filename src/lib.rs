@@ -1,7 +1,7 @@
 pub mod prelude {
+    pub use crate::app::AppBuilder;
     pub use lump_core::error::LumpUnknownError;
     pub use lump_core::prelude::*;
-    pub use crate::app::AppBuilder;
 }
 
 pub mod schedules {
@@ -53,7 +53,7 @@ pub mod config {
     }
 
     pub struct ConfigLoads<'c> {
-        configs_load: &'c ConfigsServer<'c>,
+        configs_load: &'c mut ConfigsServer<'c>,
     }
 
     impl ConfigLoads<'_> {
@@ -70,8 +70,8 @@ pub mod config {
         }
     }
 
-    impl ConfigsServer<'_> {
-        pub fn start(&self) -> ConfigLoads<'_> {
+    impl<'s> ConfigsServer<'s> {
+        pub fn start(&'s mut self) -> ConfigLoads<'s> {
             ConfigLoads { configs_load: self }
         }
     }
@@ -97,119 +97,38 @@ pub mod config_loaders {
     }
 }
 
-pub mod app {
-    use lump_core::world::{ConfigureWorld, World, WorldCenter, WorldState};
+pub mod app;
 
-    use crate::schedules::Startup;
+mod async_rt {
+    pub mod tokio {
+        use futures::FutureExt;
+        use tokio::{runtime::Handle, task::JoinHandle};
 
-    pub struct AppBuilder {
-        world: World,
-    }
+        use crate::app::AsyncRuntime;
 
-    impl Default for AppBuilder {
-        fn default() -> Self {
-            let mut world = World::default();
-            world.init_schedule::<Startup>();
+        pub struct TokioJoinHandle<T>(pub JoinHandle<T>);
 
-            Self { world }
-        }
-    }
-
-    impl AppBuilder {
-        pub fn build_parts<C: RuntimeConfig>(self, config: C) -> (Runtime<C>, WorldState) {
-            let rt = config.into_parts();
-            let (state, center) = self.world.into_parts();
-
-            let rt = Runtime::<C> { world: center, rt };
-            (rt, state)
-        }
-    }
-
-    impl ConfigureWorld for AppBuilder {
-        fn world(&self) -> &World {
-            &self.world
-        }
-
-        fn world_mut(&mut self) -> &mut World {
-            &mut self.world
-        }
-    }
-
-    pub trait AsyncRuntime {
-        type JoinHandle<T>: Future<Output = T> + Send + 'static;
-        fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
-        where
-            Fut: std::future::Future + Send + 'static;
-    }
-
-    pub trait RuntimeConfig {
-        type AsyncRuntime: AsyncRuntime;
-
-        fn into_parts(self) -> Self::AsyncRuntime;
-    }
-
-    pub struct Runtime<C: RuntimeConfig> {
-        world: WorldCenter,
-        rt: C::AsyncRuntime,
-    }
-
-    mod startup {
-        use futures::{StreamExt, stream::FuturesUnordered};
-        use lump_core::{
-            schedule::LabeledScheduleSystem,
-            world::{SystemId, WorldState, WorldSystemRunError},
-        };
-
-        use crate::schedules::Startup;
-
-        use super::*;
-
-        impl<C: RuntimeConfig> Runtime<C> {
-            fn pending_systems(
-                &mut self,
-                schedule: &mut LabeledScheduleSystem<Startup>,
-                state: &WorldState,
-                futures: &mut FuturesUnordered<
-                    <C::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>,
-                >,
-            ) {
-                for _ in schedule.schedule.extract_if(move |id, system| {
-                    match self.world.try_access(id) {
-                        Ok(_) => {}
-                        Err(WorldSystemRunError::NotRegistered) => {
-                            panic!("System not registered")
-                        }
-                        Err(WorldSystemRunError::InvalidAccess) => return false,
-                    };
-
-                    let fut = system.run(state, ());
-                    let fut = self.rt.spawn(async move {
-                        let _ = fut.await;
-                        id
-                    });
-
-                    futures.push(fut);
-
-                    true
-                }) {}
+        impl<T> Future for TokioJoinHandle<T> {
+            type Output = T;
+            fn poll(
+                mut self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Self::Output> {
+                self.0
+                    .poll_unpin(cx)
+                    .map(|poll| poll.expect("Tokio join handle failed"))
             }
+        }
 
-            pub fn invoke_startup(&mut self, state: &WorldState) -> impl Future<Output = ()> {
-                let mut schedule = self
-                    .world
-                    .resources
-                    .try_take::<LabeledScheduleSystem<Startup>>()
-                    .expect("Failed to take schedule");
+        impl AsyncRuntime for Handle {
+            type JoinHandle<T: Send + 'static> = TokioJoinHandle<T>;
 
-                let mut futures = FuturesUnordered::new();
-                self.pending_systems(&mut schedule, state, &mut futures);
-
-                async move {
-                    while let Some(systemid) = futures.next().await {
-                        self.world.release_access(systemid);
-                        self.pending_systems(&mut schedule, state, &mut futures);
-                    }
-                }
+            fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
+            where
+                Fut: std::future::Future<Output: Send> + Send + 'static,
+            {
+                let handle = self.spawn(fut);
+                TokioJoinHandle(handle)
             }
         }
     }

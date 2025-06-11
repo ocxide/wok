@@ -66,7 +66,7 @@ pub mod error {
 }
 
 pub mod schedule {
-    use hashbrown::{HashMap, hash_map::ExtractIf};
+    use hashbrown::HashMap;
 
     use crate::{prelude::Resource, system::DynSystem, world::meta::SystemId};
 
