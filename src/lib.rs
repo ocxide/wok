@@ -5,7 +5,12 @@ pub mod prelude {
 }
 
 pub mod schedules {
-    use lump_core::{error::LumpUnknownError, schedule::ScheduleLabel};
+    use lump_core::{
+        error::LumpUnknownError,
+        prelude::{BoundSystem, TaskSystem},
+        schedule::ScheduleLabel,
+        world::SystemId,
+    };
 
     #[derive(Copy, Clone)]
     pub struct Startup;
@@ -16,6 +21,22 @@ pub mod schedules {
 
     #[derive(Copy, Clone)]
     pub struct Events;
+
+    pub trait Event: Send + Sync + 'static {}
+
+    type EventHandler<E> = Box<dyn for<'e> BoundSystem<&'e E, ()>>;
+    pub struct EventSystems<E: Event>(Vec<(SystemId, EventHandler<E>)>);
+
+    impl<E: Event> EventSystems<E> {
+        #[inline]
+        pub fn add<S>(
+            &mut self,
+            systemid: SystemId,
+            system: impl for<'e> BoundSystem<&'e E, ()> + TaskSystem,
+        ) {
+            self.0.push((systemid, Box::new(system)));
+        }
+    }
 }
 
 pub mod config {

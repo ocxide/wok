@@ -67,7 +67,10 @@ where
     Marker: 'static,
     Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
 {
-    fn run(&self, world: &WorldState, input: Self::In) -> SystemFuture<Self> {
+    fn run<'i>(&self, world: &WorldState, input: Self::In) -> SystemFuture<'i, Self>
+    where
+        Self::In: 'i,
+    {
         let func = self.func.clone();
         let params = Func::Params::get(world);
 
