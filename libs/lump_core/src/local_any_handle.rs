@@ -11,4 +11,9 @@ impl LocalAnyHandle {
         let boxed = self.0.downcast::<T>().ok()?;
         Some(*boxed)
     }
+
+    pub fn get_mut<T: Sized + 'static>(&mut self) -> Option<&mut T> {
+        let data = self.0.downcast_mut::<T>()?;
+        Some(data)
+    }
 }

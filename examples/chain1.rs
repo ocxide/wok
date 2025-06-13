@@ -15,8 +15,8 @@ async fn third(_: In<u64>) {}
 
 fn main() {
     let lump = World::default();
-    let sys = first.pipe(second).pipe(third).into_system();
-
-    let fut = sys.run(&lump.state, 2);
-    std::mem::drop(fut);
+    // let sys = first.pipe(second).pipe(third).into_system();
+    //
+    // let fut = sys.run(&lump.state, 2);
+    // std::mem::drop(fut);
 }

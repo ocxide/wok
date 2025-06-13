@@ -71,7 +71,7 @@ impl NamedBind for PersonName {
     const NAME: &'static str = "name";
 }
 
-async fn connect_db(commands: Commands<'_>) -> Result<(), LumpUnknownError> {
+async fn connect_db(mut commands: Commands<'_>) -> Result<(), LumpUnknownError> {
     sleep(std::time::Duration::from_secs(1)).await;
 
     let db = surrealdb::Surreal::<Client>::init();

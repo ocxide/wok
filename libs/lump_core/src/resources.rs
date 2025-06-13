@@ -64,4 +64,10 @@ impl LocalResources {
     pub fn init<R: Resource + Default>(&mut self) {
         self.insert(R::default());
     }
+
+    pub fn get_mut<R: Resource>(&mut self) -> Option<&mut R> {
+        self.0
+            .get_mut(&R::id())
+            .and_then(|handle| handle.get_mut())
+    }
 }
