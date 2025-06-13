@@ -4,8 +4,8 @@ use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::{LocalResources, Resources};
-use crate::schedule::{HomogenousScheduleSystem, ScheduleLabel};
-use crate::system::{IntoSystem, TaskSystem};
+use crate::schedule::{ScheduleConfigure, ScheduleLabel};
+use crate::system::{IntoSystem, System};
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -297,10 +297,10 @@ impl Default for World {
 
 impl World {
     pub fn init_schedule<S: ScheduleLabel>(&mut self) {
-        self.center.resources.init::<HomogenousScheduleSystem<S>>();
+        S::init(self);
     }
 
-    pub fn register_system(&mut self, system: &impl TaskSystem) -> SystemId {
+    pub fn register_system(&mut self, system: &impl System) -> SystemId {
         let mut rw = SystemLock::default();
         system.init(&mut rw);
 
@@ -332,26 +332,14 @@ pub trait ConfigureWorld: Sized {
         self
     }
 
-    fn add_system<S: ScheduleLabel, Marker>(
-        mut self,
-        _: S,
-        system: impl IntoSystem<Marker, System: TaskSystem<In = S::SystenIn, Out = S::SystemOut>>,
-    ) -> Self {
-        let schedule = self
-            .world_mut()
-            .state
-            .resources
-            .handle::<HomogenousScheduleSystem<S>>()
-            .expect("Unsupported schedule");
-
+    fn add_system<Sch, SchMarker, S, SMarker>(mut self, _: Sch, system: S) -> Self
+    where
+        Sch: ScheduleLabel + ScheduleConfigure<S::System, SchMarker>,
+        S: IntoSystem<SMarker>,
+    {
         let system = system.into_system();
         let id = self.world_mut().register_system(&system);
-        let system = Box::new(system);
-
-        schedule
-            .write()
-            .expect("failed to write schedule")
-            .add_system(id, system);
+        Sch::add(self.world_mut(), id, system);
 
         self
     }

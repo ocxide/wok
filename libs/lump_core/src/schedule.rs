@@ -1,8 +1,12 @@
 pub use storages::HomogenousScheduleSystem;
+pub use storages::HomogenousSchedule;
 
 pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {
-    type SystenIn;
-    type SystemOut;
+    fn init(world: &mut crate::world::World);
+}
+
+pub trait ScheduleConfigure<System, Marker> {
+    fn add(world: &mut crate::world::World, systemid: crate::world::SystemId, system: System);
 }
 
 mod storages {
@@ -12,13 +16,18 @@ mod storages {
 
     use super::ScheduleLabel;
 
-    pub struct HomogenousScheduleSystem<S: ScheduleLabel> {
+    pub trait HomogenousSchedule: ScheduleLabel {
+        type SystenIn;
+        type SystemOut;
+    }
+
+    pub struct HomogenousScheduleSystem<S: HomogenousSchedule> {
         systems: HashMap<SystemId, DynSystem<S::SystenIn, S::SystemOut>>,
     }
 
-    impl<S: ScheduleLabel> Resource for HomogenousScheduleSystem<S> {}
+    impl<S: HomogenousSchedule> Resource for HomogenousScheduleSystem<S> {}
 
-    impl<S: ScheduleLabel> Default for HomogenousScheduleSystem<S> {
+    impl<S: HomogenousSchedule> Default for HomogenousScheduleSystem<S> {
         fn default() -> Self {
             Self {
                 systems: Default::default(),
@@ -26,8 +35,12 @@ mod storages {
         }
     }
 
-    impl<S: ScheduleLabel> HomogenousScheduleSystem<S> {
-        pub fn add_system(&mut self, systemid: SystemId, system: DynSystem<S::SystenIn, S::SystemOut>) {
+    impl<S: HomogenousSchedule> HomogenousScheduleSystem<S> {
+        pub fn add_system(
+            &mut self,
+            systemid: SystemId,
+            system: DynSystem<S::SystenIn, S::SystemOut>,
+        ) {
             self.systems.insert(systemid, system);
         }
 
