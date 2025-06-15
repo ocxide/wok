@@ -2,12 +2,75 @@ use std::pin::Pin;
 
 use crate::world::{WorldState, access::SystemLock};
 
+pub use input::In;
+pub use input::SystemInput;
+
+mod input {
+    use std::ops::Deref;
+
+    pub trait SystemInput: Sized + Send {
+        type Wrapped<'i>: SystemInput;
+        type Inner<'i>: Send;
+
+        fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_>;
+    }
+
+    impl SystemInput for () {
+        type Wrapped<'i> = ();
+        type Inner<'i> = ();
+
+        fn wrap(_this: Self::Inner<'_>) -> Self::Wrapped<'_> {}
+    }
+
+    pub struct In<T: Sized + 'static + Send>(pub T);
+
+    impl<T: Send> Deref for In<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<T: Sized + 'static + Send> SystemInput for In<T> {
+        type Wrapped<'i> = In<T>;
+        type Inner<'i> = T;
+
+        fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
+            In(this)
+        }
+    }
+
+    pub struct InRef<'i, I: ?Sized + 'static + Send>(&'i I);
+
+    impl<'i, I: ?Sized + Send> Deref for InRef<'i, I> {
+        type Target = I;
+
+        fn deref(&self) -> &Self::Target {
+            self.0
+        }
+    }
+
+    impl<I: ?Sized + 'static + Send> SystemInput for InRef<'_, I>
+    where
+        for<'i> &'i I: Send,
+    {
+        type Wrapped<'i> = InRef<'i, I>;
+        type Inner<'i> = &'i I;
+
+        fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
+            InRef(this)
+        }
+    }
+}
+
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
 pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync + 'static>;
+pub type SystemIn<'i, S> = <<S as System>::In as SystemInput>::Inner<'i>;
 
 pub trait System: Send + Sync + 'static {
-    type In;
+    type In: SystemInput;
     type Out: Send + Sync + 'static;
 
     fn init(&self, rw: &mut SystemLock);
@@ -15,7 +78,7 @@ pub trait System: Send + Sync + 'static {
 
 // Dyn compatible
 pub trait TaskSystem: System {
-    fn run<'i>(&self, world: &WorldState, input: Self::In) -> SystemFuture<'i, Self>
+    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>
     where
         Self::In: 'i;
 }
@@ -36,21 +99,8 @@ pub trait BoundSystem<In, Out: Send + Sync + 'static> {
         In: 'i;
 }
 
-impl<TS, In, Out: Send + Sync + 'static> BoundSystem<In, Out> for TS
-where
-    TS: TaskSystem<In = In, Out = Out>,
-{
-    #[inline]
-    fn run<'i>(&self, world: &WorldState, input: In) -> ScopedFut<'i, Out>
-    where
-        In: 'i,
-    {
-        <Self as TaskSystem>::run(self, world, input)
-    }
-}
-
 pub trait IntoSystem<Marker> {
-    type System: System + TaskSystem + StaticSystem;
+    type System: System + TaskSystem;
 
     fn into_system(self) -> Self::System;
     // fn pipe<S2, MarkerS2>(self, s2: S2) -> IntoSystemPipe<Self::System, S2::System>

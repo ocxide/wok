@@ -2,12 +2,10 @@ use lump::prelude::*;
 
 #[derive(Clone)]
 struct State {}
-
 impl Resource for State {}
 
 #[derive(Clone)]
 struct State2 {}
-
 impl Resource for State2 {}
 
 async fn single() {}

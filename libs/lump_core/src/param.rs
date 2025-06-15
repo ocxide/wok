@@ -6,16 +6,6 @@ use crate::{
     world::{WorldState, access::SystemLock},
 };
 
-pub struct In<T>(pub T);
-
-impl<T> Deref for In<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 pub trait Param: Send {
     type Owned: Send + 'static;
     type AsRef<'r>;
