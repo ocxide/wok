@@ -2,8 +2,7 @@ use std::pin::Pin;
 
 use crate::world::{WorldState, access::SystemLock};
 
-pub use input::In;
-pub use input::SystemInput;
+pub use input::*;
 
 mod input {
     use std::ops::Deref;

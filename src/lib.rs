@@ -6,35 +6,42 @@ pub mod prelude {
 
 pub mod schedules {
     use lump_core::{
-        error::LumpUnknownError,
-        prelude::{BoundSystem, TaskSystem},
-        schedule::ScheduleLabel,
-        world::SystemId,
+        prelude::{DynSystem, In},
+        schedule::{HomogenousSchedule, ScheduleConfigure, ScheduleLabel, Systems},
     };
 
     #[derive(Copy, Clone)]
     pub struct Startup;
-    impl ScheduleLabel for Startup {
+
+    impl HomogenousSchedule for Startup {
         type SystenIn = ();
-        type SystemOut = Result<(), LumpUnknownError>;
+        type SystemOut = ();
+    }
+
+    impl ScheduleLabel for Startup {
+        fn init(world: &mut lump_core::world::World) {}
     }
 
     #[derive(Copy, Clone)]
     pub struct Events;
 
+    impl ScheduleLabel for Events {
+        fn init(world: &mut lump_core::world::World) {}
+    }
+
     pub trait Event: Send + Sync + 'static {}
 
-    type EventHandler<E> = Box<dyn for<'e> BoundSystem<&'e E, ()>>;
-    pub struct EventSystems<E: Event>(Vec<(SystemId, EventHandler<E>)>);
-
-    impl<E: Event> EventSystems<E> {
-        #[inline]
-        pub fn add<S>(
-            &mut self,
-            systemid: SystemId,
-            system: impl for<'e> BoundSystem<&'e E, ()> + TaskSystem,
+    impl<E: Event> ScheduleConfigure<In<&E>, ()> for Events {
+        fn add(
+            world: &mut lump_core::world::World,
+            systemid: lump_core::world::SystemId,
+            system: DynSystem<In<&E>, ()>,
         ) {
-            self.0.push((systemid, Box::new(system)));
+            let Some(systems) = world.center.resources.get_mut::<Systems<In<&E>, ()>>() else {
+                panic!("events `{}` is not registered", std::any::type_name::<E>());
+            };
+
+            systems.add(systemid, system);
         }
     }
 }

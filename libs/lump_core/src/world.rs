@@ -5,7 +5,7 @@ use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::{LocalResources, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
-use crate::system::{IntoSystem, System};
+use crate::system::{DynSystem, IntoSystem, System, SystemInput};
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -303,7 +303,7 @@ impl World {
     pub fn register_system(&mut self, system: &impl System) -> SystemId {
         let mut rw = SystemLock::default();
         system.init(&mut rw);
-
+    
         self.center.systems_rw.add(rw)
     }
 
@@ -332,14 +332,15 @@ pub trait ConfigureWorld: Sized {
         self
     }
 
-    fn add_system<Sch, SchMarker, S, SMarker>(mut self, _: Sch, system: S) -> Self
+    fn add_system<Sch, S, SMarker>(mut self, _: Sch, system: S) -> Self
     where
-        Sch: ScheduleLabel + ScheduleConfigure<S::System, SchMarker>,
+        Sch: ScheduleLabel
+            + ScheduleConfigure<<S::System as System>::In, <S::System as System>::Out>,
         S: IntoSystem<SMarker>,
     {
         let system = system.into_system();
         let id = self.world_mut().register_system(&system);
-        Sch::add(self.world_mut(), id, system);
+        Sch::add(self.world_mut(), id, Box::new(system));
 
         self
     }

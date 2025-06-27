@@ -1,18 +1,30 @@
-pub use storages::HomogenousScheduleSystem;
 pub use storages::HomogenousSchedule;
+pub use storages::HomogenousScheduleSystem;
+pub use storages::Systems;
+
+use crate::system::DynSystem;
+use crate::system::SystemInput;
 
 pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {
     fn init(world: &mut crate::world::World);
 }
 
-pub trait ScheduleConfigure<System, Marker> {
-    fn add(world: &mut crate::world::World, systemid: crate::world::SystemId, system: System);
+pub trait ScheduleConfigure<In: SystemInput, Out> {
+    fn add(
+        world: &mut crate::world::World,
+        systemid: crate::world::SystemId,
+        system: DynSystem<In, Out>,
+    );
 }
 
 mod storages {
     use hashbrown::HashMap;
 
-    use crate::{prelude::Resource, system::DynSystem, world::SystemId};
+    use crate::{
+        prelude::Resource,
+        system::{DynSystem, SystemInput},
+        world::SystemId,
+    };
 
     use super::ScheduleLabel;
 
@@ -63,4 +75,17 @@ mod storages {
             self.systems.is_empty()
         }
     }
+
+    pub struct Systems<In: SystemInput + 'static, Out: 'static>(
+        pub Vec<(SystemId, DynSystem<In, Out>)>,
+    );
+
+    impl<In: SystemInput + 'static, Out: 'static> Systems<In, Out> {
+        #[inline]
+        pub fn add(&mut self, systemid: SystemId, system: DynSystem<In, Out>) {
+            self.0.push((systemid, system));
+        }
+    }
+
+    impl<In: SystemInput + 'static, Out: 'static> Resource for Systems<In, Out> {}
 }
