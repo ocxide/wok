@@ -5,7 +5,7 @@ use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::{LocalResources, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
-use crate::system::{DynSystem, IntoSystem, System, SystemInput};
+use crate::system::{IntoSystem, System};
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -296,14 +296,10 @@ impl Default for World {
 }
 
 impl World {
-    pub fn init_schedule<S: ScheduleLabel>(&mut self) {
-        S::init(self);
-    }
-
     pub fn register_system(&mut self, system: &impl System) -> SystemId {
         let mut rw = SystemLock::default();
         system.init(&mut rw);
-    
+
         self.center.systems_rw.add(rw)
     }
 

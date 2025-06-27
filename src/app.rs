@@ -1,6 +1,6 @@
 use lump_core::world::{ConfigureWorld, World, WorldCenter, WorldState};
 
-use crate::schedules::Startup;
+use crate::startup::Startup;
 
 pub struct AppBuilder {
     world: World,
@@ -9,17 +9,15 @@ pub struct AppBuilder {
 impl Default for AppBuilder {
     fn default() -> Self {
         let mut world = World::default();
-        world.init_schedule::<Startup>();
+
+        Startup::init(&mut world.center);
 
         Self { world }
     }
 }
 
 impl AppBuilder {
-    pub fn build_parts<C: RuntimeConfig>(
-        self,
-        rt: C::AsyncRuntime,
-    ) -> (Runtime<C>, WorldState) {
+    pub fn build_parts<C: RuntimeConfig>(self, rt: C::AsyncRuntime) -> (Runtime<C>, WorldState) {
         let (state, center) = self.world.into_parts();
 
         let rt = Runtime::<C> { world: center, rt };
@@ -55,65 +53,9 @@ pub struct Runtime<C: RuntimeConfig> {
     rt: C::AsyncRuntime,
 }
 
-mod startup {
-    use futures::{StreamExt, stream::FuturesUnordered};
-    use lump_core::{
-        schedule::HomogenousScheduleSystem,
-        world::{SystemId, WorldState, WorldSystemRunError},
-    };
-
-    use crate::schedules::Startup;
-
-    use super::*;
-
-    impl<C: RuntimeConfig> Runtime<C> {
-        fn pending_systems(
-            &mut self,
-            schedule: &mut HomogenousScheduleSystem<Startup>,
-            state: &WorldState,
-            futures: &mut FuturesUnordered<
-                <C::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>,
-            >,
-        ) {
-            for _ in schedule.extract_if(move |id, system| {
-                match self.world.try_access(id) {
-                    Ok(_) => {}
-                    Err(WorldSystemRunError::NotRegistered) => {
-                        panic!("System not registered")
-                    }
-                    Err(WorldSystemRunError::InvalidAccess) => return false,
-                };
-
-                let fut = system.run(state, ());
-                let fut = self.rt.spawn(async move {
-                    let _ = fut.await;
-                    id
-                });
-
-                futures.push(fut);
-
-                true
-            }) {}
-        }
-
-        pub fn invoke_startup(&mut self, state: &mut WorldState) -> impl Future<Output = ()> {
-            let mut schedule = self
-                .world
-                .resources
-                .try_take::<HomogenousScheduleSystem<Startup>>()
-                .expect("Failed to take schedule");
-
-            let mut futures = FuturesUnordered::new();
-            self.pending_systems(&mut schedule, state, &mut futures);
-
-            async move {
-                while let Some(systemid) = futures.next().await {
-                    self.world.release_access(systemid);
-                    self.pending_systems(&mut schedule, state, &mut futures);
-                }
-
-                self.world.tick_commands(state).await;
-            }
-        }
+impl<C: RuntimeConfig> Runtime<C> {
+    pub async fn invoke_startup(&mut self, state: &mut WorldState) {
+        let invoker = Startup::create_invoker::<C>(&mut self.world, state, &self.rt);
+        invoker.invoke().await
     }
 }

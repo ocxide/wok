@@ -1,13 +1,9 @@
-pub use storages::HomogenousSchedule;
-pub use storages::HomogenousScheduleSystem;
-pub use storages::Systems;
+pub use storages::*;
 
 use crate::system::DynSystem;
 use crate::system::SystemInput;
 
-pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {
-    fn init(world: &mut crate::world::World);
-}
+pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {}
 
 pub trait ScheduleConfigure<In: SystemInput, Out> {
     fn add(
@@ -26,32 +22,25 @@ mod storages {
         world::SystemId,
     };
 
-    use super::ScheduleLabel;
-
-    pub trait HomogenousSchedule: ScheduleLabel {
-        type SystenIn;
-        type SystemOut;
+    pub struct SystemsMap<In: SystemInput + 'static, Out: 'static> {
+        systems: HashMap<SystemId, DynSystem<In, Out>>,
     }
 
-    pub struct HomogenousScheduleSystem<S: HomogenousSchedule> {
-        systems: HashMap<SystemId, DynSystem<S::SystenIn, S::SystemOut>>,
-    }
-
-    impl<S: HomogenousSchedule> Resource for HomogenousScheduleSystem<S> {}
-
-    impl<S: HomogenousSchedule> Default for HomogenousScheduleSystem<S> {
+    impl<In: SystemInput + 'static, Out: 'static> Default for SystemsMap<In, Out> {
         fn default() -> Self {
             Self {
-                systems: Default::default(),
+                systems: HashMap::default(),
             }
         }
     }
 
-    impl<S: HomogenousSchedule> HomogenousScheduleSystem<S> {
+    impl<In: SystemInput + 'static, Out: 'static> Resource for SystemsMap<In, Out> {}
+
+    impl<In: SystemInput + 'static, Out: 'static> SystemsMap<In, Out> {
         pub fn add_system(
             &mut self,
             systemid: SystemId,
-            system: DynSystem<S::SystenIn, S::SystemOut>,
+            system: DynSystem<In, Out>,
         ) {
             self.systems.insert(systemid, system);
         }
@@ -59,8 +48,8 @@ mod storages {
         #[inline]
         pub fn extract_if(
             &mut self,
-            mut predicate: impl FnMut(SystemId, &DynSystem<S::SystenIn, S::SystemOut>) -> bool,
-        ) -> impl Iterator<Item = (SystemId, DynSystem<S::SystenIn, S::SystemOut>)> {
+            mut predicate: impl FnMut(SystemId, &DynSystem<In, Out>) -> bool,
+        ) -> impl Iterator<Item = (SystemId, DynSystem<In, Out>)> {
             self.systems
                 .extract_if(move |systemid, system| predicate(*systemid, system))
         }

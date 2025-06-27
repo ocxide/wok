@@ -4,30 +4,18 @@ pub mod prelude {
     pub use lump_core::prelude::*;
 }
 
+mod startup;
+
 pub mod schedules {
     use lump_core::{
         prelude::{DynSystem, In},
-        schedule::{HomogenousSchedule, ScheduleConfigure, ScheduleLabel, Systems},
+        schedule::{ScheduleConfigure, ScheduleLabel, Systems},
     };
-
-    #[derive(Copy, Clone)]
-    pub struct Startup;
-
-    impl HomogenousSchedule for Startup {
-        type SystenIn = ();
-        type SystemOut = ();
-    }
-
-    impl ScheduleLabel for Startup {
-        fn init(world: &mut lump_core::world::World) {}
-    }
 
     #[derive(Copy, Clone)]
     pub struct Events;
 
-    impl ScheduleLabel for Events {
-        fn init(world: &mut lump_core::world::World) {}
-    }
+    impl ScheduleLabel for Events {}
 
     pub trait Event: Send + Sync + 'static {}
 
