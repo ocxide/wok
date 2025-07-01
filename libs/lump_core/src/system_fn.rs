@@ -4,7 +4,7 @@ use impls::{ParamBorrow, ParamOwned};
 
 use crate::{
     param::Param,
-    system::{IntoSystem, System, SystemFuture, SystemIn, SystemInput, TaskSystem},
+    system::{IntoSystem, System, SystemFuture, SystemIn, SystemInput, SystemTask, TaskSystem},
     world::WorldState,
 };
 
@@ -75,6 +75,16 @@ where
 
         let fut = func.run_owned(input, params);
         Box::pin(fut)
+    }
+
+    fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out> {
+        let func = self.func.clone();
+        let params = Func::Params::get(world);
+
+        SystemTask::new(move |input, _| {
+            let fut = func.run_owned(input, params);
+            Box::pin(fut)
+        })
     }
 }
 

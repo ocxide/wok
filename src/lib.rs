@@ -1,38 +1,13 @@
 pub mod prelude {
-    pub use crate::app::AppBuilder;
+    pub use crate::app::{AppBuilder, ConfigureWorldMore};
     pub use lump_core::error::LumpUnknownError;
     pub use lump_core::prelude::*;
+
+    pub use crate::events::{Events, Event};
 }
 
 mod startup;
-
-pub mod schedules {
-    use lump_core::{
-        prelude::{DynSystem, In},
-        schedule::{ScheduleConfigure, ScheduleLabel, Systems},
-    };
-
-    #[derive(Copy, Clone)]
-    pub struct Events;
-
-    impl ScheduleLabel for Events {}
-
-    pub trait Event: Send + Sync + 'static {}
-
-    impl<E: Event> ScheduleConfigure<In<&E>, ()> for Events {
-        fn add(
-            world: &mut lump_core::world::World,
-            systemid: lump_core::world::SystemId,
-            system: DynSystem<In<&E>, ()>,
-        ) {
-            let Some(systems) = world.center.resources.get_mut::<Systems<In<&E>, ()>>() else {
-                panic!("events `{}` is not registered", std::any::type_name::<E>());
-            };
-
-            systems.add(systemid, system);
-        }
-    }
-}
+mod events;
 
 pub mod config {
     use std::ops::Deref;

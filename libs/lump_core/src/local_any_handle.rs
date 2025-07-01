@@ -16,4 +16,9 @@ impl LocalAnyHandle {
         let data = self.0.downcast_mut::<T>()?;
         Some(data)
     }
+
+    pub fn get<T: Sized + 'static>(&self) -> Option<&T> {
+        let data = self.0.downcast_ref::<T>()?;
+        Some(data)
+    }
 }

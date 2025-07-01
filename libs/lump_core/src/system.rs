@@ -80,6 +80,29 @@ pub trait TaskSystem: System {
     fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>
     where
         Self::In: 'i;
+
+    fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out>;
+}
+
+pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
+    #[allow(
+        clippy::type_complexity,
+        reason = "I am obsuring the type behind type `SystemTask`"
+    )]
+    pub Box<dyn for<'i> FnOnce(In::Inner<'i>, &'i [(); 0]) -> ScopedFut<'i, Out> + Send + 'static>,
+);
+
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> SystemTask<In, Out> {
+    pub fn run<'i>(self, input: In::Inner<'i>) -> ScopedFut<'i, Out> {
+        self.0(input, &[])
+    }
+
+    pub fn new<F>(f: F) -> Self
+    where
+        F: for<'i> FnOnce(In::Inner<'i>, &'i [(); 0]) -> ScopedFut<'i, Out> + 'static + Send,
+    {
+        Self(Box::new(f))
+    }
 }
 
 pub trait StaticSystem: System {
@@ -90,12 +113,6 @@ pub trait StaticSystem: System {
         params: Self::Params,
         input: Self::In,
     ) -> impl Future<Output = Self::Out> + Send + 'static;
-}
-
-pub trait BoundSystem<In, Out: Send + Sync + 'static> {
-    fn run<'i>(&self, world: &WorldState, input: In) -> ScopedFut<'i, Out>
-    where
-        In: 'i;
 }
 
 pub trait IntoSystem<Marker> {

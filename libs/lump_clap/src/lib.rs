@@ -1,4 +1,3 @@
-use lump::schedules::Startup;
 use lump_core::world::{ConfigureWorld, World};
 
 pub mod prelude {
@@ -379,7 +378,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let mut lump = lump::prelude::World::default();
-        lump.init_schedule::<Startup>();
+        // lump.init_schedule::<Startup>();
 
         Self { lump }
     }

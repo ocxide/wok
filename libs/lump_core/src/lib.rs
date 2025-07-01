@@ -2,7 +2,7 @@ mod any_handle;
 pub mod commands;
 mod local_any_handle;
 mod param;
-mod resources;
+pub mod resources;
 mod system;
 pub mod system_fn;
 pub mod world;

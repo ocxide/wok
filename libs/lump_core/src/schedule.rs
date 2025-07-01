@@ -18,6 +18,7 @@ mod storages {
 
     use crate::{
         prelude::Resource,
+        resources::LocalResource,
         system::{DynSystem, SystemInput},
         world::SystemId,
     };
@@ -35,13 +36,10 @@ mod storages {
     }
 
     impl<In: SystemInput + 'static, Out: 'static> Resource for SystemsMap<In, Out> {}
+    impl<In: SystemInput + 'static, Out: 'static> LocalResource for SystemsMap<In, Out> {}
 
     impl<In: SystemInput + 'static, Out: 'static> SystemsMap<In, Out> {
-        pub fn add_system(
-            &mut self,
-            systemid: SystemId,
-            system: DynSystem<In, Out>,
-        ) {
+        pub fn add_system(&mut self, systemid: SystemId, system: DynSystem<In, Out>) {
             self.systems.insert(systemid, system);
         }
 
@@ -77,4 +75,5 @@ mod storages {
     }
 
     impl<In: SystemInput + 'static, Out: 'static> Resource for Systems<In, Out> {}
+    impl<In: SystemInput + 'static, Out: 'static> LocalResource for Systems<In, Out> {}
 }

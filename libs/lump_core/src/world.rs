@@ -3,7 +3,7 @@ use std::sync::mpsc::Sender;
 use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
-use crate::resources::{LocalResources, Resources};
+use crate::resources::{LocalResource, LocalResources, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
 use crate::system::{IntoSystem, System};
 
@@ -323,7 +323,7 @@ pub trait ConfigureWorld: Sized {
         self
     }
 
-    fn insert_local_resource<R: Resource>(mut self, resource: R) -> Self {
+    fn insert_local_resource<R: LocalResource>(mut self, resource: R) -> Self {
         self.world_mut().center.resources.insert(resource);
         self
     }

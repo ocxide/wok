@@ -1,4 +1,4 @@
-use lump::{app::AppBuilder, prelude::*, schedules::{Event, Events}};
+use lump::{app::AppBuilder, prelude::*};
 
 struct MyEvent {}
 impl Event for MyEvent {}
