@@ -3,7 +3,7 @@ pub mod prelude {
     pub use lump_core::error::LumpUnknownError;
     pub use lump_core::prelude::*;
 
-    pub use crate::events::{Events, Event};
+    pub use crate::events::{Events, Event, OnEvents};
 }
 
 mod startup;

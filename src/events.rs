@@ -1,106 +1,125 @@
-use std::sync::{Arc, mpsc::Receiver};
+use std::{sync::Arc, task::Poll};
 
+use futures::{StreamExt, channel::mpsc::Receiver};
 use lump_core::{
-    prelude::{DynSystem, In, InRef, SystemInput},
+    prelude::{DynSystem, SystemInput},
     resources::LocalResource,
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
     world::{World, WorldCenter, WorldState},
 };
 
-use crate::app::{RuntimeConfig, SystemTaskLauncher};
+use crate::app::{AppBuilder, RuntimeConfig, SystemTaskLauncher};
 
-#[derive(Copy, Clone)]
-pub struct Events;
+type EventHandlers<'e, E: Event> = Systems<OnEvents<'e, E>, (), EventsBuffer<E>>;
 
-impl Events {
-    pub fn init<C: RuntimeConfig>(world: &mut World) {
-        world.center.resources.init::<RegisteredEvents<C>>();
-    }
+pub(crate) struct EventsBuffer<E: Event>(Vec<Arc<E>>);
 
-    pub fn invoke_event<E: Event, C: RuntimeConfig, In: SystemInput + 'static>(
-        center: &mut WorldCenter,
-        state: &WorldState,
-        launcher: SystemTaskLauncher<'_, C>,
-    ) where
-        for<'e> &'e E: Into<In::Inner<'e>>,
-    {
-        let events_recv = center
-            .resources
-            .get::<EventList<E>>()
-            .expect("Event to be registered");
-        let systems = center
-            .resources
-            .get::<Systems<In, ()>>()
-            .expect("Event to be registered");
-
-        for event in events_recv.recv.try_iter() {
-            let event = Arc::new(event);
-            for (systemid, system) in systems.0.iter() {
-                let event = event.clone();
-                let task = system.create_task(state);
-
-                let systemid = *systemid;
-
-                launcher.single(async move {
-                    let input = event.as_ref().into();
-                    task.run(input).await;
-
-                    systemid
-                });
-            }
-        }
-    }
-
-    pub fn register<C: RuntimeConfig, E: Event>(world: &mut World) {
-        let registered_events = world
-            .center
-            .resources
-            .get_mut::<RegisteredEvents<C>>()
-            .expect("Events schedule to be initialized");
-
-        registered_events
-            .invokers
-            .push(Self::invoke_event::<E, C, InRef<E>>);
-    }
-}
-
-impl ScheduleLabel for Events {}
-
-pub trait Event: Send + Sync + 'static {
-    fn as_input_ref(&self) -> <InRef<'_, Self> as SystemInput>::Inner<'_> {
-        self
-    }
-}
-
-impl<E: Event> ScheduleConfigure<In<&E>, ()> for Events {
-    fn add(
-        world: &mut lump_core::world::World,
-        systemid: lump_core::world::SystemId,
-        system: DynSystem<In<&E>, ()>,
-    ) {
-        let Some(systems) = world.center.resources.get_mut::<Systems<In<&E>, ()>>() else {
-            panic!("events `{}` is not registered", std::any::type_name::<E>());
-        };
-
-        systems.add(systemid, system);
-    }
-}
-
-struct EventList<E: Event> {
+struct EventsSocket<E: Event> {
     recv: Receiver<E>,
 }
 
-impl<E: Event> LocalResource for EventList<E> {}
+impl<E: Event> LocalResource for EventsSocket<E> {}
 
-pub struct RegisteredEvents<C: RuntimeConfig> {
-    invokers: Vec<fn(&mut WorldCenter, &WorldState, SystemTaskLauncher<'_, C>)>,
+#[derive(Copy, Clone)]
+pub struct Events;
+impl ScheduleLabel for Events {}
+
+pub trait Event: Send + Sync + 'static {}
+
+pub struct OnEvents<'c, E: Event> {
+    // TODO: use a reference to a central buffer
+    buff: Vec<Arc<E>>,
+    _marker: std::marker::PhantomData<&'c ()>,
 }
 
-impl<C: RuntimeConfig> LocalResource for RegisteredEvents<C> {}
-impl<C: RuntimeConfig> Default for RegisteredEvents<C> {
-    fn default() -> Self {
-        Self {
-            invokers: Vec::new(),
+impl<'c, E: Event> OnEvents<'c, E> {
+    pub fn iter(&self) -> impl Iterator<Item = &E> {
+        self.buff.iter().map(|arc| arc.as_ref())
+    }
+}
+
+impl<'c, E: Event> SystemInput for OnEvents<'c, E> {
+    type Inner<'i> = OnEvents<'i, E>;
+    type Wrapped<'i> = OnEvents<'i, E>;
+
+    fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
+        this
+    }
+}
+
+impl<'c, E: Event> ScheduleConfigure<OnEvents<'c, E>, ()> for Events
+where
+    OnEvents<'c, E>: SystemInput + 'static,
+{
+    fn add(
+        world: &mut lump_core::world::World,
+        systemid: lump_core::world::SystemId,
+        system: DynSystem<OnEvents<'c, E>, ()>,
+    ) {
+        let Some(systems) = world.center.resources.get_mut::<EventHandlers<'c, E>>() else {
+            panic!("events `{}` is not registered", std::any::type_name::<E>());
+        };
+
+        systems.add(systemid, system, EventsBuffer(Default::default()));
+    }
+}
+
+impl Events {
+    pub fn register<C: RuntimeConfig, E: Event>(app: &mut AppBuilder<C>) {
+        app.invokers.add(Self::try_invoke::<C, E>);
+
+        app.invokers.add_polling(
+            |cx, resources| {
+                let rx = resources
+                    .get_mut::<EventsSocket<E>>()
+                    .expect("Event to be registered");
+
+                let event = match rx.recv.poll_next_unpin(cx) {
+                    Poll::Ready(Some(event)) => event,
+                    Poll::Ready(None) => return Poll::Ready(None),
+                    Poll::Pending => return Poll::Pending,
+                };
+
+                let event = Arc::new(event);
+                let handlers = resources
+                    .get_mut::<EventHandlers<E>>()
+                    .expect("Event to be registered");
+
+                for (_, _, pending) in handlers.0.iter_mut() {
+                    pending.0.push(event.clone());
+                }
+
+                Poll::Ready(Some(()))
+            },
+            Self::try_invoke::<C, E>,
+        );
+    }
+
+    pub(crate) fn try_invoke<C: RuntimeConfig, E: Event>(
+        center: &mut WorldCenter,
+        state: &WorldState,
+        spawner: &SystemTaskLauncher<'_, C>,
+    ) {
+        let handlers = center
+            .resources
+            .get_mut::<EventHandlers<E>>()
+            .expect("Event to be registered");
+
+        for (systemid, system, buffer) in handlers
+            .iter_mut()
+            .filter(|(_, _, pending)| !pending.0.is_empty())
+        {
+            let buffer = std::mem::take(&mut buffer.0);
+            let input = OnEvents {
+                buff: buffer,
+                _marker: std::marker::PhantomData,
+            };
+            let task = system.run(state, input);
+
+            spawner.single(async move {
+                task.await;
+                systemid
+            });
         }
     }
 }

@@ -63,17 +63,31 @@ mod storages {
         }
     }
 
-    pub struct Systems<In: SystemInput + 'static, Out: 'static>(
-        pub Vec<(SystemId, DynSystem<In, Out>)>,
+    pub struct Systems<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static = ()>(
+        pub Vec<(SystemId, DynSystem<In, Out>, Meta)>,
     );
 
-    impl<In: SystemInput + 'static, Out: 'static> Systems<In, Out> {
+    impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> Systems<In, Out, Meta> {
         #[inline]
-        pub fn add(&mut self, systemid: SystemId, system: DynSystem<In, Out>) {
-            self.0.push((systemid, system));
+        pub fn add(&mut self, systemid: SystemId, system: DynSystem<In, Out>, meta: Meta) {
+            self.0.push((systemid, system, meta));
+        }
+
+        pub fn iter_mut(
+            &mut self,
+        ) -> impl Iterator<Item = (SystemId, &mut DynSystem<In, Out>, &mut Meta)> {
+            self.0
+                .iter_mut()
+                .map(|(id, system, meta)| (*id, system, meta))
         }
     }
 
-    impl<In: SystemInput + 'static, Out: 'static> Resource for Systems<In, Out> {}
-    impl<In: SystemInput + 'static, Out: 'static> LocalResource for Systems<In, Out> {}
+    impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> Resource
+        for Systems<In, Out, Meta>
+    {
+    }
+    impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> LocalResource
+        for Systems<In, Out, Meta>
+    {
+    }
 }
