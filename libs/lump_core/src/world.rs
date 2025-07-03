@@ -194,7 +194,7 @@ pub(crate) mod meta {
 }
 
 #[derive(Debug)]
-pub enum WorldSystemRunError {
+pub enum WorldSystemLockError {
     NotRegistered,
     InvalidAccess,
 }
@@ -228,34 +228,42 @@ impl WorldState {
     }
 }
 
-pub struct WorldCenter {
-    pub(crate) rw: access::WorldLocks,
-    pub(crate) systems_rw: meta::SystemsRw,
-    pub(crate) commands_rx: CommandsReceiver,
-    pub resources: LocalResources,
+#[derive(Default)]
+pub struct SystemLocks {
+    rw: access::WorldLocks,
+    systems_rw: meta::SystemsRw,
 }
 
-impl WorldCenter {
-    pub fn try_access(&mut self, systemid: SystemId) -> Result<(), WorldSystemRunError> {
+impl SystemLocks {
+    pub fn try_lock(&mut self, systemid: SystemId) -> Result<(), WorldSystemLockError> {
         let rw = self
             .systems_rw
             .get(systemid)
-            .ok_or(WorldSystemRunError::NotRegistered)?;
+            .ok_or(WorldSystemLockError::NotRegistered)?;
 
         self.rw
             .try_access(rw)
-            .map_err(|_| WorldSystemRunError::InvalidAccess)?;
+            .map_err(|_| WorldSystemLockError::InvalidAccess)?;
 
         Ok(())
     }
 
-    pub fn release_access(&mut self, systemid: SystemId) -> Option<()> {
-        let rw = self.systems_rw.get(systemid)?;
+    pub fn release(&mut self, systemid: SystemId) {
+        let Some(rw) = self.systems_rw.get(systemid) else {
+            return;
+        };
+
         self.rw.release_access(rw);
-
-        Some(())
     }
+}
 
+pub struct WorldCenter {
+    pub(crate) commands_rx: CommandsReceiver,
+    pub resources: LocalResources,
+    pub system_locks: SystemLocks,
+}
+
+impl WorldCenter {
     pub async fn tick_commands(&mut self, state: &mut WorldState) {
         while let Some(command) = self.commands_rx.recv().await {
             command.apply(WorldMut {
@@ -282,8 +290,7 @@ impl Default for World {
 
         Self {
             center: WorldCenter {
-                rw: access::WorldLocks::default(),
-                systems_rw: meta::SystemsRw::default(),
+                system_locks: SystemLocks::default(),
                 commands_rx: receiver,
                 resources: LocalResources::default(),
             },
@@ -300,7 +307,7 @@ impl World {
         let mut rw = SystemLock::default();
         system.init(&mut rw);
 
-        self.center.systems_rw.add(rw)
+        self.center.system_locks.systems_rw.add(rw)
     }
 
     pub fn into_parts(self) -> (WorldState, WorldCenter) {

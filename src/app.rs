@@ -56,7 +56,7 @@ mod runtime {
     use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
     use lump_core::{
         resources::LocalResources,
-        world::{SystemId, WorldCenter, WorldState},
+        world::{SystemId, SystemLocks, WorldCenter, WorldState, WorldSystemLockError},
     };
 
     use crate::startup::Startup;
@@ -74,7 +74,8 @@ mod runtime {
         fn into_parts(self) -> Self::AsyncRuntime;
     }
 
-    type Invoker<C: RuntimeConfig> = fn(&mut WorldCenter, &WorldState, &SystemTaskLauncher<'_, C>);
+    type Invoker<C: RuntimeConfig> =
+        fn(&mut SystemTaskLauncher<'_, C>, &mut LocalResources, &WorldState);
 
     type InvokePoller = fn(&mut Context<'_>, &mut LocalResources) -> Poll<Option<()>>;
     pub struct PollingInvoker<C: RuntimeConfig> {
@@ -127,25 +128,49 @@ mod runtime {
             invoker.invoke().await
         }
 
-        fn tick(&mut self, state: &WorldState, futures: &mut SystemFutures<C>) {
-            let launcher = SystemTaskLauncher::<C> {
+        fn create_launcher<'a>(
+            &'a mut self,
+            futures: &'a mut SystemFutures<C>,
+        ) -> SystemTaskLauncher<'a, C> {
+            SystemTaskLauncher::<C> {
                 rt: &self.rt,
                 futures,
-            };
-
-            self.invokers.invokers.iter().for_each(|invoker| {
-                invoker(&mut self.world, state, &launcher);
-            });
+                locks: &mut self.world.system_locks,
+            }
         }
 
         fn on_system_complete(
             &mut self,
-            mut futures: &mut SystemFutures<C>,
+            futures: &mut SystemFutures<C>,
             state: &WorldState,
             systemid: SystemId,
         ) {
-            self.world.release_access(systemid);
-            self.tick(state, &mut futures);
+            self.world.system_locks.release(systemid);
+
+            let mut launcher = SystemTaskLauncher::<C> {
+                rt: &self.rt,
+                futures,
+                locks: &mut self.world.system_locks,
+            };
+
+            self.invokers.invokers.iter().for_each(|invoker| {
+                invoker(&mut launcher, &mut self.world.resources, state);
+            });
+        }
+
+        fn on_invoker_poll(
+            &mut self,
+            futures: &mut SystemFutures<C>,
+            state: &WorldState,
+            invoker: Invoker<C>,
+        ) {
+            let mut launcher = SystemTaskLauncher::<C> {
+                rt: &self.rt,
+                futures,
+                locks: &mut self.world.system_locks,
+            };
+
+            invoker(&mut launcher, &mut self.world.resources, state);
         }
 
         pub async fn run(mut self, state: &WorldState) {
@@ -178,7 +203,7 @@ mod runtime {
 
                     invoker = polling_fut => {
                         if let Some(invoker) = invoker {
-                            invoker(&mut self.world, state, &SystemTaskLauncher { rt: &self.rt, futures: &mut futures });
+                            self.on_invoker_poll(&mut futures, state, invoker);
                         }
                     }
                 }
@@ -192,13 +217,40 @@ mod runtime {
 
     pub struct SystemTaskLauncher<'c, C: RuntimeConfig> {
         rt: &'c C::AsyncRuntime,
-        futures: &'c mut SystemFutures<C>,
+        futures: &'c SystemFutures<C>,
+        locks: &'c mut SystemLocks,
+    }
+
+    pub struct LockedSystemLauncher<'c, C: RuntimeConfig> {
+        systemid: SystemId,
+        rt: &'c C::AsyncRuntime,
+        futures: &'c SystemFutures<C>,
+    }
+
+    impl<'c, C: RuntimeConfig> LockedSystemLauncher<'c, C> {
+        pub fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
+            let systemid = self.systemid;
+            let spawn = self.rt.spawn(async move {
+                let _ = fut.await;
+                systemid
+            });
+
+            self.futures.push(spawn);
+        }
     }
 
     impl<C: RuntimeConfig> SystemTaskLauncher<'_, C> {
-        pub fn single(&self, fut: impl Future<Output = SystemId> + Send + 'static) {
-            let spawn = self.rt.spawn(fut);
-            self.futures.push(spawn);
+        pub fn single(
+            &mut self,
+            systemid: SystemId,
+        ) -> Result<LockedSystemLauncher<'_, C>, WorldSystemLockError> {
+            self.locks.try_lock(systemid)?;
+
+            Ok(LockedSystemLauncher {
+                systemid,
+                rt: &self.rt,
+                futures: &self.futures,
+            })
         }
     }
 }

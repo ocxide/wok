@@ -3,9 +3,9 @@ use std::{sync::Arc, task::Poll};
 use futures::{StreamExt, channel::mpsc::Receiver};
 use lump_core::{
     prelude::{DynSystem, SystemInput},
-    resources::LocalResource,
+    resources::{LocalResource, LocalResources},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
-    world::{World, WorldCenter, WorldState},
+    world::WorldState,
 };
 
 use crate::app::{AppBuilder, RuntimeConfig, SystemTaskLauncher};
@@ -96,12 +96,11 @@ impl Events {
     }
 
     pub(crate) fn try_invoke<C: RuntimeConfig, E: Event>(
-        center: &mut WorldCenter,
+        spawner: &mut SystemTaskLauncher<'_, C>,
+        resources: &mut LocalResources,
         state: &WorldState,
-        spawner: &SystemTaskLauncher<'_, C>,
     ) {
-        let handlers = center
-            .resources
+        let handlers = resources
             .get_mut::<EventHandlers<E>>()
             .expect("Event to be registered");
 
@@ -109,17 +108,18 @@ impl Events {
             .iter_mut()
             .filter(|(_, _, pending)| !pending.0.is_empty())
         {
+            let Ok(spawner) = spawner.single(systemid) else {
+                continue;
+            };
+
             let buffer = std::mem::take(&mut buffer.0);
             let input = OnEvents {
                 buff: buffer,
                 _marker: std::marker::PhantomData,
             };
-            let task = system.run(state, input);
 
-            spawner.single(async move {
-                task.await;
-                systemid
-            });
+            let task = system.run(state, input);
+            spawner.spawn(task);
         }
     }
 }

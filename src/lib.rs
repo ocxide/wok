@@ -1,13 +1,13 @@
 pub mod prelude {
-    pub use crate::app::{AppBuilder, ConfigureWorldMore};
+    pub use crate::app::AppBuilder;
     pub use lump_core::error::LumpUnknownError;
     pub use lump_core::prelude::*;
 
-    pub use crate::events::{Events, Event, OnEvents};
+    pub use crate::events::{Event, Events, OnEvents};
 }
 
-mod startup;
 mod events;
+mod startup;
 
 pub mod config {
     use std::ops::Deref;

@@ -2,7 +2,7 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use lump_core::{
     error::LumpUnknownError,
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
-    world::{SystemId, WorldCenter, WorldState, WorldSystemRunError},
+    world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
 };
 
 use crate::app::{AsyncRuntime, RuntimeConfig};
@@ -75,10 +75,10 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
         for _ in systems.extract_if(move |id, system| {
             match center.try_access(id) {
                 Ok(_) => {}
-                Err(WorldSystemRunError::NotRegistered) => {
+                Err(WorldSystemLockError::NotRegistered) => {
                     panic!("System not registered")
                 }
-                Err(WorldSystemRunError::InvalidAccess) => return false,
+                Err(WorldSystemLockError::InvalidAccess) => return false,
             };
 
             let fut = system.run(state, ());
