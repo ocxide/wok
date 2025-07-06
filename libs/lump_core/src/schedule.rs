@@ -14,7 +14,7 @@ pub trait ScheduleConfigure<In: SystemInput, Out> {
 }
 
 mod storages {
-    use hashbrown::HashMap;
+    use std::collections::HashMap;
 
     use crate::{
         prelude::Resource,
@@ -44,15 +44,6 @@ mod storages {
         }
 
         #[inline]
-        pub fn extract_if(
-            &mut self,
-            mut predicate: impl FnMut(SystemId, &DynSystem<In, Out>) -> bool,
-        ) -> impl Iterator<Item = (SystemId, DynSystem<In, Out>)> {
-            self.systems
-                .extract_if(move |systemid, system| predicate(*systemid, system))
-        }
-
-        #[inline]
         pub fn remove_system(&mut self, systemid: SystemId) {
             self.systems.remove(&systemid);
         }
@@ -60,6 +51,11 @@ mod storages {
         #[inline]
         pub fn is_empty(&self) -> bool {
             self.systems.is_empty()
+        }
+
+        #[inline]
+        pub fn get(&self, systemid: SystemId) -> Option<&DynSystem<In, Out>> {
+            self.systems.get(&systemid)
         }
     }
 

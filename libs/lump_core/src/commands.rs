@@ -1,7 +1,4 @@
-use futures::{
-    StreamExt,
-    channel::mpsc::{Receiver, Sender},
-};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::{
     param::Param,
@@ -12,28 +9,18 @@ use crate::{
 pub type DynCommand = Box<dyn Command>;
 
 pub fn commands() -> (CommandSender, CommandsReceiver) {
-    let (sender, receiver) = futures::channel::mpsc::channel(31);
+    let (sender, receiver) = channel();
     (CommandSender(sender), CommandsReceiver(receiver))
 }
 
 #[derive(Clone)]
 pub struct CommandSender(Sender<DynCommand>);
 
-impl CommandSender {
-    pub(crate) fn new(sender: Sender<DynCommand>) -> Self {
-        Self(sender)
-    }
-}
-
 pub struct CommandsReceiver(pub(crate) Receiver<DynCommand>);
 
 impl CommandsReceiver {
-    pub(crate) fn new(receiver: Receiver<DynCommand>) -> Self {
-        Self(receiver)
-    }
-
-    pub async fn recv(&mut self) -> Option<DynCommand> {
-        self.0.next().await
+    pub fn recv(&mut self) -> impl Iterator<Item = DynCommand> {
+        self.0.try_iter()
     }
 }
 
@@ -47,7 +34,7 @@ impl Commands<'_> {
     pub fn add(&mut self, command: impl Command + 'static) {
         self.sender
             .0
-            .try_send(Box::new(command))
+            .send(Box::new(command))
             .expect("Failed to send command");
     }
 

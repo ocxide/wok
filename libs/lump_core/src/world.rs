@@ -264,11 +264,11 @@ pub struct WorldCenter {
 }
 
 impl WorldCenter {
-    pub async fn tick_commands(&mut self, state: &mut WorldState) {
-        while let Some(command) = self.commands_rx.recv().await {
+    pub fn tick_commands(&mut self, state: &mut WorldState) {
+        for command in self.commands_rx.recv() {
             command.apply(WorldMut {
                 state,
-                center: self,
+                center: &mut self.resources,
             });
         }
     }
@@ -276,7 +276,7 @@ impl WorldCenter {
 
 pub struct WorldMut<'w> {
     pub state: &'w mut WorldState,
-    pub center: &'w mut WorldCenter,
+    pub center: &'w mut LocalResources,
 }
 
 pub struct World {
