@@ -9,6 +9,8 @@ pub mod prelude {
 mod events;
 mod startup;
 
+pub(crate) mod runtime;
+
 pub mod config {
     use std::ops::Deref;
 
@@ -93,37 +95,3 @@ pub mod config_loaders {
 
 pub mod app;
 
-mod async_rt {
-    pub mod tokio {
-        use futures::FutureExt;
-        use tokio::{runtime::Handle, task::JoinHandle};
-
-        use crate::app::AsyncRuntime;
-
-        pub struct TokioJoinHandle<T>(pub JoinHandle<T>);
-
-        impl<T> Future for TokioJoinHandle<T> {
-            type Output = T;
-            fn poll(
-                mut self: std::pin::Pin<&mut Self>,
-                cx: &mut std::task::Context<'_>,
-            ) -> std::task::Poll<Self::Output> {
-                self.0
-                    .poll_unpin(cx)
-                    .map(|poll| poll.expect("Tokio join handle failed"))
-            }
-        }
-
-        impl AsyncRuntime for Handle {
-            type JoinHandle<T: Send + 'static> = TokioJoinHandle<T>;
-
-            fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
-            where
-                Fut: std::future::Future<Output: Send> + Send + 'static,
-            {
-                let handle = self.spawn(fut);
-                TokioJoinHandle(handle)
-            }
-        }
-    }
-}

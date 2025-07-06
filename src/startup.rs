@@ -2,10 +2,10 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use lump_core::{
     error::LumpUnknownError,
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
-    world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
+    world::{WorldCenter, WorldState, WorldSystemLockError},
 };
 
-use crate::app::{AsyncRuntime, RuntimeConfig};
+use crate::runtime::{AsyncRuntime, RuntimeConfig, SystemHandle};
 
 type StartupSystems = SystemsMap<(), Result<(), LumpUnknownError>>;
 
@@ -59,7 +59,7 @@ pub struct StartupInvoke<'w, C: RuntimeConfig> {
     rt: &'w C::AsyncRuntime,
     state: &'w mut WorldState,
     systems: StartupSystems,
-    futures: FuturesUnordered<<C::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>>,
+    futures: FuturesUnordered<SystemHandle<C>>,
 }
 
 impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
@@ -73,7 +73,7 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
         } = self;
 
         for _ in systems.extract_if(move |id, system| {
-            match center.try_access(id) {
+            match center.system_locks.try_lock(id) {
                 Ok(_) => {}
                 Err(WorldSystemLockError::NotRegistered) => {
                     panic!("System not registered")
@@ -95,7 +95,7 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
 
     pub async fn invoke(mut self) {
         while let Some(systemid) = self.futures.next().await {
-            self.center.release_access(systemid);
+            self.center.system_locks.release(systemid);
             self.collect_pending_systems();
         }
 

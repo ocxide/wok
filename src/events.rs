@@ -8,9 +8,12 @@ use lump_core::{
     world::WorldState,
 };
 
-use crate::app::{AppBuilder, RuntimeConfig, SystemTaskLauncher};
+use crate::{
+    app::AppBuilder,
+    runtime::{RuntimeConfig, SystemTaskLauncher},
+};
 
-type EventHandlers<'e, E: Event> = Systems<OnEvents<'e, E>, (), EventsBuffer<E>>;
+type EventHandlers<'e, E> = Systems<OnEvents<'e, E>, (), EventsBuffer<E>>;
 
 pub(crate) struct EventsBuffer<E: Event>(Vec<Arc<E>>);
 
