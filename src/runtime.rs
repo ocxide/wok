@@ -20,8 +20,6 @@ pub trait AsyncRuntime {
 
 pub trait RuntimeConfig: 'static {
     type AsyncRuntime: AsyncRuntime;
-
-    fn into_parts(self) -> Self::AsyncRuntime;
 }
 
 type Invoker<C> = fn(&mut SystemTaskLauncher<'_, C>, &mut LocalResources, &WorldState);
@@ -232,37 +230,35 @@ impl<C: RuntimeConfig> SystemTaskLauncher<'_, C> {
     }
 }
 
-mod async_rt {
-    pub mod tokio {
-        use futures::FutureExt;
-        use tokio::{runtime::Handle, task::JoinHandle};
+pub mod tokio {
+    use futures::FutureExt;
+    use tokio::{runtime::Handle, task::JoinHandle};
 
-        use crate::runtime::AsyncRuntime;
+    use crate::runtime::AsyncRuntime;
 
-        pub struct TokioJoinHandle<T>(pub JoinHandle<T>);
+    pub struct TokioJoinHandle<T>(pub JoinHandle<T>);
 
-        impl<T> Future for TokioJoinHandle<T> {
-            type Output = T;
-            fn poll(
-                mut self: std::pin::Pin<&mut Self>,
-                cx: &mut std::task::Context<'_>,
-            ) -> std::task::Poll<Self::Output> {
-                self.0
-                    .poll_unpin(cx)
-                    .map(|poll| poll.expect("Tokio join handle failed"))
-            }
+    impl<T> Future for TokioJoinHandle<T> {
+        type Output = T;
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            self.0
+                .poll_unpin(cx)
+                .map(|poll| poll.expect("Tokio join handle failed"))
         }
+    }
 
-        impl AsyncRuntime for Handle {
-            type JoinHandle<T: Send + 'static> = TokioJoinHandle<T>;
+    impl AsyncRuntime for Handle {
+        type JoinHandle<T: Send + 'static> = TokioJoinHandle<T>;
 
-            fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
-            where
-                Fut: std::future::Future<Output: Send> + Send + 'static,
-            {
-                let handle = self.spawn(fut);
-                TokioJoinHandle(handle)
-            }
+        fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
+        where
+            Fut: std::future::Future<Output: Send> + Send + 'static,
+        {
+            let handle = self.spawn(fut);
+            TokioJoinHandle(handle)
         }
     }
 }

@@ -6,5 +6,5 @@ impl Event for MyEvent {}
 async fn handler(_event: OnEvents<'_, MyEvent>) {}
 
 fn main() {
-    let _app = AppBuilder::default().add_system(Events, handler);
+    let _app = AppBuilder::<tokio::runtime::Handle>::default().add_system(Events, handler);
 }
