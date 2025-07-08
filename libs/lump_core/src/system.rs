@@ -89,7 +89,7 @@ pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
         clippy::type_complexity,
         reason = "I am obsuring the type behind type `SystemTask`"
     )]
-    pub Box<dyn for<'i> FnOnce(In::Inner<'i>, &'i [(); 0]) -> ScopedFut<'i, Out> + Send + 'static>,
+    Box<dyn for<'i> FnOnce(In::Inner<'i>, &'i [(); 0]) -> ScopedFut<'i, Out> + Send + 'static>,
 );
 
 impl<In: SystemInput + 'static, Out: Send + Sync + 'static> SystemTask<In, Out> {

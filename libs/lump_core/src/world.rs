@@ -37,19 +37,9 @@ pub(crate) mod access {
     }
 
     impl WorldLocks {
-        pub fn try_access(&mut self, access: &SystemLock) -> Result<(), ()> {
-            for (resource_id, mode) in access.resources.iter() {
-                let access = self.resources.get(resource_id);
-                let allow = matches!(
-                    (access, mode),
-                    (None, _) | (Some(WorldAccess::Read(_)), AccessMode::Read)
-                );
-
-                if !allow {
-                    return Err(());
-                }
-            }
-
+        /// # Safety
+        /// Caller must ensure the access is valid, since it would leave an inconsistent state
+        pub unsafe fn do_access(&mut self, access: &SystemLock) {
             for &(resource_id, mode) in access.resources.iter() {
                 self.resources
                     .entry(resource_id)
@@ -63,6 +53,17 @@ pub(crate) mod access {
                         AccessMode::Read => WorldAccess::Read(NonZero::new(1).unwrap()),
                         AccessMode::Write => WorldAccess::Write,
                     });
+            }
+        }
+
+        pub fn try_access(&mut self, access: &SystemLock) -> Result<(), ()> {
+            if !self.can_lock(access) {
+                return Err(());
+            }
+
+            // Safety: we know the access is valid
+            unsafe {
+                self.do_access(access);
             }
 
             Ok(())
@@ -92,6 +93,22 @@ pub(crate) mod access {
                     }
                 }
             }
+        }
+
+        pub(crate) fn can_lock(&self, access: &SystemLock) -> bool {
+            for (resource_id, mode) in access.resources.iter() {
+                let access = self.resources.get(resource_id);
+                let allow = matches!(
+                    (access, mode),
+                    (None, _) | (Some(WorldAccess::Read(_)), AccessMode::Read)
+                );
+
+                if !allow {
+                    return false;
+                }
+            }
+
+            true
         }
     }
 
@@ -253,6 +270,27 @@ impl SystemLocks {
             return;
         };
 
+        self.rw.release_access(rw);
+    }
+
+    /// # Safety
+    /// Caller must ensure the access is valid
+    pub unsafe fn lock_rw(&mut self, rw: &access::SystemLock) {
+        unsafe {
+            self.rw.do_access(rw);
+        }
+    }
+
+    pub fn can_lock_rw(&self, rw: &access::SystemLock) -> bool {
+        self.rw.can_lock(rw)
+    }
+
+    pub fn try_lock_rw(&mut self, rw: &access::SystemLock) -> Result<(), WorldSystemLockError> {
+        self.rw.try_access(rw).map_err(|_| WorldSystemLockError::InvalidAccess)?;
+        Ok(())
+    }
+
+    pub fn release_rw(&mut self, rw: &access::SystemLock) {
         self.rw.release_access(rw);
     }
 }

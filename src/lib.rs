@@ -9,6 +9,8 @@ pub mod prelude {
 mod events;
 mod startup;
 
+mod foreign;
+
 pub(crate) mod runtime;
 
 pub mod config {

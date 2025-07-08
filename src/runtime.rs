@@ -6,7 +6,10 @@ use lump_core::{
     world::{SystemId, SystemLocks, WorldCenter, WorldState, WorldSystemLockError},
 };
 
-use crate::startup::Startup;
+use crate::{
+    foreign::{ParamsLender, ParamsLenderPorts},
+    startup::Startup,
+};
 
 pub trait AsyncRuntime {
     type JoinHandle<T: Send + 'static>: Future<Output = T> + Send + 'static;
@@ -54,28 +57,20 @@ impl<C: RuntimeConfig> Default for Invokers<C> {
     }
 }
 
-pub struct Runtime<C: RuntimeConfig> {
+struct MainRuntime<C: RuntimeConfig> {
     world: WorldCenter,
     invokers: Invokers<C>,
-    rt: C::AsyncRuntime,
 }
 
-impl<C: RuntimeConfig> Runtime<C> {
-    pub fn new(world: WorldCenter, invokers: Invokers<C>, rt: C::AsyncRuntime) -> Self {
-        Self {
-            world,
-            invokers,
-            rt,
-        }
-    }
-
-    pub async fn invoke_startup(&mut self, state: &mut WorldState) {
-        let invoker = Startup::create_invoker::<C>(&mut self.world, state, &self.rt);
+impl<C: RuntimeConfig> MainRuntime<C> {
+    pub async fn invoke_startup(&mut self, rt: &C::AsyncRuntime, state: &mut WorldState) {
+        let invoker = Startup::create_invoker::<C>(&mut self.world, state, rt);
         invoker.invoke().await
     }
 
     fn on_system_complete(
         &mut self,
+        rt: &C::AsyncRuntime,
         futures: &mut SystemFutures<C>,
         state: &WorldState,
         systemid: SystemId,
@@ -83,7 +78,7 @@ impl<C: RuntimeConfig> Runtime<C> {
         self.world.system_locks.release(systemid);
 
         let mut launcher = SystemTaskLauncher::<C> {
-            rt: &self.rt,
+            rt,
             futures,
             locks: &mut self.world.system_locks,
         };
@@ -95,26 +90,57 @@ impl<C: RuntimeConfig> Runtime<C> {
 
     fn on_invoker_poll(
         &mut self,
+        rt: &C::AsyncRuntime,
         futures: &mut SystemFutures<C>,
         state: &WorldState,
         invoker: Invoker<C>,
     ) {
         let mut launcher = SystemTaskLauncher::<C> {
-            rt: &self.rt,
+            rt,
             futures,
             locks: &mut self.world.system_locks,
         };
 
         invoker(&mut launcher, &mut self.world.resources, state);
     }
+}
 
-    pub async fn run(mut self, state: &WorldState) {
+pub struct Runtime<C: RuntimeConfig> {
+    main: MainRuntime<C>,
+    lender: (ParamsLender, ParamsLenderPorts),
+    rt: C::AsyncRuntime,
+}
+
+impl<C: RuntimeConfig> Runtime<C> {
+    pub(crate) fn new(
+        world: WorldCenter,
+        invokers: Invokers<C>,
+        lender: (ParamsLender, ParamsLenderPorts),
+        rt: C::AsyncRuntime,
+    ) -> Self {
+        Self {
+            main: MainRuntime { world, invokers },
+            lender,
+            rt,
+        }
+    }
+
+    pub async fn invoke_startup(&mut self, state: &mut WorldState) {
+        self.main.invoke_startup(&self.rt, state).await
+    }
+
+    pub async fn run(self, state: &WorldState) {
         let mut futures = SystemFutures::<C>::new();
+        let Runtime {
+            mut main,
+            lender: (mut params_lender, mut lender_ports),
+            rt,
+        } = self;
 
         loop {
             let mut polling_fut = std::future::poll_fn(|cx| {
-                for invoker in self.invokers.poll_invokers.iter() {
-                    let poll = (invoker.poller)(cx, &mut self.world.resources);
+                for invoker in main.invokers.poll_invokers.iter() {
+                    let poll = (invoker.poller)(cx, &mut main.world.resources);
 
                     match poll {
                         Poll::Pending => {}
@@ -128,17 +154,33 @@ impl<C: RuntimeConfig> Runtime<C> {
             .fuse();
 
             futures::select! {
+                 params_key = lender_ports.close_sender.next() => {
+                    let Some(params_key) = params_key else {
+                        break;
+                    };
+
+                    params_lender.release(params_key, &mut main.world.system_locks);
+                }
+
+                not_end = params_lender.tick().fuse() => {
+                    if not_end.is_none() {
+                        break;
+                    }
+
+                    params_lender.try_respond(&mut main.world.system_locks, state);
+                }
+
                 systemid = futures.next() => {
                     let Some(systemid) = systemid else {
                         break;
                     };
 
-                    self.on_system_complete(&mut futures, state, systemid);
+                    main.on_system_complete(&rt, &mut futures, state, systemid);
                 }
 
                 invoker = polling_fut => {
                     if let Some(invoker) = invoker {
-                        self.on_invoker_poll(&mut futures, state, invoker);
+                        main.on_invoker_poll(&rt, &mut futures, state, invoker);
                     }
                 }
             }
@@ -146,8 +188,7 @@ impl<C: RuntimeConfig> Runtime<C> {
     }
 }
 
-type SystemFutures<C> =
-    FuturesUnordered<<<C as RuntimeConfig>::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>>;
+type SystemFutures<C> = FuturesUnordered<SystemHandle<C>>;
 
 pub type SystemHandle<C> =
     <<C as RuntimeConfig>::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>;

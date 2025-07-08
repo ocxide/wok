@@ -2,6 +2,7 @@ use lump_core::world::{ConfigureWorld, World, WorldState};
 
 use crate::{
     events::{Event, Events},
+    foreign::{ParamsClient, ParamsLenderBuilder},
     runtime::{Invokers, Runtime, RuntimeConfig},
     startup::Startup,
 };
@@ -9,6 +10,7 @@ use crate::{
 pub struct AppBuilder<C: RuntimeConfig> {
     world: World,
     pub(crate) invokers: Invokers<C>,
+    pub(crate) lender: ParamsLenderBuilder,
 }
 
 impl<C: RuntimeConfig> Default for AppBuilder<C> {
@@ -20,16 +22,22 @@ impl<C: RuntimeConfig> Default for AppBuilder<C> {
         Self {
             world,
             invokers: Default::default(),
+            lender: Default::default(),
         }
     }
 }
 
 impl<C: RuntimeConfig> AppBuilder<C> {
-    pub fn build_parts(self, rt: C::AsyncRuntime) -> (Runtime<C>, WorldState) {
+    pub fn build_parts(self, rt: C::AsyncRuntime) -> (Runtime<C>, ParamsClient, WorldState) {
         let (state, center) = self.world.into_parts();
 
-        let rt = Runtime::<C>::new(center, self.invokers, rt);
-        (rt, state)
+        let rt = Runtime::<C>::new(
+            center,
+            self.invokers,
+            (self.lender.lender, self.lender.ports),
+            rt,
+        );
+        (rt, self.lender.client, state)
     }
 }
 
