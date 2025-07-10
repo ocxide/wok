@@ -1,11 +1,14 @@
-use std::{sync::Arc, task::Poll};
+use std::{ops::Deref, sync::Arc, task::Poll};
 
-use futures::{StreamExt, channel::mpsc::Receiver};
+use futures::{
+    StreamExt,
+    channel::mpsc::{Receiver, Sender, channel},
+};
 use lump_core::{
-    prelude::{DynSystem, SystemInput},
+    prelude::{DynSystem, Param, Res, SystemInput},
     resources::{LocalResource, LocalResources},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
-    world::WorldState,
+    world::{ConfigureWorld, WorldState},
 };
 
 use crate::{
@@ -22,6 +25,49 @@ struct EventsSocket<E: Event> {
 }
 
 impl<E: Event> LocalResource for EventsSocket<E> {}
+
+pub struct EventSenderRes<E: Event> {
+    sender: Sender<E>,
+}
+
+impl<E: Event> crate::prelude::Resource for EventSenderRes<E> {}
+
+impl<E: Event> Clone for EventSenderRes<E> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
+pub struct EventSender<'e, E: Event> {
+    sender: EventSenderRes<E>,
+    _marker: std::marker::PhantomData<&'e ()>,
+}
+
+impl<'e, E: Event> lump_core::prelude::Param for EventSender<'e, E> {
+    type Owned = <Res<'e, EventSenderRes<E>> as Param>::Owned;
+    type AsRef<'p> = EventSender<'p, E>;
+
+    fn init(_: &mut lump_core::world::SystemLock) {}
+
+    fn get(world: &lump_core::prelude::WorldState) -> Self::Owned {
+        Res::get(world)
+    }
+
+    fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
+        EventSender {
+            sender: Res::<EventSenderRes<E>>::as_ref(owned).deref().clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<E: Event> EventSender<'_, E> {
+    pub fn send(&mut self, event: E) {
+        let _ = self.sender.sender.try_send(event);
+    }
+}
 
 #[derive(Copy, Clone)]
 pub struct Events;
@@ -59,7 +105,7 @@ where
         systemid: lump_core::world::SystemId,
         system: DynSystem<OnEvents<'c, E>, ()>,
     ) {
-        let Some(systems) = world.center.resources.get_mut::<EventHandlers<'c, E>>() else {
+        let Some(systems) = world.center.resources.get_mut::<EventHandlers<'_, E>>() else {
             panic!("events `{}` is not registered", std::any::type_name::<E>());
         };
 
@@ -69,6 +115,14 @@ where
 
 impl Events {
     pub fn register<C: RuntimeConfig, E: Event>(app: &mut AppBuilder<C>) {
+        let (sx, rx) = channel::<E>(10);
+        let socket = EventsSocket { recv: rx };
+        let sender = EventSenderRes { sender: sx };
+
+        app.world_mut().center.resources.init::<EventHandlers<'_, E>>();
+        app.world_mut().center.resources.insert(socket);
+        app.world_mut().state.resources.insert(sender);
+
         app.invokers.add(Self::try_invoke::<C, E>);
 
         app.invokers.add_polling(
