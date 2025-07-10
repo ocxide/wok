@@ -11,6 +11,8 @@ use lump_core::{
     world::{SystemLock, SystemLocks, WorldState},
 };
 
+use crate::runtime::{Runtime, RuntimeConfig};
+
 struct ParamsResponse {
     params: Box<dyn Any + Send>,
     key: ForeignParamsKey,
@@ -36,8 +38,9 @@ pub struct ParamGuard<P: Param> {
 
 impl<P: Param> Drop for ParamGuard<P> {
     fn drop(&mut self) {
-        if self.close_sender.try_send(self.key).is_err() {
-            eprintln!("WARNING: failed to close foreign param");
+        let err = self.close_sender.try_send(self.key);
+        if let Err(err) = err {
+            eprintln!("WARNING: failed to close foreign param lock: {}", err);
         }
     }
 }
@@ -74,6 +77,25 @@ impl ParamsClient {
             key: response.key,
             close_sender: self.close_sender,
         }
+    }
+
+    pub fn try_get<P: Param>(
+        &self,
+        runtime: &mut Runtime<impl RuntimeConfig>,
+        state: &WorldState,
+    ) -> Option<ParamGuard<P>> {
+        let (params, id) = runtime
+            .lender
+            .0
+            .try_get::<P>(&mut runtime.main.world.system_locks, state)?;
+
+        let guard = ParamGuard {
+            params,
+            key: id,
+            close_sender: self.close_sender.clone(),
+        };
+
+        Some(guard)
     }
 }
 
@@ -158,6 +180,23 @@ impl ParamsLender {
         )
     }
 
+    /// Try to get a param from a sync context, useful when the runtime has not been ran yet
+    pub fn try_get<P: Param>(
+        &mut self,
+        locks: &mut SystemLocks,
+        state: &WorldState,
+    ) -> Option<(P::Owned, ForeignParamsKey)> {
+        let mut lock = SystemLock::default();
+        P::init(&mut lock);
+
+        locks.try_lock_rw(&lock).ok()?;
+
+        let key = ForeignParamsKey(self.foreign_locks.add(lock));
+        let params = P::get(state);
+
+        Some((params, key))
+    }
+
     pub async fn tick(&mut self) -> Option<()> {
         let locking = self.requests.next().await?;
         self.buf.push_back(locking);
@@ -165,7 +204,7 @@ impl ParamsLender {
         Some(())
     }
 
-    pub fn try_respond(&mut self, locks: &mut SystemLocks, state: &WorldState) {
+    pub fn try_respond_queue(&mut self, locks: &mut SystemLocks, state: &WorldState) {
         while let Some(locking) = self.buf.iter().next() {
             if locks.try_lock_rw(&locking.system_rw).is_err() {
                 let lock = self.buf.pop_front().unwrap();

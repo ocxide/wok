@@ -55,8 +55,8 @@ impl<C: RuntimeConfig> Default for Invokers<C> {
     }
 }
 
-struct MainRuntime<C: RuntimeConfig> {
-    world: WorldCenter,
+pub(crate) struct MainRuntime<C: RuntimeConfig> {
+    pub(crate) world: WorldCenter,
     invokers: Invokers<C>,
 }
 
@@ -104,8 +104,8 @@ impl<C: RuntimeConfig> MainRuntime<C> {
 }
 
 pub struct Runtime<C: RuntimeConfig> {
-    main: MainRuntime<C>,
-    lender: (ParamsLender, ParamsLenderPorts),
+    pub(crate) main: MainRuntime<C>,
+    pub(crate) lender: (ParamsLender, ParamsLenderPorts),
     rt: C::AsyncRuntime,
 }
 
@@ -154,6 +154,7 @@ impl<C: RuntimeConfig> Runtime<C> {
             futures::select! {
                  params_key = lender_ports.close_sender.next() => {
                     let Some(params_key) = params_key else {
+                        println!("Params ports closed");
                         break;
                     };
 
@@ -162,14 +163,16 @@ impl<C: RuntimeConfig> Runtime<C> {
 
                 not_end = params_lender.tick().fuse() => {
                     if not_end.is_none() {
+                        println!("Params lender closed");
                         break;
                     }
 
-                    params_lender.try_respond(&mut main.world.system_locks, state);
+                    params_lender.try_respond_queue(&mut main.world.system_locks, state);
                 }
 
                 systemid = futures.next() => {
                     let Some(systemid) = systemid else {
+                        println!("systems Futures closed");
                         break;
                     };
 

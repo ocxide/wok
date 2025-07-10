@@ -63,6 +63,12 @@ mod storages {
         pub Vec<(SystemId, DynSystem<In, Out>, Meta)>,
     );
 
+    impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> Default for Systems<In, Out, Meta> {
+        fn default() -> Self {
+            Self(Vec::new())
+        }
+    }
+
     impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> Systems<In, Out, Meta> {
         #[inline]
         pub fn add(&mut self, systemid: SystemId, system: DynSystem<In, Out>, meta: Meta) {
