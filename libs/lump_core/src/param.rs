@@ -1,7 +1,7 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
-    any_handle::{AnyHandle, HandleRead},
+    any_handle::{AnyHandle, HandleLock, HandleRead},
     prelude::Resource,
     world::{WorldState, access::SystemLock},
 };
@@ -92,5 +92,45 @@ impl<R: Resource> Param for Res<'_, R> {
 
     fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {
         Res(handle.read().expect("to read"))
+    }
+}
+
+pub struct ResMut<'r, R: Resource>(HandleLock<'r, R>);
+
+impl<R: Resource> Deref for ResMut<'_, R> {
+    type Target = R;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<R: Resource> DerefMut for ResMut<'_, R> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<R: Resource> Param for ResMut<'_, R> {
+    type Owned = AnyHandle<R>;
+    type AsRef<'r> = ResMut<'r, R>;
+
+    fn init(rw: &mut SystemLock) {
+        if rw.register_resource_write(R::id()).is_err() {
+            panic!(
+                "Resource of type `{}` was already registered",
+                std::any::type_name::<R>()
+            );
+        }
+    }
+
+    fn get(world: &WorldState) -> Self::Owned {
+        world.get_resource()
+    }
+
+    fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {
+        ResMut(handle.write().expect("to write"))
     }
 }
