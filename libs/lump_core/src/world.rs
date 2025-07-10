@@ -236,7 +236,12 @@ impl WorldState {
     /// # Panics
     /// Panics if the resource is not found
     pub fn get_resource<R: Resource>(&self) -> AnyHandle<R> {
-        self.resources.handle().expect("Resource not found")
+        let handle = self.resources.handle();
+        if let Some(handle) = handle {
+            handle
+        } else {
+            panic!("Resource with type `{}` not found", std::any::type_name::<R>())
+        }
     }
 
     #[inline]
@@ -362,6 +367,11 @@ fn world_is_send() {
 pub trait ConfigureWorld: Sized {
     fn world_mut(&mut self) -> &mut World;
     fn world(&self) -> &World;
+
+    fn init_resource<R: Resource + Default>(mut self) -> Self {
+        self.world_mut().state.resources.init::<R>();
+        self
+    }
 
     fn insert_resource<R: Resource>(mut self, resource: R) -> Self {
         self.world_mut().state.resources.insert(resource);
