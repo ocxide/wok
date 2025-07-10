@@ -4,12 +4,13 @@ pub mod prelude {
     pub use lump_core::prelude::*;
 
     pub use crate::events::{Event, Events, OnEvents};
+    pub use crate::startup::Startup;
 }
 
 mod events;
 mod startup;
 
-mod foreign;
+pub mod foreign;
 
 pub(crate) mod runtime;
 

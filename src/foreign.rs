@@ -22,6 +22,7 @@ struct RuntimeResourcesLocker {
     respond_to: oneshot::Sender<ParamsResponse>,
 }
 
+#[derive(Clone)]
 pub struct ParamsClient {
     requester: mpsc::Sender<RuntimeResourcesLocker>,
     close_sender: mpsc::Sender<ForeignParamsKey>,
@@ -48,7 +49,7 @@ impl<P: Param> ParamGuard<P> {
 }
 
 impl ParamsClient {
-    pub async fn get<P: Param>(&mut self) -> ParamGuard<P> {
+    pub async fn get<P: Param>(mut self) -> ParamGuard<P> {
         let mut lock = SystemLock::default();
         P::init(&mut lock);
 
@@ -71,7 +72,7 @@ impl ParamsClient {
         ParamGuard {
             params,
             key: response.key,
-            close_sender: self.close_sender.clone(),
+            close_sender: self.close_sender,
         }
     }
 }
