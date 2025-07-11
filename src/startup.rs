@@ -109,6 +109,8 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
     }
 
     pub async fn invoke(mut self) {
+        self.collect_pending_systems();
+
         while let Some(systemid) = self.futures.next().await {
             self.center.system_locks.release(systemid);
             self.center.tick_commands(self.state);
