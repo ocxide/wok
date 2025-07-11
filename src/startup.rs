@@ -6,7 +6,7 @@ use lump_core::{
     world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
 };
 
-use crate::runtime::{AsyncRuntime, RuntimeConfig, SystemHandle};
+use crate::runtime::{AsyncRuntime, JoinHandle, RuntimeConfig};
 
 #[derive(Default)]
 struct StartupSystems {
@@ -63,12 +63,14 @@ impl Startup {
     }
 }
 
+type StartupFutures<C> = FuturesUnordered<JoinHandle<C, (SystemId, Result<(), LumpUnknownError>)>>;
+
 pub struct StartupInvoke<'w, C: RuntimeConfig> {
     center: &'w mut WorldCenter,
     rt: &'w C::AsyncRuntime,
     state: &'w mut WorldState,
     systems: StartupSystems,
-    futures: FuturesUnordered<SystemHandle<C>>,
+    futures: StartupFutures<C>,
 }
 
 impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
@@ -98,8 +100,8 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
 
             let fut = system.run(state, ());
             let fut = rt.spawn(async move {
-                let _ = fut.await;
-                id
+                let result = fut.await;
+                (id, result)
             });
 
             futures.push(fut);
@@ -108,14 +110,18 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
         }) {}
     }
 
-    pub async fn invoke(mut self) {
+    pub async fn invoke(mut self) -> Result<(), LumpUnknownError> {
         self.collect_pending_systems();
 
-        while let Some(systemid) = self.futures.next().await {
+        while let Some((systemid, result)) = self.futures.next().await {
             self.center.system_locks.release(systemid);
             self.center.tick_commands(self.state);
 
+            result?;
+
             self.collect_pending_systems();
         }
+
+        Ok(())
     }
 }

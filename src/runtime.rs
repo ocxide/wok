@@ -2,8 +2,7 @@ use std::task::{Context, Poll};
 
 use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 use lump_core::{
-    resources::LocalResources,
-    world::{SystemId, SystemLocks, WorldCenter, WorldState, WorldSystemLockError},
+    error::LumpUnknownError, resources::LocalResources, world::{SystemId, SystemLocks, WorldCenter, WorldState, WorldSystemLockError}
 };
 
 use crate::{
@@ -61,7 +60,7 @@ pub(crate) struct MainRuntime<C: RuntimeConfig> {
 }
 
 impl<C: RuntimeConfig> MainRuntime<C> {
-    pub async fn invoke_startup(&mut self, rt: &C::AsyncRuntime, state: &mut WorldState) {
+    pub async fn invoke_startup(&mut self, rt: &C::AsyncRuntime, state: &mut WorldState) -> Result<(), LumpUnknownError> {
         let invoker = Startup::create_invoker::<C>(&mut self.world, state, rt);
         invoker.invoke().await
     }
@@ -123,7 +122,8 @@ impl<C: RuntimeConfig> Runtime<C> {
         }
     }
 
-    pub async fn invoke_startup(&mut self, state: &mut WorldState) {
+    #[inline]
+    pub async fn invoke_startup(&mut self, state: &mut WorldState) -> Result<(), LumpUnknownError> {
         self.main.invoke_startup(&self.rt, state).await
     }
 
@@ -154,7 +154,6 @@ impl<C: RuntimeConfig> Runtime<C> {
             futures::select! {
                  params_key = lender_ports.close_sender.next() => {
                     let Some(params_key) = params_key else {
-                        println!("Params ports closed");
                         break;
                     };
 
@@ -163,7 +162,6 @@ impl<C: RuntimeConfig> Runtime<C> {
 
                 not_end = params_lender.tick().fuse() => {
                     if not_end.is_none() {
-                        println!("Params lender closed");
                         break;
                     }
 
@@ -173,9 +171,6 @@ impl<C: RuntimeConfig> Runtime<C> {
                 systemid = futures.next() => {
                     if let Some(systemid) = systemid {
                         main.on_system_complete(&rt, &mut futures, state, systemid);
-                    }
-                    else {
-                        println!("systems Futures closed");
                     }
 
                 }
@@ -192,8 +187,9 @@ impl<C: RuntimeConfig> Runtime<C> {
 
 type SystemFutures<C> = FuturesUnordered<SystemHandle<C>>;
 
-pub type SystemHandle<C> =
-    <<C as RuntimeConfig>::AsyncRuntime as AsyncRuntime>::JoinHandle<SystemId>;
+pub type SystemHandle<C> = JoinHandle<C, SystemId>;
+
+pub type JoinHandle<C, T> = <<C as RuntimeConfig>::AsyncRuntime as AsyncRuntime>::JoinHandle<T>;
 
 pub struct SystemTaskLauncher<'c, C: RuntimeConfig> {
     rt: &'c C::AsyncRuntime,

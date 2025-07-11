@@ -221,7 +221,6 @@ impl ParamsLender {
                 params,
                 key: ForeignParamsKey(key),
             }) {
-                eprintln!("WARNING: failed to respond to foreign param request");
                 self.release(response.key, locks);
             }
         }
