@@ -171,12 +171,13 @@ impl<C: RuntimeConfig> Runtime<C> {
                 }
 
                 systemid = futures.next() => {
-                    let Some(systemid) = systemid else {
+                    if let Some(systemid) = systemid {
+                        main.on_system_complete(&rt, &mut futures, state, systemid);
+                    }
+                    else {
                         println!("systems Futures closed");
-                        break;
-                    };
+                    }
 
-                    main.on_system_complete(&rt, &mut futures, state, systemid);
                 }
 
                 invoker = polling_fut => {
