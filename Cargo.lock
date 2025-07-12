@@ -1940,6 +1940,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lump_db_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.101",
+]
+
+[[package]]
 name = "lump_derive"
 version = "0.1.0"
 dependencies = [
