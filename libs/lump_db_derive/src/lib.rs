@@ -4,7 +4,7 @@ use syn::{
     Expr, Index, MetaNameValue, Token, parse::Parser, punctuated::Punctuated, spanned::Spanned,
 };
 
-#[proc_macro_derive(IntoSurrealBind, attributes(surreal_bind))]
+#[proc_macro_derive(AsSurrealBind, attributes(surreal_bind))]
 pub fn surreal_bind_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = syn::parse_macro_input!(input as syn::DeriveInput);
     match do_surreal_bind_derive(ast) {
@@ -28,6 +28,7 @@ fn named_attrs(attrs: &[syn::Attribute]) -> Result<Option<MetaNameValue>, Invali
         _ => return Err(InvalidAttrReason::NotScoped),
     };
 
+    dbg!(tokens.to_string());
     let keyvalues = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
         .parse2(tokens.clone())
         .map_err(|_| {
@@ -46,7 +47,7 @@ fn do_surreal_bind_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStr
         syn::Data::Struct(data) => data,
         _ => {
             return Err(
-                span_compile_error!(span => "IntoSurrealBind can only be derived on structs"),
+                span_compile_error!(span => "AsSurrealBind can only be derived on structs"),
             );
         }
     };
@@ -77,31 +78,35 @@ fn do_surreal_bind_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStr
     };
 
     let thing_name = &ast.ident;
-    let trait_path = quote! { IntoSurrealBind };
+    let trait_path = quote! { AsSurrealBind };
 
     let vis = &ast.vis;
-    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+
+    let mut bind_generics = ast.generics.clone();
+    bind_generics.params.push(syn::parse_quote! { 'b });
+    let (_, bind_ty_generics, bind_where_clause) = bind_generics.split_for_impl();
+
+    let (og_impl_generics, og_ty_generics, og_where_clause) = ast.generics.split_for_impl();
 
     let (mapping_impl, struct_body_mapped) = match &struct_data.fields {
-        syn::Fields::Unit => {
-            let mapping = quote! { #mapping_name };
-            let struct_mapped = quote! {;};
-
-            (mapping, struct_mapped)
-        }
+        syn::Fields::Unit => return Err(span_compile_error!(span => "Unit structs are not supported")),
         syn::Fields::Named(fields) => {
             let fields_map = fields.named.iter().map(|field| {
                 let name = &field.ident;
                 let ty = &field.ty;
 
-                quote! { #name: <#ty as #trait_path>::into_bind(self.#name) }
+                quote! { #name: <#ty as #trait_path>::as_bind(&self.#name) }
             });
 
             let fields_struct = fields.named.iter().map(|field| {
                 let name = &field.ident;
                 let ty = &field.ty;
 
-                quote! { #name: <#ty as #trait_path>::Bind }
+                let serde_attrs: Vec<_> = field.attrs.iter()
+                    .filter(|&attr| matches!(&attr.meta, syn::Meta::List(meta_list) if meta_list.path.is_ident("serde")))
+                    .collect();
+
+                quote! { #(#serde_attrs)* #name: <#ty as #trait_path>::Bind<'b> }
             });
 
             let mapping = quote! {
@@ -127,12 +132,12 @@ fn do_surreal_bind_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStr
                     span: field.span(),
                 };
 
-                quote! { <#ty as #trait_path>::into_bind(&owned.#index) }
+                quote! { <#ty as #trait_path>::as_bind(&self.#index) }
             });
 
             let fields_struct = fields.unnamed.iter().map(|field| {
                 let ty = &field.ty;
-                quote! { <#ty as #trait_path>::Bind }
+                quote! { <#ty as #trait_path>::Bind<'b> }
             });
 
             let mapping = quote! {
@@ -141,22 +146,23 @@ fn do_surreal_bind_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStr
                 )
             };
 
-            let struct_mapped = quote! {
-                struct #mapping_name(
+            let struct_body_mapped = quote! {
+                (
                     #(#fields_struct,)*
-                )
+                );
             };
 
-            (mapping, struct_mapped)
+            (mapping, struct_body_mapped)
         }
     };
 
     let result = quote! {
-        #vis struct #mapping_name #ty_generics #where_clause #struct_body_mapped
+        #[derive(serde::Serialize)]
+        #vis struct #mapping_name #bind_ty_generics #bind_where_clause #struct_body_mapped
 
-        impl #impl_generics #trait_path for #thing_name #ty_generics #where_clause {
-            type Bind = #mapping_name #ty_generics;
-            fn into_bind(self) -> Self::Bind {
+        impl #og_impl_generics #trait_path for #thing_name #og_ty_generics #og_where_clause {
+            type Bind<'b> = #mapping_name #bind_ty_generics;
+            fn as_bind(&self) -> Self::Bind<'_> {
                 #mapping_impl
             }
         }
@@ -191,28 +197,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty() {
+    fn generates_unnamed() {
         let input: syn::DeriveInput = syn::parse_quote! {
-            struct Foo;
-        };
-
-        let output = do_surreal_bind_derive(input);
-        assert!(output.is_ok(), "{:?}", output.unwrap_err());
-    }
-
-    #[test]
-    fn auto_generates_empty() {
-        let input: syn::DeriveInput = syn::parse_quote! {
-            struct Foo;
+            pub struct Foo(u32);
         };
 
         let output = do_surreal_bind_derive(input);
         let expected = quote! {
-            struct SurrealFoo;
-            impl IntoSurrealBind for Foo {
-                type Bind = SurrealFoo;
-                fn into_bind(self) -> Self::Bind {
-                    SurrealFoo
+            #[derive(serde::Serialize)]
+            pub struct SurrealFoo<'b>(<u32 as AsSurrealBind>::Bind<'b>,);
+            impl AsSurrealBind for Foo {
+                type Bind<'b> = SurrealFoo<'b>;
+                fn as_bind(&self) -> Self::Bind<'_> {
+                    SurrealFoo(<u32 as AsSurrealBind>::as_bind(&self.0),)
                 }
             }
         };
@@ -231,14 +228,45 @@ mod tests {
 
         let output = do_surreal_bind_derive(input);
         let expected = quote! {
-            pub struct SurrealFoo {
-                bar: <u32 as IntoSurrealBind>::Bind,
+            #[derive(serde::Serialize)]
+            pub struct SurrealFoo<'b> {
+                bar: <u32 as AsSurrealBind>::Bind<'b>,
             }
-            impl IntoSurrealBind for Foo {
-                type Bind = SurrealFoo;
-                fn into_bind(self) -> Self::Bind {
+            impl AsSurrealBind for Foo {
+                type Bind<'b> = SurrealFoo<'b>;
+                fn as_bind(&self) -> Self::Bind<'_> {
                     SurrealFoo {
-                        bar: <u32 as IntoSurrealBind>::into_bind(self.bar),
+                        bar: <u32 as AsSurrealBind>::as_bind(&self.bar),
+                    }
+                }
+            }
+        };
+
+        assert!(output.is_ok(), "{:?}", output.unwrap_err());
+        assert_eq!(output.unwrap().to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn replicates_serde_flatten_attrs() {
+        let input: syn::DeriveInput = syn::parse_quote! {
+            pub struct Foo {
+                #[serde(flatten)]
+                inner: FooInner,
+            }
+        };
+
+        let output = do_surreal_bind_derive(input);
+        let expected = quote! {
+            #[derive(serde::Serialize)]
+            pub struct SurrealFoo<'b> {
+                #[serde(flatten)]
+                inner: <FooInner as AsSurrealBind>::Bind<'b>,
+            }
+            impl AsSurrealBind for Foo {
+                type Bind<'b> = SurrealFoo<'b>;
+                fn as_bind(&self) -> Self::Bind<'_> {
+                    SurrealFoo {
+                        inner: <FooInner as AsSurrealBind>::as_bind(&self.inner),
                     }
                 }
             }

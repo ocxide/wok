@@ -1934,6 +1934,7 @@ name = "lump_db"
 version = "0.1.0"
 dependencies = [
  "lump",
+ "lump_db_derive",
  "serde",
  "surrealdb",
  "take_mut",
