@@ -8,3 +8,4 @@ serde = "1.0.219"
 surrealdb = "^2.0.0"
 take_mut = "0.2.2"
 lump = { path = "../../" }
+lump_db_derive = { path = "../lump_db_derive" }

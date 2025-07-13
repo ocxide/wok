@@ -6,7 +6,7 @@ pub trait Query<O> {
     fn execute(self) -> impl Future<Output = Result<O, LumpUnknownError>> + Send;
 }
 
-pub trait DbOwnedCreate<R, D>: 'static {
+pub trait DbCreate<R, D>: 'static {
     type CreateQuery<'q>: Query<R>;
     fn create<'q>(&'q self, table: &'static str, data: D) -> Self::CreateQuery<'q>;
 }
@@ -42,15 +42,7 @@ impl<I: RecordGenerate> IdStrategy<I> for GenerateId {
     }
 }
 
-pub trait NamedBind {
-    const NAME: &'static str;
-}
-
-pub trait QueryNamedBind<D: NamedBind> {
-    fn bind(self, data: D) -> Self;
-}
-
-pub trait DbSelectSingle<D, W>: 'static {
+pub trait DbSelectSingle<R, D>: 'static {
     type SelectQuery<'q>: Query<Option<D>>;
-    fn select<'q>(&'q self, table: &'static str, condition: W) -> Self::SelectQuery<'q>;
+    fn select<'q>(&'q self, table: &'static str, id: R) -> Self::SelectQuery<'q>;
 }
