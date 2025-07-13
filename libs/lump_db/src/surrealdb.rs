@@ -1,10 +1,11 @@
+use as_surreal_bind::{AsSurrealBind, SurrealSerialize};
+use from_surreal_bind::FromSurrealBind;
 use lump::prelude::LumpUnknownError;
 use record_serde::ThingOwned;
 use serde::de::DeserializeOwned;
-use surreal_bind::{AsSurrealBind, SurrealSerialize};
 use surrealdb::{Connection, Surreal};
 
-pub use lump_db_derive::AsSurrealBind;
+pub use lump_db_derive::{AsSurrealBind, FromSurrealBind};
 pub use record_serde::{IdFlavor, StringFlavor, SurrealRecord};
 
 use crate::{
@@ -26,7 +27,7 @@ impl<C: Connection> lump::prelude::Resource for SurrealDb<C> {}
 impl<C, R, D> DbCreate<R, D> for SurrealDb<C>
 where
     C: Connection,
-    D: AsSurrealBind ,
+    D: AsSurrealBind,
     R: SurrealRecord,
 {
     type CreateQuery<'q> = SurrealCreate<'q, C, D>;
@@ -141,52 +142,47 @@ impl<'db, C: Connection, R: SurrealRecord> crate::db::Query<Result<(), DbDeleteE
     }
 }
 
-// pub struct SurrealSelectSingle<'db, C: Connection, R> {
-//     db: &'db Surreal<C>,
-//     table: &'static str,
-//     id: R,
-// }
-//
-// impl<'db, C: Connection, D, R> crate::db::Query<Option<D>> for SurrealSelectSingle<'db, C, W>
-// where
-//     D: DeserializeOwned,
-//     R
-// {
-//     async fn execute(self) -> Result<Option<D>, LumpUnknownError> {
-//         let mut response = self
-//             .db
-//             .query(format!(
-//                 "SELECT {} FROM type::table($table) WHERE {}=$cond",
-//                 D::NAME,
-//                 W::NAME
-//             ))
-//             .bind(("table", self.table))
-//             .bind(("cond", self.condition))
-//             .await?;
-//
-//         let result: Option<D> = response.take(D::NAME)?;
-//         Ok(result)
-//     }
-// }
-//
-// impl<C: Connection, D, W> DbSelectSingle<D, W> for SurrealDb<C>
-// where
-//     D: DeserializeOwned + NamedBind + 'static,
-//     W: Serialize + NamedBind + 'static + Send + Sync,
-// {
-//     type SelectQuery<'q> = SurrealSelectSingle<'q, C, D, W>;
-//
-//     fn select<'q>(&'q self, table: &'static str, condition: W) -> Self::SelectQuery<'q> {
-//         SurrealSelectSingle {
-//             db: &self.0,
-//             table,
-//             condition,
-//             _phantom: std::marker::PhantomData,
-//         }
-//     }
-// }
+pub struct SurrealSelectSingle<'db, C: Connection, R> {
+    db: &'db Surreal<C>,
+    table: &'static str,
+    id: R,
+}
 
-mod surreal_bind {
+impl<'db, C: Connection, D, R> crate::db::Query<Option<D>> for SurrealSelectSingle<'db, C, R>
+where
+    D: FromSurrealBind,
+    R: SurrealRecord,
+{
+    async fn execute(self) -> Result<Option<D>, LumpUnknownError> {
+        let mut response = self
+            .db
+            .query("SELECT * FROM type::thing($table, $id)")
+            .bind(("table", self.table))
+            .bind(("id", self.id))
+            .await?;
+
+        let result: Option<D::Bind> = response.take(0)?;
+        Ok(result.map(D::from_bind))
+    }
+}
+
+impl<C: Connection, D, R> DbSelectSingle<R, D> for SurrealDb<C>
+where
+    D: FromSurrealBind,
+    R: SurrealRecord,
+{
+    type SelectQuery<'q> = SurrealSelectSingle<'q, C, R>;
+
+    fn select<'q>(&'q self, table: &'static str, id: R) -> Self::SelectQuery<'q> {
+        SurrealSelectSingle {
+            db: &self.0,
+            table,
+            id,
+        }
+    }
+}
+
+mod as_surreal_bind {
     use serde::{Serialize, ser::SerializeSeq};
 
     use super::{SurrealRecord, record_serde::ThingRef};
@@ -273,6 +269,67 @@ mod surreal_bind {
             self.0.as_bind().serialize(serializer)
         }
     }
+}
+
+mod from_surreal_bind {
+    use serde::{Deserialize, de::DeserializeOwned};
+
+    use super::{SurrealRecord, record_serde::ThingOwned};
+
+    pub trait FromSurrealBind: 'static + Send {
+        type Bind: DeserializeOwned + 'static + Send;
+        fn from_bind(bind: Self::Bind) -> Self;
+    }
+
+    pub struct SurrealVec<T: FromSurrealBind>(Vec<T>);
+
+    impl<T: FromSurrealBind> FromSurrealBind for Vec<T> {
+        type Bind = SurrealVec<T>;
+        fn from_bind(bind: Self::Bind) -> Self {
+            bind.0
+        }
+    }
+
+    impl<'de, T: FromSurrealBind> Deserialize<'de> for SurrealVec<T> {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let vec: Vec<T::Bind> = Deserialize::deserialize(deserializer)?;
+            Ok(SurrealVec(vec.into_iter().map(T::from_bind).collect()))
+        }
+    }
+
+    impl<R: SurrealRecord> FromSurrealBind for R {
+        type Bind = ThingOwned<R>;
+        fn from_bind(bind: Self::Bind) -> Self {
+            R::from_owned(bind)
+        }
+    }
+
+    macro_rules! from_bind {
+        ($type:ty) => {
+            impl FromSurrealBind for $type {
+                type Bind = $type;
+                fn from_bind(bind: Self::Bind) -> Self {
+                    bind
+                }
+            }
+        };
+    }
+
+    from_bind!(String);
+    from_bind!(u128);
+    from_bind!(i128);
+    from_bind!(bool);
+    from_bind!(i8);
+    from_bind!(i16);
+    from_bind!(i32);
+    from_bind!(i64);
+    from_bind!(u8);
+    from_bind!(u16);
+    from_bind!(u32);
+    from_bind!(u64);
 }
 
 mod record_serde {
