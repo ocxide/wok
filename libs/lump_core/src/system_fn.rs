@@ -4,8 +4,7 @@ use impls::{ParamBorrow, ParamOwned};
 
 use crate::{
     param::Param,
-    system::{IntoSystem, System, SystemFuture, SystemIn, SystemInput, SystemTask, TaskSystem},
-    world::WorldState,
+    system::{IntoSystem, ProtoSystem, ProtoTask, System, SystemIn, SystemInput},
 };
 
 pub struct FunctionSystem<Marker, F> {
@@ -61,52 +60,57 @@ where
     }
 }
 
-impl<Marker, Func> TaskSystem for FunctionSystem<Marker, Func>
+pub struct FunctionSystemTask<Maker, Func: SystemFn<Maker>> {
+    func: Func,
+    params: <Func::Params as Param>::Owned,
+}
+
+impl<Maker, Func> ProtoTask<'static, Func::Input, Func::Output> for FunctionSystemTask<Maker, Func>
+where
+    Maker: 'static,
+    Func: SystemFn<Maker, Output: Send + Sync + 'static> + Send + Sync,
+{
+    fn run<'i>(
+        self,
+        input: <Func::Input as SystemInput>::Inner<'i>,
+    ) -> impl Future<Output = Func::Output> + Send + 'i {
+        self.func.run_owned(input, self.params)
+    }
+}
+
+impl<Marker, Func> ProtoSystem for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
     Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
 {
-    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>
-    where
-        Self::In: 'i,
-    {
-        let func = self.func.clone();
-        let params = Func::Params::get(world);
+    type Param = Func::Params;
 
-        let fut = func.run_owned(input, params);
-        Box::pin(fut)
+    fn run<'i>(
+        &self,
+        param: <Self::Param as Param>::AsRef<'i>,
+        input: SystemIn<'i, Self>,
+    ) -> impl Future<Output = Self::Out> + Send + 'i {
+        (self.func.clone()).run(input, param)
     }
 
-    fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out> {
-        let func = self.func.clone();
-        let params = Func::Params::get(world);
+    fn run_owned<'i>(
+        &self,
+        param: <Self::Param as Param>::Owned,
+        input: SystemIn<'i, Self>,
+    ) -> impl Future<Output = Self::Out> + Send + 'i {
+        (self.func.clone()).run_owned(input, param)
+    }
 
-        SystemTask::new(move |input, _| {
-            let fut = func.run_owned(input, params);
-            Box::pin(fut)
-        })
+    fn create_task_owned(
+        &self,
+        param: <Self::Param as Param>::Owned,
+    ) -> impl ProtoTask<'static, Self::In, Self::Out> {
+        FunctionSystemTask {
+            func: self.func.clone(),
+            params: param,
+        }
     }
 }
-
-// impl<Marker, Func> StaticSystem for FunctionSystem<Marker, Func>
-// where
-//     Marker: 'static,
-//     Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
-// {
-//     type Params = ParamOwned<Func::Params>;
-//
-//     fn get_params(world: &WorldState) -> Self::Params {
-//         Func::Params::get(world)
-//     }
-//
-//     fn run_static(
-//         &self,
-//         params: Self::Params,
-//         input: Self::In,
-//     ) -> impl Future<Output = Self::Out> + Send + 'static {
-//         self.func.clone().run_owned(input, params)
-//     }
-// }
 
 pub trait IsSystemFn<Marker>: Sized + Send + Sync + 'static {
     type Input;

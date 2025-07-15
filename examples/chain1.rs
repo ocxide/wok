@@ -19,4 +19,8 @@ fn main() {
     //
     // let fut = sys.run(&lump.state, 2);
     // std::mem::drop(fut);
+    //
+    let a = first.map(|a| a + 1);
+
+    let b = a.into_system();
 }
