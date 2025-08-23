@@ -1,7 +1,6 @@
-use lump_core::{
-    world::World,
-    prelude::{In, IntoSystem, TaskSystem},
-};
+use std::convert::Infallible;
+
+use lump_core::{prelude::*, world::World};
 
 async fn first(input8: In<u8>) -> u32 {
     input8.0 as u32
@@ -13,14 +12,12 @@ async fn second(input32: In<u32>) -> u64 {
 
 async fn third(_: In<u64>) {}
 
+fn zero() -> Result<u8, Infallible> {
+    Ok(0)
+}
+async fn a(a: In<u8>) {}
+
 fn main() {
     let lump = World::default();
-    // let sys = first.pipe(second).pipe(third).into_system();
-    //
-    // let fut = sys.run(&lump.state, 2);
-    // std::mem::drop(fut);
-    //
-    let a = first.map(|a| a + 1);
-
-    let b = a.into_system();
+    let a = zero.try_then(async |a: In<u8>| a.0).into_system();
 }

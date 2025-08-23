@@ -9,6 +9,18 @@ pub struct FunctionSystem<Fn, Marker> {
     _marker: PhantomData<fn(Marker)>,
 }
 
+impl<Fn, Marker> Clone for FunctionSystem<Fn, Marker>
+where
+    Fn: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            func: self.func.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
 pub trait SystemFn<Marker>: Send + Sync + 'static {
     type Params: Param;
     type Input: SystemInput;
@@ -75,6 +87,45 @@ macro_rules! impl_system_fn {
     };
 }
 
+impl<Func, O> SystemFn<fn() -> O> for Func
+where
+    O: Send + Sync + 'static,
+    Func: Send + Sync + 'static + Clone,
+    Func: Fn() -> O,
+{
+    type Input = ();
+    #[allow(unused_parens)]
+    type Params = ();
+    type Output = O;
+    fn run(
+        &self,
+        _input: <Self::Input as SystemInput>::Inner<'_>,
+        #[allow(non_snake_case, unused_parens)] (): ParamBorrow<'_, Self::Params>,
+    ) -> Self::Output {
+        self()
+    }
+}
+
+impl<Func, I, O> SystemFn<(HasSystemInput, fn(I) -> O)> for Func
+where
+    I: SystemInput + 'static,
+    O: Send + Sync + 'static,
+    Func: Send + Sync + 'static + Clone,
+    Func: Fn(I) -> O,
+    Func: for<'i> Fn(I::Wrapped<'i>) -> O,
+{
+    type Input = I;
+    #[allow(unused_parens)]
+    type Params = ();
+    type Output = O;
+    fn run(
+        &self,
+        input: <Self::Input as SystemInput>::Inner<'_>,
+        #[allow(non_snake_case, unused_parens)] (): ParamBorrow<'_, Self::Params>,
+    ) -> Self::Output {
+        self(I::wrap(input))
+    }
+}
 impl_system_fn!(P1: 'p1);
 impl_system_fn!(P1: 'p1, P2: 'p2);
 impl_system_fn!(P1: 'p1, P2: 'p2, P3: 'p3);
@@ -98,7 +149,7 @@ where
 
 impl<Func, Marker: 'static> ProtoBlockingSystem for FunctionSystem<Func, Marker>
 where
-    Func: SystemFn<Marker>,
+    Func: SystemFn<Marker> + Clone,
 {
     type Param = Func::Params;
     fn run(
@@ -112,7 +163,7 @@ where
 
 impl<Func, Marker: 'static> IntoBlockingSystem<Marker> for Func
 where
-    Func: SystemFn<Marker>,
+    Func: SystemFn<Marker> + Clone,
 {
     type System = FunctionSystem<Func, Marker>;
 

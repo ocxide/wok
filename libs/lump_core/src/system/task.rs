@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use crate::{param::Param, world::WorldState};
 
-use super::{combinators::IntoMapSystem, System, SystemIn, SystemInput};
+use super::{System, SystemIn, SystemInput};
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
@@ -10,11 +10,12 @@ pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sy
 
 // Dyn compatible
 pub trait TaskSystem: System {
-    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>
-    where
-        Self::In: 'i;
+    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>;
 
     fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out>;
+
+    fn run_owned<'i>(self, world: &WorldState, input: SystemIn<'i, Self>)
+    -> SystemFuture<'i, Self>;
 }
 
 pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
@@ -38,67 +39,40 @@ impl<In: SystemInput + 'static, Out: Send + Sync + 'static> SystemTask<In, Out> 
     }
 }
 
-pub trait ProtoTask<'p, Input: SystemInput + 'static, Out: Send + Sync + 'static>:
-    Send + 'static
-{
-    fn run<'i>(self, input: Input::Inner<'i>) -> impl Future<Output = Out> + Send + 'i;
-    fn into_task(self) -> crate::prelude::SystemTask<Input, Out>
-    where
-        Self: Sized,
-    {
-        crate::prelude::SystemTask::new(|input, _| Box::pin(self.run(input)))
-    }
-}
-
 // Allow zero-cost abstraction
-pub trait ProtoSystem: System {
+pub trait ProtoSystem: System + Clone {
     type Param: Param;
 
     fn run<'i>(
-        &self,
-        param: <Self::Param as Param>::AsRef<'i>,
-        input: SystemIn<'i, Self>,
-    ) -> impl Future<Output = Self::Out> + Send + 'i;
-
-    fn run_owned<'i>(
-        &self,
+        self,
         param: <Self::Param as Param>::Owned,
         input: SystemIn<'i, Self>,
     ) -> impl Future<Output = Self::Out> + Send + 'i;
-
-    fn create_task_owned(
-        &self,
-        param: <Self::Param as Param>::Owned,
-    ) -> impl ProtoTask<'static, Self::In, Self::Out>;
 }
 
 pub trait IntoSystem<Marker> {
     type System: System + TaskSystem + ProtoSystem;
 
     fn into_system(self) -> Self::System;
-    fn map<F, Out>(self, func: F) -> IntoMapSystem<F, Self>
-    where
-        Self: Sized,
-        F: Fn(<Self::System as System>::Out) -> Out + Clone,
-    {
-        IntoMapSystem { func, system: self }
-    }
 }
 
 impl<S: ProtoSystem> TaskSystem for S {
-    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>
-    where
-        Self::In: 'i,
-    {
+    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self> {
+        self.clone().run_owned(world, input)
+    }
+
+    fn run_owned<'i>(
+        self,
+        world: &WorldState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self> {
         let param = S::Param::get(world);
-        let fut = self.run_owned(param, input);
-        Box::pin(fut)
+        Box::pin(self.run(param, input))
     }
 
     fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out> {
+        let system = self.clone();
         let param = S::Param::get(world);
-        let task = self.create_task_owned(param);
-
-        task.into_task()
+        SystemTask::new(|input, _| Box::pin(system.run(param, input)))
     }
 }

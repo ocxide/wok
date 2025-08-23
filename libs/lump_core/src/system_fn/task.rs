@@ -4,7 +4,7 @@ use impls::{ParamBorrow, ParamOwned};
 
 use crate::{
     param::Param,
-    system::{IntoSystem, ProtoSystem, ProtoTask, System, SystemIn, SystemInput},
+    system::{IntoSystem, ProtoSystem, System, SystemIn, SystemInput},
 };
 
 pub struct FunctionSystem<Marker, F> {
@@ -60,24 +60,6 @@ where
     }
 }
 
-pub struct FunctionSystemTask<Maker, Func: SystemFn<Maker>> {
-    func: Func,
-    params: <Func::Params as Param>::Owned,
-}
-
-impl<Maker, Func> ProtoTask<'static, Func::Input, Func::Output> for FunctionSystemTask<Maker, Func>
-where
-    Maker: 'static,
-    Func: SystemFn<Maker, Output: Send + Sync + 'static> + Send + Sync,
-{
-    fn run<'i>(
-        self,
-        input: <Func::Input as SystemInput>::Inner<'i>,
-    ) -> impl Future<Output = Func::Output> + Send + 'i {
-        self.func.run_owned(input, self.params)
-    }
-}
-
 impl<Marker, Func> ProtoSystem for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
@@ -86,29 +68,11 @@ where
     type Param = Func::Params;
 
     fn run<'i>(
-        &self,
-        param: <Self::Param as Param>::AsRef<'i>,
-        input: SystemIn<'i, Self>,
-    ) -> impl Future<Output = Self::Out> + Send + 'i {
-        (self.func.clone()).run(input, param)
-    }
-
-    fn run_owned<'i>(
-        &self,
+        self,
         param: <Self::Param as Param>::Owned,
         input: SystemIn<'i, Self>,
     ) -> impl Future<Output = Self::Out> + Send + 'i {
-        (self.func.clone()).run_owned(input, param)
-    }
-
-    fn create_task_owned(
-        &self,
-        param: <Self::Param as Param>::Owned,
-    ) -> impl ProtoTask<'static, Self::In, Self::Out> {
-        FunctionSystemTask {
-            func: self.func.clone(),
-            params: param,
-        }
+        self.func.run_owned(input, param)
     }
 }
 
@@ -127,8 +91,7 @@ mod impls {
     use super::{HasSystemInput, InputLessSystem, SystemFn};
     use crate::{param::Param, system::SystemInput};
     use async_fn_traits::{
-        AsyncFn0, AsyncFn1, AsyncFn2, AsyncFn3, AsyncFn4, AsyncFn5, AsyncFn6, AsyncFn7,
-        AsyncFn8,
+        AsyncFn0, AsyncFn1, AsyncFn2, AsyncFn3, AsyncFn4, AsyncFn5, AsyncFn6, AsyncFn7, AsyncFn8,
     };
     use std::{future::Future, marker::PhantomData};
 
@@ -322,4 +285,3 @@ where
         }
     }
 }
-

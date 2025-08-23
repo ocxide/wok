@@ -18,16 +18,18 @@ pub trait System: Send + Sync + 'static {
     fn init(&self, rw: &mut SystemLock);
 }
 
+pub use blocking::*;
+
 pub mod blocking {
     use crate::{param::Param, world::WorldState};
 
-    use super::{System, SystemIn};
+    use super::{IntoSystem, System, SystemIn, SystemInput, combinators::IntoTryThenSystem};
 
     pub trait BlockingSystem: System {
         fn run(&self, world: &WorldState, input: SystemIn<'_, Self>) -> Self::Out;
     }
 
-    pub trait ProtoBlockingSystem: System {
+    pub trait ProtoBlockingSystem: System + Clone {
         type Param: Param;
         fn run(
             &self,
@@ -44,8 +46,22 @@ pub mod blocking {
     }
 
     pub trait IntoBlockingSystem<Marker> {
-        type System: BlockingSystem;
+        type System: ProtoBlockingSystem + BlockingSystem;
 
         fn into_system(self) -> Self::System;
+        fn try_then<S2, S2Marker, Ok, Err>(self, system2: S2) -> IntoTryThenSystem<Self, S2>
+        where
+            Ok: Send + Sync + 'static,
+            Err: Send + Sync + 'static,
+            Self: Sized,
+            Self::System: System<Out = Result<Ok, Err>>,
+            S2: IntoSystem<S2Marker>,
+            <S2::System as System>::In: for<'i> SystemInput<Inner<'i> = Ok>,
+        {
+            IntoTryThenSystem {
+                system1: self,
+                system2,
+            }
+        }
     }
 }
