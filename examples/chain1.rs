@@ -15,9 +15,11 @@ async fn third(_: In<u64>) {}
 fn zero() -> Result<u8, Infallible> {
     Ok(0)
 }
-async fn a(a: In<u8>) {}
+async fn funa(a: In<u8>) {}
 
 fn main() {
     let lump = World::default();
     let a = zero.try_then(async |a: In<u8>| a.0).into_system();
+
+    let a = (|| 0).pipe_then(|input: In<u8>| async move { funa(input).await }).into_system();
 }

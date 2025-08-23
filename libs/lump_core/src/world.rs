@@ -389,15 +389,22 @@ pub trait ConfigureWorld: Sized {
             + ScheduleConfigure<<S::System as System>::In, <S::System as System>::Out>,
         S: IntoSystem<SMarker>,
     {
-        let system = system.into_system();
-        let id = self.world_mut().register_system(&system);
-        Sch::add(self.world_mut(), id, Box::new(system));
+        Sch::add(self.world_mut(), system);
 
         self
     }
 }
 
 impl ConfigureWorld for World {
+    fn world_mut(&mut self) -> &mut World {
+        self
+    }
+    fn world(&self) -> &World {
+        self
+    }
+}
+
+impl ConfigureWorld for &mut World {
     fn world_mut(&mut self) -> &mut World {
         self
     }

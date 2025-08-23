@@ -34,7 +34,7 @@ pub trait SystemFn<Marker>: Send + Sync + 'static {
 }
 
 pub type ParamBorrow<'p, T> = <T as Param>::AsRef<'p>;
-struct HasSystemInput;
+pub struct HasSystemInput;
 
 macro_rules! impl_system_fn {
     ($($params:ident : $time: lifetime),*) => {

@@ -5,7 +5,7 @@ use futures::{
     channel::mpsc::{Receiver, Sender, channel},
 };
 use lump_core::{
-    prelude::{DynSystem, Param, Res, SystemInput},
+    prelude::{Param, Res, SystemInput},
     resources::{LocalResource, LocalResources},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
     world::{ConfigureWorld, WorldState},
@@ -100,16 +100,21 @@ impl<'c, E: Event> ScheduleConfigure<OnEvents<'c, E>, ()> for Events
 where
     OnEvents<'c, E>: SystemInput + 'static,
 {
-    fn add(
+    fn add<Marker>(
         world: &mut lump_core::world::World,
-        systemid: lump_core::world::SystemId,
-        system: DynSystem<OnEvents<'c, E>, ()>,
+        system: impl lump_core::prelude::IntoSystem<
+            Marker,
+            System: lump_core::prelude::System<In = OnEvents<'c, E>, Out = ()>,
+        >,
     ) {
+        let system = system.into_system();
+        let systemid = world.register_system(&system);
+
         let Some(systems) = world.center.resources.get_mut::<EventHandlers<'_, E>>() else {
             panic!("events `{}` is not registered", std::any::type_name::<E>());
         };
 
-        systems.add(systemid, system, EventsBuffer(Default::default()));
+        systems.add(systemid, Box::new(system), EventsBuffer(Default::default()));
     }
 }
 
@@ -119,7 +124,10 @@ impl Events {
         let socket = EventsSocket { recv: rx };
         let sender = EventSenderRes { sender: sx };
 
-        app.world_mut().center.resources.init::<EventHandlers<'_, E>>();
+        app.world_mut()
+            .center
+            .resources
+            .init::<EventHandlers<'_, E>>();
         app.world_mut().center.resources.insert(socket);
         app.world_mut().state.resources.insert(sender);
 

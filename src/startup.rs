@@ -22,18 +22,23 @@ pub struct Startup;
 impl ScheduleLabel for Startup {}
 
 impl ScheduleConfigure<(), Result<(), LumpUnknownError>> for Startup {
-    fn add(
+    fn add<Marker>(
         world: &mut lump_core::world::World,
-        systemid: lump_core::world::SystemId,
-        system: lump_core::prelude::DynSystem<(), Result<(), LumpUnknownError>>,
+        system: impl lump_core::prelude::IntoSystem<
+            Marker,
+            System: lump_core::prelude::System<In = (), Out = Result<(), LumpUnknownError>>,
+        >,
     ) {
+        let system = system.into_system();
+        let systemid = world.register_system(&system);
+
         let systems = world
             .center
             .resources
             .get_mut::<StartupSystems>()
             .expect("Startup schedule was not initialized");
 
-        systems.systems.add_system(systemid, system);
+        systems.systems.add_system(systemid, Box::new(system));
         systems.pendings.push(systemid);
     }
 }

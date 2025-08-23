@@ -3,7 +3,7 @@ use futures::{FutureExt, future::Either};
 use crate::param::Param;
 
 use super::{
-    IntoSystem, ProtoSystem, System, SystemIn, SystemInput, TaskSystem,
+    IntoSystem, ProtoSystem, System, SystemIn, SystemInput,
     blocking::{IntoBlockingSystem, ProtoBlockingSystem},
 };
 
@@ -93,5 +93,68 @@ where
         };
 
         Either::Right(self.system2.run(param2, input2).map(|out| Ok(out)))
+    }
+}
+
+#[derive(Clone)]
+pub struct PipeThenSystem<S1, S2> {
+    system1: S1,
+    system2: S2,
+}
+
+impl<S1, S2> System for PipeThenSystem<S1, S2>
+where
+    S1: ProtoBlockingSystem,
+    S2: ProtoSystem,
+    S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
+{
+    type In = S1::In;
+    type Out = S2::Out;
+
+    fn init(&self, rw: &mut crate::world::SystemLock) {
+        self.system1.init(rw);
+        self.system2.init(rw);
+    }
+}
+
+impl<S1, S2> ProtoSystem for PipeThenSystem<S1, S2>
+where
+    S1: ProtoBlockingSystem,
+    S2: ProtoSystem,
+    S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
+{
+    type Param = (S1::Param, S2::Param);
+
+    fn run<'i>(
+        self,
+        (param1, param2): <Self::Param as Param>::Owned,
+        input: SystemIn<'i, Self>,
+    ) -> impl Future<Output = Self::Out> + Send + 'i {
+        let out = self.system1.run(S1::Param::as_ref(&param1), input);
+        self.system2.run(param2, out)
+    }
+}
+
+pub struct IntoPipeThenSystem<S1, S2> {
+    pub system1: S1,
+    pub system2: S2,
+}
+
+pub struct IsIntoPipeThen;
+
+impl<S1, S1Marker, S2, S2Marker> IntoSystem<(S1Marker, S2Marker, IsIntoPipeThen)>
+    for IntoPipeThenSystem<S1, S2>
+where
+    S1: IntoBlockingSystem<S1Marker>,
+    S2: IntoSystem<S2Marker>,
+    <S2::System as System>::In: for<'i> SystemInput<Inner<'i> = <S1::System as System>::Out>,
+{
+    type System = PipeThenSystem<S1::System, S2::System>;
+
+    fn into_system(self) -> Self::System {
+        PipeThenSystem {
+            system1: self.system1.into_system(),
+            system2: self.system2.into_system(),
+        }
     }
 }

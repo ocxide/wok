@@ -23,7 +23,10 @@ pub use blocking::*;
 pub mod blocking {
     use crate::{param::Param, world::WorldState};
 
-    use super::{IntoSystem, System, SystemIn, SystemInput, combinators::IntoTryThenSystem};
+    use super::{
+        IntoSystem, System, SystemIn, SystemInput,
+        combinators::{IntoPipeThenSystem, IntoTryThenSystem},
+    };
 
     pub trait BlockingSystem: System {
         fn run(&self, world: &WorldState, input: SystemIn<'_, Self>) -> Self::Out;
@@ -59,6 +62,19 @@ pub mod blocking {
             <S2::System as System>::In: for<'i> SystemInput<Inner<'i> = Ok>,
         {
             IntoTryThenSystem {
+                system1: self,
+                system2,
+            }
+        }
+
+        fn pipe_then<S2, S2Marker>(self, system2: S2) -> IntoPipeThenSystem<Self, S2> 
+        where 
+            Self: Sized,
+            Self::System: System,
+            S2: IntoSystem<S2Marker>,
+            <S2::System as System>::In: for<'i> SystemInput<Inner<'i> = <Self::System as System>::Out>,
+        {
+            IntoPipeThenSystem {
                 system1: self,
                 system2,
             }

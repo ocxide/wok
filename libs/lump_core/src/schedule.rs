@@ -1,15 +1,15 @@
 pub use storages::*;
 
-use crate::system::DynSystem;
+use crate::system::IntoSystem;
+use crate::system::System;
 use crate::system::SystemInput;
 
 pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {}
 
 pub trait ScheduleConfigure<In: SystemInput, Out> {
-    fn add(
+    fn add<Marker>(
         world: &mut crate::world::World,
-        systemid: crate::world::SystemId,
-        system: DynSystem<In, Out>,
+        system: impl IntoSystem<Marker, System: System<In = In, Out = Out>>,
     );
 }
 
@@ -63,7 +63,9 @@ mod storages {
         pub Vec<(SystemId, DynSystem<In, Out>, Meta)>,
     );
 
-    impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> Default for Systems<In, Out, Meta> {
+    impl<In: SystemInput + 'static, Out: 'static, Meta: Send + Sync + 'static> Default
+        for Systems<In, Out, Meta>
+    {
         fn default() -> Self {
             Self(Vec::new())
         }
