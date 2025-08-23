@@ -203,7 +203,7 @@ mod impls {
             Self::Input: Send + 'static,
         {
             async move {
-                let params = Self::Params::as_ref(&params);
+                let params = Self::Params::from_owned(&params);
                 self.run(input, params).await
             }
         }
@@ -243,7 +243,7 @@ mod impls {
             Self::Input: Send + SystemInput<Inner<'i>: 'i>,
         {
             async move {
-                let params = Self::Params::as_ref(&params);
+                let params = Self::Params::from_owned(&params);
                 self.run(input, params).await
             }
         }

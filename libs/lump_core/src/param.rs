@@ -13,7 +13,7 @@ pub trait Param: Send {
     fn init(rw: &mut SystemLock);
 
     fn get(world: &WorldState) -> Self::Owned;
-    fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_>;
+    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_>;
 }
 
 impl Param for () {
@@ -22,7 +22,7 @@ impl Param for () {
 
     fn init(_rw: &mut SystemLock) {}
     fn get(_world: &WorldState) -> Self::Owned {}
-    fn as_ref(_world: &()) -> Self::AsRef<'_> {}
+    fn from_owned(_world: &()) -> Self::AsRef<'_> {}
 }
 
 macro_rules! impl_param {
@@ -43,10 +43,10 @@ macro_rules! impl_param {
         }
 
         #[allow(clippy::needless_lifetimes)]
-        fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
+        fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
             #[allow(non_snake_case)]
             let ($($params),*) = owned;
-            ($($params::as_ref($params)),*)
+            ($($params::from_owned($params)),*)
         }
      }
      };
@@ -63,6 +63,12 @@ impl_param!(A, B, C, D, E, F, G, H, I);
 impl_param!(A, B, C, D, E, F, G, H, I, J);
 
 pub struct Res<'r, R: Resource>(HandleRead<'r, R>);
+
+impl<'r, R: Resource> AsRef<R> for Res<'r, R> {
+    fn as_ref(&self) -> &R {
+        &self.0
+    }
+}
 
 impl<R: Resource> Deref for Res<'_, R> {
     type Target = R;
@@ -90,7 +96,7 @@ impl<R: Resource> Param for Res<'_, R> {
         world.get_resource()
     }
 
-    fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {
+    fn from_owned(handle: &Self::Owned) -> Self::AsRef<'_> {
         Res(handle.read().expect("to read"))
     }
 }
@@ -130,7 +136,7 @@ impl<R: Resource> Param for ResMut<'_, R> {
         world.get_resource()
     }
 
-    fn as_ref(handle: &Self::Owned) -> Self::AsRef<'_> {
+    fn from_owned(handle: &Self::Owned) -> Self::AsRef<'_> {
         ResMut(handle.write().expect("to write"))
     }
 }

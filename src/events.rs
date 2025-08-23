@@ -55,9 +55,9 @@ impl<'e, E: Event> lump_core::prelude::Param for EventSender<'e, E> {
         Res::get(world)
     }
 
-    fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
+    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
         EventSender {
-            sender: Res::<EventSenderRes<E>>::as_ref(owned).deref().clone(),
+            sender: Res::<EventSenderRes<E>>::from_owned(owned).deref().clone(),
             _marker: std::marker::PhantomData,
         }
     }

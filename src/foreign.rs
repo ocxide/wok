@@ -7,7 +7,7 @@ use futures::{
     channel::{mpsc, oneshot},
 };
 use lump_core::{
-    prelude::Param,
+    prelude::{Param, Resource},
     world::{SystemLock, SystemLocks, WorldState},
 };
 
@@ -30,6 +30,8 @@ pub struct ParamsClient {
     close_sender: mpsc::Sender<ForeignParamsKey>,
 }
 
+impl Resource for ParamsClient {}
+
 pub struct ParamGuard<P: Param> {
     params: P::Owned,
     key: ForeignParamsKey,
@@ -47,7 +49,7 @@ impl<P: Param> Drop for ParamGuard<P> {
 
 impl<P: Param> ParamGuard<P> {
     pub fn as_ref(&self) -> P::AsRef<'_> {
-        P::as_ref(&self.params)
+        P::from_owned(&self.params)
     }
 }
 

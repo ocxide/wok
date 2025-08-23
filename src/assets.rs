@@ -22,9 +22,9 @@ impl<'r, R: Resource> Param for AssetInit<'r, R> {
         <Commands<'r> as Param>::get(world)
     }
 
-    fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
+    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
         AssetInit {
-            commands: <Commands<'r> as Param>::as_ref(owned),
+            commands: <Commands<'r> as Param>::from_owned(owned),
             _marker: std::marker::PhantomData,
         }
     }

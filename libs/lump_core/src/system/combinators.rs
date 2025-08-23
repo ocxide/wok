@@ -85,7 +85,7 @@ where
         (param1, param2): <Self::Param as Param>::Owned,
         input: SystemIn<'i, Self>,
     ) -> impl Future<Output = Self::Out> + Send + 'i {
-        let result = self.system1.run(S1::Param::as_ref(&param1), input);
+        let result = self.system1.run(S1::Param::from_owned(&param1), input);
 
         let input2 = match result {
             Ok(ok) => ok,
@@ -130,7 +130,7 @@ where
         (param1, param2): <Self::Param as Param>::Owned,
         input: SystemIn<'i, Self>,
     ) -> impl Future<Output = Self::Out> + Send + 'i {
-        let out = self.system1.run(S1::Param::as_ref(&param1), input);
+        let out = self.system1.run(S1::Param::from_owned(&param1), input);
         self.system2.run(param2, out)
     }
 }

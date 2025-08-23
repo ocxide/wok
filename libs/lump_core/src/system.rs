@@ -44,7 +44,7 @@ pub mod blocking {
     impl<S: ProtoBlockingSystem> BlockingSystem for S {
         fn run(&self, world: &WorldState, input: SystemIn<'_, Self>) -> Self::Out {
             let param = S::Param::get(world);
-            self.run(S::Param::as_ref(&param), input)
+            self.run(S::Param::from_owned(&param), input)
         }
     }
 

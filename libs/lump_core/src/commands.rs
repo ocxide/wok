@@ -53,7 +53,7 @@ impl<'s> Param for Commands<'s> {
         world.commands_sx.clone()
     }
 
-    fn as_ref(owned: &Self::Owned) -> Self::AsRef<'_> {
+    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
         Commands {
             sender: owned.clone(),
             _marker: std::marker::PhantomData,
