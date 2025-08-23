@@ -1,4 +1,8 @@
-use lump_core::world::{ConfigureWorld, World, WorldState};
+use lump_core::{
+    error::LumpUnknownError,
+    prelude::{InRef, IntoSystem, Param, ProtoSystem, System},
+    world::{ConfigureWorld, World, WorldState},
+};
 
 use crate::{
     events::{Event, Events},
@@ -42,6 +46,14 @@ impl<AR: AsyncRuntime + 'static> AppBuilder<AR> {
         );
         (rt, self.lender.client, state)
     }
+
+    pub fn build(self, rt: <AR as RuntimeConfig>::AsyncRuntime) -> App<AR> {
+        let (rt, client, mut state) = self.build_parts(rt);
+
+        state.resources.insert(client);
+
+        App { rt, state }
+    }
 }
 
 impl<C: RuntimeConfig> ConfigureWorld for AppBuilder<C> {
@@ -52,6 +64,49 @@ impl<C: RuntimeConfig> ConfigureWorld for AppBuilder<C> {
     fn world_mut(&mut self) -> &mut World {
         &mut self.world
     }
+}
+
+pub struct App<AR: AsyncRuntime + 'static> {
+    pub state: WorldState,
+    rt: Runtime<AR>,
+}
+
+impl<AR: AsyncRuntime + 'static> App<AR> {
+    pub async fn run<'i, S, Marker>(mut self, system: S) -> Result<(), LumpUnknownError>
+    where
+        S: IntoSystem<Marker>,
+        S::System: System<In = InRef<'i, WorldState>, Out = Result<(), LumpUnknownError>>,
+    {
+        self.rt.invoke_startup(&mut self.state).await?;
+
+        let param = <<S::System as ProtoSystem>::Param as Param>::get(&self.state);
+        let main_fut = system.into_system().run(param, &self.state);
+
+        let bg_fut = async {
+            self.rt.run(&self.state).await;
+            Ok(())
+        };
+
+        futures::future::try_join(main_fut, bg_fut).await?;
+        Ok(())
+    }
+
+    pub async fn run_as<Marker>(
+        self,
+        label: impl InvokerLabel<Marker>,
+    ) -> Result<(), LumpUnknownError> {
+        let system = label.system();
+        self.run(system).await
+    }
+}
+
+pub trait InvokerLabel<Marker> {
+    fn system<'i>(
+        self,
+    ) -> impl IntoSystem<
+        Marker,
+        System: System<In = InRef<'i, WorldState>, Out = Result<(), LumpUnknownError>>,
+    >;
 }
 
 impl<AR: AsyncRuntime + 'static> RuntimeConfig for AR {

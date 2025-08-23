@@ -38,8 +38,12 @@ impl Handler {
         }
     }
 
-    pub fn run(&self, matches: &ArgMatches, world: &WorldState) -> Result<impl Future<Output = HandlerOut>, clap::Error> {
-       let arg = (self.parser)(matches)?; 
+    pub fn run(
+        &self,
+        matches: &ArgMatches,
+        world: &WorldState,
+    ) -> Result<impl Future<Output = HandlerOut>, clap::Error> {
+        let arg = (self.parser)(matches)?;
         Ok(self.system.run(world, arg))
     }
 }
@@ -93,3 +97,5 @@ impl<Arg: FromArgMatches + Send + Sync + 'static>
         world.insert_resource(MainHandler(handler));
     }
 }
+
+pub struct ClapInvoke {}
