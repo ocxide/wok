@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub trait Param: Send {
-    type Owned: Send + 'static;
+    type Owned: Sync + Send + 'static;
     type AsRef<'r>;
 
     fn init(rw: &mut SystemLock);
@@ -102,6 +102,18 @@ impl<R: Resource> Param for Res<'_, R> {
 }
 
 pub struct ResMut<'r, R: Resource>(HandleLock<'r, R>);
+
+impl<'r, R: Resource> AsRef<R> for ResMut<'r, R> {
+    fn as_ref(&self) -> &R {
+        &self.0
+    }
+}
+
+impl<'r, R: Resource> AsMut<R> for ResMut<'r, R> {
+    fn as_mut(&mut self) -> &mut R {
+        &mut self.0
+    }
+}
 
 impl<R: Resource> Deref for ResMut<'_, R> {
     type Target = R;

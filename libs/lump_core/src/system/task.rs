@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use crate::{param::Param, world::WorldState};
 
-use super::{System, SystemIn, SystemInput};
+use super::{combinators::IntoMapSystem, IntoBlockingSystem, System, SystemIn, SystemInput};
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
@@ -54,6 +54,17 @@ pub trait IntoSystem<Marker> {
     type System: System + TaskSystem + ProtoSystem;
 
     fn into_system(self) -> Self::System;
+    fn map<S2, Marker2>(self, system: S2) -> IntoMapSystem<Self, S2>
+    where
+        Self: Sized,
+        S2: IntoBlockingSystem<Marker2>,
+        <S2::System as System>::In: for<'i> SystemInput<Inner<'i> = <Self::System as System>::Out>,
+    {
+        IntoMapSystem {
+            system1: self,
+            system2: system,
+        }
+    }
 }
 
 impl<S: ProtoSystem> TaskSystem for S {

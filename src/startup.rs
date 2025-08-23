@@ -1,6 +1,7 @@
 use futures::{StreamExt, stream::FuturesUnordered};
 use lump_core::{
     error::LumpUnknownError,
+    prelude::{In, IntoSystem},
     resources::LocalResource,
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
     world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
@@ -40,6 +41,19 @@ impl ScheduleConfigure<(), Result<(), LumpUnknownError>> for Startup {
 
         systems.systems.add_system(systemid, Box::new(system));
         systems.pendings.push(systemid);
+    }
+}
+
+impl ScheduleConfigure<(), ()> for Startup {
+    fn add<Marker>(
+        world: &mut lump_core::world::World,
+        system: impl lump_core::prelude::IntoSystem<
+            Marker,
+            System: lump_core::prelude::System<In = (), Out = ()>,
+        >,
+    ) {
+        let system = system.map(|_: In<()>| Ok(()) as Result<(), LumpUnknownError>);
+        <Self as ScheduleConfigure<(), Result<(), LumpUnknownError>>>::add(world, system); 
     }
 }
 
