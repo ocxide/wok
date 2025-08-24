@@ -1,6 +1,6 @@
 use lump_core::{
     error::LumpUnknownError,
-    prelude::{InRef, IntoSystem, Param, ProtoSystem, System},
+    prelude::{IntoSystem, System},
     world::{ConfigureWorld, World, WorldState},
 };
 
@@ -72,15 +72,17 @@ pub struct App<AR: AsyncRuntime + 'static> {
 }
 
 impl<AR: AsyncRuntime + 'static> App<AR> {
-    pub async fn run<'i, S, Marker>(mut self, system: S) -> Result<(), LumpUnknownError>
+    pub async fn run<S, Marker>(mut self, system: S) -> Result<(), LumpUnknownError>
     where
         S: IntoSystem<Marker>,
-        S::System: System<In = InRef<'i, WorldState>, Out = Result<(), LumpUnknownError>>,
+        S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
     {
         self.rt.invoke_startup(&mut self.state).await?;
 
-        let param = <<S::System as ProtoSystem>::Param as Param>::get(&self.state);
-        let main_fut = system.into_system().run(param, &self.state);
+        let client = self.state.get_resource::<ParamsClient>();
+        let client = client.read().expect("to get client").clone();
+
+        let main_fut = client.run(system, ());
 
         let bg_fut = async {
             self.rt.run(&self.state).await;
@@ -88,25 +90,9 @@ impl<AR: AsyncRuntime + 'static> App<AR> {
         };
 
         futures::future::try_join(main_fut, bg_fut).await?;
+
         Ok(())
     }
-
-    pub async fn run_as<Marker>(
-        self,
-        label: impl InvokerLabel<Marker>,
-    ) -> Result<(), LumpUnknownError> {
-        let system = label.system();
-        self.run(system).await
-    }
-}
-
-pub trait InvokerLabel<Marker> {
-    fn system<'i>(
-        self,
-    ) -> impl IntoSystem<
-        Marker,
-        System: System<In = InRef<'i, WorldState>, Out = Result<(), LumpUnknownError>>,
-    >;
 }
 
 impl<AR: AsyncRuntime + 'static> RuntimeConfig for AR {

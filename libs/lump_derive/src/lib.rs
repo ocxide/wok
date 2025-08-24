@@ -97,7 +97,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
 
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
-    let as_ref_impl = match &struct_data.fields {
+    let from_owned_impl = match &struct_data.fields {
         syn::Fields::Unit => quote! { #thing_name },
         syn::Fields::Named(fields) => {
             let fields_map = fields.named.iter().enumerate().map(|(i, field)| {
@@ -108,7 +108,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                     span: field.span(),
                 };
 
-                quote! { #name: <#ty as #trait_path>::as_ref(&owned.#index) }
+                quote! { #name: <#ty as #trait_path>::from_owned(&owned.#index) }
             });
 
             quote! {
@@ -126,7 +126,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                     span: field.span(),
                 };
 
-                quote! { <#ty as #trait_path>::as_ref(&owned.#index) }
+                quote! { <#ty as #trait_path>::from_owned(&owned.#index) }
             });
 
             quote! {
@@ -172,8 +172,8 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 )
             }
 
-            fn as_ref<#altern_lifetime>(owned: &#altern_lifetime Self::Owned) -> Self::AsRef<#altern_lifetime> {
-                #as_ref_impl
+            fn from_owned<#altern_lifetime>(owned: &#altern_lifetime Self::Owned) -> Self::AsRef<#altern_lifetime> {
+                #from_owned_impl
             }
         }
     };
@@ -235,8 +235,8 @@ fn single() {
                     ( <Bar<'w> as Param>::get(world), )
                 }
 
-                fn as_ref<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
-                    Foo( <Bar<'w> as Param>::as_ref(&owned.0), )
+                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
+                    Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
                 }
             }
         }
@@ -268,8 +268,8 @@ fn single_for_core() {
                     ( <Bar<'w> as Param>::get(world), )
                 }
 
-                fn as_ref<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
-                    Foo( <Bar<'w> as Param>::as_ref(&owned.0), )
+                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
+                    Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
                 }
             }
         }
@@ -301,8 +301,8 @@ fn single_for_lib() {
                     ( <Bar<'w> as Param>::get(world), )
                 }
 
-                fn as_ref<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
-                    Foo( <Bar<'w> as Param>::as_ref(&owned.0), )
+                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
+                    Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
                 }
             }
         }

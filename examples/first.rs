@@ -10,8 +10,7 @@ impl Resource for State2 {}
 
 async fn single() {}
 async fn single_in(_input: In<u32>) {}
-async fn single_in_ref(_input: In<&u32>) {}
-async fn single_in_ref_mut(_input: In<&mut u32>) {}
+async fn single_in_ref(_input: InRef<'_, u32>) {}
 async fn res(_state: Res<'_, State>) {}
 async fn res_2(_state: Res<'_, State>, _state2: Res<'_, State2>) {}
 async fn res_3(_state: Res<'_, State>, _state2: Res<'_, State2>, _input: Res<'_, State2>) {}
@@ -57,5 +56,4 @@ fn main() {
     let _ = long_res.into_system();
     let _ = long_in.into_system();
     let _ = single_in_ref.into_system();
-    let _ = single_in_ref_mut.into_system();
 }

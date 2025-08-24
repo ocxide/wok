@@ -7,7 +7,7 @@ use futures::{
     channel::{mpsc, oneshot},
 };
 use lump_core::{
-    prelude::{Param, Resource},
+    prelude::{IntoSystem, Param, ProtoSystem, Res, Resource, System, SystemIn},
     world::{SystemLock, SystemLocks, WorldState},
 };
 
@@ -34,11 +34,15 @@ impl Resource for ParamsClient {}
 
 pub struct ParamGuard<P: Param> {
     params: P::Owned,
+    close: ParamGuardClose,
+}
+
+struct ParamGuardClose {
     key: ForeignParamsKey,
     close_sender: mpsc::Sender<ForeignParamsKey>,
 }
 
-impl<P: Param> Drop for ParamGuard<P> {
+impl Drop for ParamGuardClose {
     fn drop(&mut self) {
         let err = self.close_sender.try_send(self.key);
         if let Err(err) = err {
@@ -73,12 +77,12 @@ impl ParamsClient {
         let response = rx.await.expect("to be connected to the main world");
 
         let params = *response.params.downcast().expect("to be the right type");
-
-        ParamGuard {
-            params,
+        let close = ParamGuardClose {
             key: response.key,
             close_sender: self.close_sender,
-        }
+        };
+
+        ParamGuard { params, close }
     }
 
     pub fn try_get<P: Param>(
@@ -90,14 +94,28 @@ impl ParamsClient {
             .lender
             .0
             .try_get::<P>(&mut runtime.main.world.system_locks, state)?;
-
-        let guard = ParamGuard {
-            params,
+        let close = ParamGuardClose {
             key: id,
             close_sender: self.close_sender.clone(),
         };
 
+        let guard = ParamGuard { params, close };
+
         Some(guard)
+    }
+
+    pub async fn run<'i, Marker, S>(
+        self,
+        system: S,
+        input: SystemIn<'i, S::System>,
+    ) -> <S::System as System>::Out
+    where
+        S: IntoSystem<Marker, System: ProtoSystem>,
+    {
+        let system = system.into_system();
+        let guard = self.get::<<S::System as ProtoSystem>::Param>().await;
+
+        system.run(guard.params, input).await
     }
 }
 

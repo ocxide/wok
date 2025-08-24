@@ -67,12 +67,13 @@ pub mod blocking {
             }
         }
 
-        fn pipe_then<S2, S2Marker>(self, system2: S2) -> IntoPipeThenSystem<Self, S2> 
-        where 
+        fn pipe_then<S2, S2Marker>(self, system2: S2) -> IntoPipeThenSystem<Self, S2>
+        where
             Self: Sized,
             Self::System: System,
             S2: IntoSystem<S2Marker>,
-            <S2::System as System>::In: for<'i> SystemInput<Inner<'i> = <Self::System as System>::Out>,
+            <S2::System as System>::In:
+                for<'i> SystemInput<Inner<'i> = <Self::System as System>::Out>,
         {
             IntoPipeThenSystem {
                 system1: self,

@@ -98,4 +98,6 @@ impl<Arg: FromArgMatches + Send + Sync + 'static>
     }
 }
 
-pub struct ClapInvoke {}
+pub async fn clap_runtime(world: InRef<'_, WorldState>) -> Result<(), LumpUnknownError> {
+    Ok(())
+}
