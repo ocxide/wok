@@ -1,183 +1,49 @@
-use std::task::{Context, Poll};
+use futures::{FutureExt, StreamExt, channel::mpsc};
+use locking::ForeignSystemLockingRuntime;
+use lump_core::world::{SystemId, WorldCenter};
 
-use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
-use lump_core::{
-    error::LumpUnknownError, resources::LocalResources, world::{SystemId, SystemLocks, WorldCenter, WorldState, WorldSystemLockError}
-};
+pub use locking::SystemLocking;
 
-use crate::{
-    foreign::{ParamsLender, ParamsLenderPorts},
-    startup::Startup,
-};
-
-pub trait AsyncRuntime {
-    type JoinHandle<T: Send + 'static>: Future<Output = T> + Send + 'static;
-    fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
-    where
-        Fut: std::future::Future<Output: Send> + Send + 'static;
+pub struct Runtime {
+    world_center: WorldCenter,
+    foreign_rt: ForeignSystemLockingRuntime,
+    release_recv: ReleaseRecv,
 }
 
-pub trait RuntimeConfig: 'static {
-    type AsyncRuntime: AsyncRuntime;
-}
+impl Runtime {
+    pub fn new(world_center: WorldCenter) -> (Self, SystemLocking) {
+        let (tx, rx) = mpsc::channel(5);
+        let release_recv = ReleaseRecv(rx);
 
-type Invoker<C> = fn(&mut SystemTaskLauncher<'_, C>, &mut LocalResources, &WorldState);
+        let (foreign_rt, locking) = ForeignSystemLockingRuntime::new(tx);
 
-type InvokePoller = fn(&mut Context<'_>, &mut LocalResources) -> Poll<Option<()>>;
-pub struct PollingInvoker<C: RuntimeConfig> {
-    poller: InvokePoller,
-    invoker: Invoker<C>,
-}
-
-pub struct Invokers<C: RuntimeConfig> {
-    invokers: Vec<Invoker<C>>,
-    poll_invokers: Vec<PollingInvoker<C>>,
-}
-
-impl<C: RuntimeConfig> Invokers<C> {
-    #[inline]
-    pub fn add(&mut self, invoker: Invoker<C>) {
-        self.invokers.push(invoker);
-    }
-
-    pub fn add_polling(&mut self, poller: InvokePoller, invoker: Invoker<C>) {
-        self.poll_invokers.push(PollingInvoker { poller, invoker });
-    }
-}
-
-impl<C: RuntimeConfig> Default for Invokers<C> {
-    fn default() -> Self {
-        Self {
-            invokers: Vec::new(),
-            poll_invokers: Vec::new(),
-        }
-    }
-}
-
-pub(crate) struct MainRuntime<C: RuntimeConfig> {
-    pub(crate) world: WorldCenter,
-    invokers: Invokers<C>,
-}
-
-impl<C: RuntimeConfig> MainRuntime<C> {
-    pub async fn invoke_startup(&mut self, rt: &C::AsyncRuntime, state: &mut WorldState) -> Result<(), LumpUnknownError> {
-        let invoker = Startup::create_invoker::<C>(&mut self.world, state, rt);
-        invoker.invoke().await
-    }
-
-    fn on_system_complete(
-        &mut self,
-        rt: &C::AsyncRuntime,
-        futures: &mut SystemFutures<C>,
-        state: &WorldState,
-        systemid: SystemId,
-    ) {
-        self.world.system_locks.release(systemid);
-
-        let mut launcher = SystemTaskLauncher::<C> {
-            rt,
-            futures,
-            locks: &mut self.world.system_locks,
+        let this = Self {
+            foreign_rt,
+            world_center,
+            release_recv,
         };
-
-        self.invokers.invokers.iter().for_each(|invoker| {
-            invoker(&mut launcher, &mut self.world.resources, state);
-        });
     }
 
-    fn on_invoker_poll(
-        &mut self,
-        rt: &C::AsyncRuntime,
-        futures: &mut SystemFutures<C>,
-        state: &WorldState,
-        invoker: Invoker<C>,
-    ) {
-        let mut launcher = SystemTaskLauncher::<C> {
-            rt,
-            futures,
-            locks: &mut self.world.system_locks,
-        };
-
-        invoker(&mut launcher, &mut self.world.resources, state);
-    }
-}
-
-pub struct Runtime<C: RuntimeConfig> {
-    pub(crate) main: MainRuntime<C>,
-    pub(crate) lender: (ParamsLender, ParamsLenderPorts),
-    rt: C::AsyncRuntime,
-}
-
-impl<C: RuntimeConfig> Runtime<C> {
-    pub(crate) fn new(
-        world: WorldCenter,
-        invokers: Invokers<C>,
-        lender: (ParamsLender, ParamsLenderPorts),
-        rt: C::AsyncRuntime,
-    ) -> Self {
-        Self {
-            main: MainRuntime { world, invokers },
-            lender,
-            rt,
-        }
-    }
-
-    #[inline]
-    pub async fn invoke_startup(&mut self, state: &mut WorldState) -> Result<(), LumpUnknownError> {
-        self.main.invoke_startup(&self.rt, state).await
-    }
-
-    pub async fn run(self, state: &WorldState) {
-        let mut futures = SystemFutures::<C>::new();
-        let Runtime {
-            mut main,
-            lender: (mut params_lender, mut lender_ports),
-            rt,
-        } = self;
-
+    pub async fn run(mut self) {
         loop {
-            let mut polling_fut = std::future::poll_fn(|cx| {
-                for invoker in main.invokers.poll_invokers.iter() {
-                    let poll = (invoker.poller)(cx, &mut main.world.resources);
-
-                    match poll {
-                        Poll::Pending => {}
-                        Poll::Ready(None) => return Poll::Ready(None),
-                        Poll::Ready(Some(_)) => return Poll::Ready(Some(invoker.invoker)),
-                    }
-                }
-
-                std::task::Poll::Pending
-            })
-            .fuse();
-
             futures::select! {
-                 params_key = lender_ports.close_sender.next() => {
-                    let Some(params_key) = params_key else {
-                        break;
-                    };
-
-                    params_lender.release(params_key, &mut main.world.system_locks);
-                }
-
-                not_end = params_lender.tick().fuse() => {
-                    if not_end.is_none() {
+                // Check for new requests of system locking
+                next = self.foreign_rt.poll().fuse() => {
+                    if let Some(()) = next {
+                        self.foreign_rt.try_respond(&mut self.world_center.system_locks);
+                    }
+                    else {
                         break;
                     }
-
-                    params_lender.try_respond_queue(&mut main.world.system_locks, state);
                 }
 
-                systemid = futures.next() => {
-                    if let Some(systemid) = systemid {
-                        main.on_system_complete(&rt, &mut futures, state, systemid);
+                // Release system locks
+                system_id = self.release_recv.0.next() => {
+                    if let Some(system_id) = system_id {
+                        self.foreign_rt.release(system_id, &mut self.world_center.system_locks);
                     }
-
-                }
-
-                invoker = polling_fut => {
-                    if let Some(invoker) = invoker {
-                        main.on_invoker_poll(&rt, &mut futures, state, invoker);
+                    else {
+                        break;
                     }
                 }
             }
@@ -185,80 +51,161 @@ impl<C: RuntimeConfig> Runtime<C> {
     }
 }
 
-type SystemFutures<C> = FuturesUnordered<SystemHandle<C>>;
-
-pub type SystemHandle<C> = JoinHandle<C, SystemId>;
-
-pub type JoinHandle<C, T> = <<C as RuntimeConfig>::AsyncRuntime as AsyncRuntime>::JoinHandle<T>;
-
-pub struct SystemTaskLauncher<'c, C: RuntimeConfig> {
-    rt: &'c C::AsyncRuntime,
-    futures: &'c SystemFutures<C>,
-    locks: &'c mut SystemLocks,
+struct ReleaseRecv(mpsc::Receiver<SystemId>);
+struct ReleaseSystem {
+    system_id: SystemId,
+    sx: mpsc::Sender<SystemId>,
 }
 
-pub struct LockedSystemLauncher<'c, C: RuntimeConfig> {
-    systemid: SystemId,
-    rt: &'c C::AsyncRuntime,
-    futures: &'c SystemFutures<C>,
-}
-
-impl<'c, C: RuntimeConfig> LockedSystemLauncher<'c, C> {
-    pub fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
-        let systemid = self.systemid;
-        let spawn = self.rt.spawn(async move {
-            let _ = fut.await;
-            systemid
-        });
-
-        self.futures.push(spawn);
+impl Drop for ReleaseSystem {
+    fn drop(&mut self) {
+        if self.sx.try_send(self.system_id).is_err() {
+            println!("WARNING: failed to release system {}", self.system_id);
+        }
     }
 }
 
-impl<C: RuntimeConfig> SystemTaskLauncher<'_, C> {
-    pub fn single(
-        &mut self,
-        systemid: SystemId,
-    ) -> Result<LockedSystemLauncher<'_, C>, WorldSystemLockError> {
-        self.locks.try_lock(systemid)?;
+mod locking {
+    use std::collections::VecDeque;
 
-        Ok(LockedSystemLauncher {
-            systemid,
-            rt: self.rt,
-            futures: self.futures,
-        })
+    use futures::{
+        FutureExt, SinkExt, StreamExt,
+        channel::{mpsc, oneshot},
+    };
+    use lump_core::{
+        prelude::{DynSystem, SystemInput, TaskSystem},
+        world::{SystemId, SystemLocks, WorldState},
+    };
+
+    use super::ReleaseSystem;
+
+    pub struct SystemLocking {
+        locker: mpsc::Sender<LockRequest>,
+        releaser: mpsc::Sender<SystemId>,
     }
-}
 
-pub mod tokio {
-    use futures::FutureExt;
-    use tokio::{runtime::Handle, task::JoinHandle};
-
-    use crate::runtime::AsyncRuntime;
-
-    pub struct TokioJoinHandle<T>(pub JoinHandle<T>);
-
-    impl<T> Future for TokioJoinHandle<T> {
-        type Output = T;
-        fn poll(
-            mut self: std::pin::Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            self.0
-                .poll_unpin(cx)
-                .map(|poll| poll.expect("Tokio join handle failed"))
+    impl SystemLocking {
+        pub fn with_state(self, world: &WorldState) -> SystemLocker<'_> {
+            SystemLocker {
+                locking: self,
+                world,
+            }
         }
     }
 
-    impl AsyncRuntime for Handle {
-        type JoinHandle<T: Send + 'static> = TokioJoinHandle<T>;
+    #[derive(Clone)]
+    pub struct SystemLocker<'w> {
+        locking: SystemLocking,
+        world: &'w WorldState,
+    }
 
-        fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<Fut::Output>
-        where
-            Fut: std::future::Future<Output: Send> + Send + 'static,
-        {
-            let handle = self.spawn(fut);
-            TokioJoinHandle(handle)
+    impl<'w> SystemInput for SystemLocker<'w> {
+        type Inner<'i> = SystemLocker<'i>;
+        type Wrapped<'i> = SystemLocker<'i>;
+
+        fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
+            this
+        }
+    }
+
+    pub struct LockRequest {
+        respond_to: oneshot::Sender<()>,
+        system_id: SystemId,
+    }
+
+    impl<'w> SystemLocker<'w> {
+        pub async fn lock(mut self, system_id: SystemId) -> LockedSystemParams<'w> {
+            let (sx, rx) = oneshot::channel();
+
+            let req = LockRequest {
+                respond_to: sx,
+                system_id,
+            };
+
+            self.locking
+                .locker
+                .send(req)
+                .await
+                .expect("to be connected to the main world");
+
+            rx.await.expect("to be connected to the main world");
+
+            let releaser = ReleaseSystem {
+                system_id,
+                sx: self.locking.releaser,
+            };
+
+            LockedSystemParams {
+                world: self.world,
+                releaser,
+            }
+        }
+    }
+
+    pub struct LockedSystemParams<'w> {
+        world: &'w WorldState,
+        releaser: ReleaseSystem,
+    }
+
+    impl LockedSystemParams<'_> {
+        pub fn run<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
+            self,
+            system: DynSystem<In, Out>,
+            input: In::Inner<'i>,
+        ) -> impl Future<Output = Out> + Send + 'i {
+            system.run(self.world, input).map(move |out| {
+                drop(self.releaser);
+                out
+            })
+        }
+    }
+
+    pub struct ForeignSystemLockingRuntime {
+        rx: mpsc::Receiver<LockRequest>,
+        buf: VecDeque<LockRequest>,
+    }
+
+    impl ForeignSystemLockingRuntime {
+        pub fn new(releaser: mpsc::Sender<SystemId>) -> (Self, SystemLocking) {
+            let (tx, rx) = mpsc::channel(5);
+
+            (
+                ForeignSystemLockingRuntime {
+                    rx,
+                    buf: VecDeque::new(),
+                },
+                SystemLocking {
+                    locker: tx,
+                    releaser,
+                },
+            )
+        }
+
+        pub async fn poll(&mut self) -> Option<()> {
+            let req = self.rx.next().await?;
+
+            self.buf.push_back(req);
+            Some(())
+        }
+
+        pub fn try_respond(&mut self, locks: &mut SystemLocks) {
+            while let Some(req) = self.buf.iter().next() {
+                if locks.try_lock(req.system_id).is_err() {
+                    let req = self.buf.pop_front().unwrap();
+                    self.buf.push_back(req);
+
+                    continue;
+                }
+
+                let req = self.buf.pop_front().unwrap();
+                if req.respond_to.send(()).is_err() {
+                    locks.release(req.system_id);
+                }
+            }
+        }
+
+        pub fn release(&mut self, system_id: SystemId, locks: &mut SystemLocks) {
+            locks.release(system_id);
         }
     }
 }
