@@ -244,6 +244,10 @@ impl WorldState {
         }
     }
 
+    pub fn try_get_resource<R: Resource>(&self) -> Option<AnyHandle<R>> {
+        self.resources.handle()
+    }
+
     #[inline]
     pub fn try_take_resource<R: Resource>(&mut self) -> Option<R> {
         self.resources.try_take()

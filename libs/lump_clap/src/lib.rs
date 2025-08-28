@@ -1,10 +1,10 @@
 use std::{any::Any, collections::HashMap};
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
-use lump::prelude::*;
+use lump::{foreign::ParamsClient, prelude::*};
 use lump_core::schedule::ScheduleConfigure;
 
-pub struct CommandRoot(pub clap::Command);
+pub struct CommandRoot(pub Option<clap::Command>);
 impl Resource for CommandRoot {}
 
 type HandlerIn = Box<dyn Any + Send + Sync + 'static>;
@@ -41,10 +41,10 @@ impl Handler {
     pub fn run(
         &self,
         matches: &ArgMatches,
-        world: &WorldState,
+        client: &ParamsClient,
     ) -> Result<impl Future<Output = HandlerOut>, clap::Error> {
         let arg = (self.parser)(matches)?;
-        Ok(self.system.run(world, arg))
+        Ok(client.clone().run(self.system, arg))
     }
 }
 
@@ -74,7 +74,7 @@ impl ClapPlugin {
 
 impl Plugin for ClapPlugin {
     fn setup(self, app: impl ConfigureMoreWorld) {
-        app.insert_resource(CommandRoot(self.command))
+        app.insert_resource(CommandRoot(Some(self.command)))
             .init_resource::<Router>();
     }
 }
@@ -98,6 +98,19 @@ impl<Arg: FromArgMatches + Send + Sync + 'static>
     }
 }
 
-pub async fn clap_runtime(world: InRef<'_, WorldState>) -> Result<(), LumpUnknownError> {
+pub async fn clap_runtime(
+    main: Option<Res<'_, MainHandler>>,
+    router: Res<'_, Router>,
+    mut command: ResMut<'_, CommandRoot>,
+    client: Res<'_, ParamsClient>
+) -> Result<(), LumpUnknownError> {
+    command.0.build();
+    let args = command.0.take().expect("to have a command").try_get_matches()?;
+
+    if let Some(main) = main {
+        let res = main.0.run(&args, &client.state).await?;
+        return res;
+    }
+
     Ok(())
 }

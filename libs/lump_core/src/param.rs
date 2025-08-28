@@ -152,3 +152,37 @@ impl<R: Resource> Param for ResMut<'_, R> {
         ResMut(handle.write().expect("to write"))
     }
 }
+
+impl<R: Resource> Param for Option<Res<'_, R>> {
+    type Owned = Option<AnyHandle<R>>;
+    type AsRef<'r> = Option<Res<'r, R>>;
+
+    fn init(rw: &mut SystemLock) {
+        Res::<'_, R>::init(rw);
+    }
+
+    fn get(world: &WorldState) -> Self::Owned {
+        world.try_get_resource()
+    }
+
+    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
+        owned.as_ref().map(Res::from_owned)
+    }
+}
+
+impl<R: Resource> Param for Option<ResMut<'_, R>> {
+    type Owned = Option<AnyHandle<R>>;
+    type AsRef<'r> = Option<ResMut<'r, R>>;
+
+    fn init(rw: &mut SystemLock) {
+        ResMut::<'_, R>::init(rw);
+    }
+
+    fn get(world: &WorldState) -> Self::Owned {
+        world.try_get_resource()
+    }
+
+    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
+        owned.as_ref().map(ResMut::from_owned)
+    }
+}
