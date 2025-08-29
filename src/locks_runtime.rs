@@ -1,21 +1,21 @@
 use futures::{FutureExt, StreamExt, channel::mpsc};
-use locking::ForeignSystemLockingRuntime;
+use locking::LockingQueue;
 use lump_core::world::{SystemId, WorldCenter};
 
-pub use locking::SystemLocking;
+pub use locking::LockingGateway;
 
 pub struct Runtime {
     pub(crate) world_center: WorldCenter,
-    foreign_rt: ForeignSystemLockingRuntime,
+    foreign_rt: LockingQueue,
     release_recv: ReleaseRecv,
 }
 
 impl Runtime {
-    pub fn new(world_center: WorldCenter) -> (Self, SystemLocking) {
+    pub fn new(world_center: WorldCenter) -> (Self, LockingGateway) {
         let (tx, rx) = mpsc::channel(5);
         let release_recv = ReleaseRecv(rx);
 
-        let (foreign_rt, locking) = ForeignSystemLockingRuntime::new(tx);
+        let (foreign_rt, locking) = LockingQueue::new(tx);
 
         let this = Self {
             foreign_rt,
@@ -73,21 +73,21 @@ mod locking {
         channel::{mpsc, oneshot},
     };
     use lump_core::{
-        prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
+        prelude::{SystemIn, SystemInput, TaskSystem},
         world::{SystemId, SystemLocks, WorldState},
     };
 
     use super::ReleaseSystem;
 
     #[derive(Clone)]
-    pub struct SystemLocking {
+    pub struct LockingGateway {
         locker: mpsc::Sender<LockRequest>,
         releaser: mpsc::Sender<SystemId>,
     }
 
-    impl SystemLocking {
-        pub fn with_state(self, world: &WorldState) -> SystemLocker<'_> {
-            SystemLocker {
+    impl LockingGateway {
+        pub fn with_state(self, world: &WorldState) -> SystemReserver<'_> {
+            SystemReserver {
                 locking: self,
                 world,
             }
@@ -95,14 +95,14 @@ mod locking {
     }
 
     #[derive(Clone)]
-    pub struct SystemLocker<'w> {
-        locking: SystemLocking,
+    pub struct SystemReserver<'w> {
+        locking: LockingGateway,
         world: &'w WorldState,
     }
 
-    impl<'w> SystemInput for SystemLocker<'w> {
-        type Inner<'i> = SystemLocker<'i>;
-        type Wrapped<'i> = SystemLocker<'i>;
+    impl<'w> SystemInput for SystemReserver<'w> {
+        type Inner<'i> = SystemReserver<'i>;
+        type Wrapped<'i> = SystemReserver<'i>;
 
         fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
             this
@@ -114,8 +114,8 @@ mod locking {
         system_id: SystemId,
     }
 
-    impl<'w> SystemLocker<'w> {
-        pub async fn lock(mut self, system_id: SystemId) -> LockedSystemParams<'w> {
+    impl<'w> SystemReserver<'w> {
+        pub async fn lock(mut self, system_id: SystemId) -> SystemPermit<'w> {
             let (sx, rx) = oneshot::channel();
 
             let req = LockRequest {
@@ -136,19 +136,19 @@ mod locking {
                 sx: self.locking.releaser,
             };
 
-            LockedSystemParams {
+            SystemPermit {
                 world: self.world,
                 releaser,
             }
         }
     }
 
-    pub struct LockedSystemParams<'w> {
+    pub struct SystemPermit<'w> {
         world: &'w WorldState,
         releaser: ReleaseSystem,
     }
 
-    impl LockedSystemParams<'_> {
+    impl SystemPermit<'_> {
         pub fn run<'i, S: TaskSystem>(
             self,
             system: &S,
@@ -161,21 +161,21 @@ mod locking {
         }
     }
 
-    pub struct ForeignSystemLockingRuntime {
+    pub struct LockingQueue {
         rx: mpsc::Receiver<LockRequest>,
         buf: VecDeque<LockRequest>,
     }
 
-    impl ForeignSystemLockingRuntime {
-        pub fn new(releaser: mpsc::Sender<SystemId>) -> (Self, SystemLocking) {
+    impl LockingQueue {
+        pub fn new(releaser: mpsc::Sender<SystemId>) -> (Self, LockingGateway) {
             let (tx, rx) = mpsc::channel(5);
 
             (
-                ForeignSystemLockingRuntime {
+                LockingQueue {
                     rx,
                     buf: VecDeque::new(),
                 },
-                SystemLocking {
+                LockingGateway {
                     locker: tx,
                     releaser,
                 },

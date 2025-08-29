@@ -6,7 +6,7 @@ use lump_core::{
 
 use crate::{
     async_runtime::AsyncRuntime,
-    locks_runtime::{Runtime, SystemLocking},
+    locks_runtime::{LockingGateway, Runtime},
     startup::Startup,
 };
 
@@ -15,11 +15,16 @@ pub struct AppBuilder {
 }
 
 impl Default for AppBuilder {
-    fn default() -> Self {}
+    fn default() -> Self {
+        let mut world = World::default();
+        Startup::init(&mut world.center);
+
+        Self { world }
+    }
 }
 
 impl AppBuilder {
-    pub fn build_parts(self) -> (Runtime, SystemLocking, WorldState) {
+    pub fn build_parts(self) -> (Runtime, LockingGateway, WorldState) {
         let (state, center) = self.world.into_parts();
 
         let (rt, lockings) = Runtime::new(center);
@@ -46,7 +51,7 @@ impl ConfigureWorld for AppBuilder {
 pub struct App {
     state: WorldState,
     rt: Runtime,
-    locking: SystemLocking,
+    locking: LockingGateway,
 }
 
 impl App {
