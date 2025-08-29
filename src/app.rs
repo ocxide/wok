@@ -6,7 +6,7 @@ use lump_core::{
 
 use crate::{
     async_runtime::AsyncRuntime,
-    locks_runtime::{LockingGateway, Runtime},
+    locks_runtime::{LockingGateway, Runtime, SystemReserver},
     startup::Startup,
 };
 
@@ -55,14 +55,14 @@ pub struct App {
 }
 
 impl App {
-    pub async fn run<S, Marker>(
+    pub async fn run<'w, S, Marker>(
         mut self,
         runtime: impl AsyncRuntime,
         system: S,
     ) -> Result<(), LumpUnknownError>
     where
         S: IntoSystem<Marker>,
-        S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
+        S::System: System<In = SystemReserver<'w>, Out = Result<(), LumpUnknownError>>,
     {
         Startup::create_invoker(&mut self.rt.world_center, &mut self.state, &runtime)
             .invoke()
@@ -71,13 +71,15 @@ impl App {
         let system = system.into_system();
         let systemid = self.rt.world_center.register_system(&system);
 
-        let sys_fut = self
+        let permit = self
             .locking
             .clone()
             .with_state(&self.state)
             .lock(systemid)
-            .await
-            .run(&system, ());
+            .await;
+
+        let reserver = self.locking.with_state(&self.state);
+        let sys_fut = permit.run(&system, reserver);
 
         let bg_fut = async {
             self.rt.run().await;

@@ -2,7 +2,7 @@ use futures::{FutureExt, StreamExt, channel::mpsc};
 use locking::LockingQueue;
 use lump_core::world::{SystemId, WorldCenter};
 
-pub use locking::LockingGateway;
+pub use locking::{LockingGateway, SystemReserver, SystemPermit};
 
 pub struct Runtime {
     pub(crate) world_center: WorldCenter,
