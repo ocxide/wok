@@ -37,7 +37,7 @@ mod tokio {
             Fut: Future + Send + 'static,
             Fut::Output: Send + 'static,
         {
-            self.spawn(fut)
+            TokioJoinHandle(self.spawn(fut))
         }
     }
 

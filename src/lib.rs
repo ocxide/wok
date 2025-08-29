@@ -9,7 +9,6 @@ pub mod prelude {
 }
 
 pub mod app;
-pub mod foreign;
 pub mod plugin;
 pub(crate) mod locks_runtime;
 mod async_runtime;

@@ -22,6 +22,8 @@ impl Runtime {
             world_center,
             release_recv,
         };
+
+        (this, locking)
     }
 
     pub async fn run(mut self) {
@@ -60,7 +62,7 @@ struct ReleaseSystem {
 impl Drop for ReleaseSystem {
     fn drop(&mut self) {
         if self.sx.try_send(self.system_id).is_err() {
-            println!("WARNING: failed to release system {}", self.system_id);
+            println!("WARNING: failed to release system {:?}", self.system_id);
         }
     }
 }

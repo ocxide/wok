@@ -32,7 +32,7 @@ impl AppBuilder {
     }
 
     pub fn build(self) -> App {
-        let (rt, locking, mut state) = self.build_parts;
+        let (rt, locking, state) = self.build_parts();
 
         App { rt, state, locking }
     }
