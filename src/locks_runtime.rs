@@ -5,7 +5,7 @@ use lump_core::world::{SystemId, WorldCenter};
 pub use locking::SystemLocking;
 
 pub struct Runtime {
-    world_center: WorldCenter,
+    pub(crate) world_center: WorldCenter,
     foreign_rt: ForeignSystemLockingRuntime,
     release_recv: ReleaseRecv,
 }
@@ -73,12 +73,13 @@ mod locking {
         channel::{mpsc, oneshot},
     };
     use lump_core::{
-        prelude::{DynSystem, SystemInput, TaskSystem},
+        prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
         world::{SystemId, SystemLocks, WorldState},
     };
 
     use super::ReleaseSystem;
 
+    #[derive(Clone)]
     pub struct SystemLocking {
         locker: mpsc::Sender<LockRequest>,
         releaser: mpsc::Sender<SystemId>,
@@ -148,11 +149,11 @@ mod locking {
     }
 
     impl LockedSystemParams<'_> {
-        pub fn run<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
+        pub fn run<'i, S: TaskSystem>(
             self,
-            system: DynSystem<In, Out>,
-            input: In::Inner<'i>,
-        ) -> impl Future<Output = Out> + Send + 'i {
+            system: &S,
+            input: SystemIn<'i, S>,
+        ) -> impl Future<Output = S::Out> + Send + 'i {
             system.run(self.world, input).map(move |out| {
                 drop(self.releaser);
                 out

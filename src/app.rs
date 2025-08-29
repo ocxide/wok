@@ -5,58 +5,35 @@ use lump_core::{
 };
 
 use crate::{
-    events::{Event, Events},
-    foreign::{ParamsClient, ParamsLenderBuilder},
-    runtime::{AsyncRuntime, Invokers, Runtime, RuntimeConfig},
+    async_runtime::AsyncRuntime,
+    locks_runtime::{Runtime, SystemLocking},
     startup::Startup,
 };
 
-pub struct AppBuilder<C: RuntimeConfig> {
+pub struct AppBuilder {
     world: World,
-    pub(crate) invokers: Invokers<C>,
-    pub(crate) lender: ParamsLenderBuilder,
 }
 
-impl<C: RuntimeConfig> Default for AppBuilder<C> {
-    fn default() -> Self {
-        let mut world = World::default();
-
-        Startup::init(&mut world.center);
-
-        Self {
-            world,
-            invokers: Default::default(),
-            lender: Default::default(),
-        }
-    }
+impl Default for AppBuilder {
+    fn default() -> Self {}
 }
 
-impl<AR: AsyncRuntime + 'static> AppBuilder<AR> {
-    pub fn build_parts(
-        self,
-        rt: <AR as RuntimeConfig>::AsyncRuntime,
-    ) -> (Runtime<AR>, ParamsClient, WorldState) {
+impl AppBuilder {
+    pub fn build_parts(self) -> (Runtime, SystemLocking, WorldState) {
         let (state, center) = self.world.into_parts();
 
-        let rt = Runtime::new(
-            center,
-            self.invokers,
-            (self.lender.lender, self.lender.ports),
-            rt,
-        );
-        (rt, self.lender.client, state)
+        let (rt, lockings) = Runtime::new(center);
+        (rt, lockings, state)
     }
 
-    pub fn build(self, rt: <AR as RuntimeConfig>::AsyncRuntime) -> App<AR> {
-        let (rt, client, mut state) = self.build_parts(rt);
+    pub fn build(self) -> App {
+        let (rt, locking, mut state) = self.build_parts;
 
-        state.resources.insert(client);
-
-        App { rt, state }
+        App { rt, state, locking }
     }
 }
 
-impl<C: RuntimeConfig> ConfigureWorld for AppBuilder<C> {
+impl ConfigureWorld for AppBuilder {
     fn world(&self) -> &World {
         &self.world
     }
@@ -66,57 +43,60 @@ impl<C: RuntimeConfig> ConfigureWorld for AppBuilder<C> {
     }
 }
 
-pub struct App<AR: AsyncRuntime + 'static> {
-    pub state: WorldState,
-    rt: Runtime<AR>,
+pub struct App {
+    state: WorldState,
+    rt: Runtime,
+    locking: SystemLocking,
 }
 
-impl<AR: AsyncRuntime + 'static> App<AR> {
-    pub async fn run<S, Marker>(mut self, system: S) -> Result<(), LumpUnknownError>
+impl App {
+    pub async fn run<S, Marker>(
+        mut self,
+        runtime: impl AsyncRuntime,
+        system: S,
+    ) -> Result<(), LumpUnknownError>
     where
         S: IntoSystem<Marker>,
         S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
     {
-        self.rt.invoke_startup(&mut self.state).await?;
+        Startup::create_invoker(&mut self.rt.world_center, &mut self.state, &runtime)
+            .invoke()
+            .await?;
 
-        let client = self.state.get_resource::<ParamsClient>();
-        let client = client.read().expect("to get client").clone();
+        let system = system.into_system();
+        let systemid = self.rt.world_center.register_system(&system);
 
-        let main_fut = client.run(system, ());
+        let sys_fut = self
+            .locking
+            .clone()
+            .with_state(&self.state)
+            .lock(systemid)
+            .await
+            .run(&system, ());
 
         let bg_fut = async {
-            self.rt.run(&self.state).await;
+            self.rt.run().await;
             Ok(())
         };
 
-        futures::future::try_join(main_fut, bg_fut).await?;
+        futures::future::try_join(sys_fut, bg_fut).await?;
 
         Ok(())
     }
 }
 
-impl<AR: AsyncRuntime + 'static> RuntimeConfig for AR {
-    type AsyncRuntime = AR;
-}
-
 pub trait ConfigureMoreWorld: ConfigureWorld {
-    fn register_event<E: Event>(self) -> Self;
     fn add_plugin(self, plugin: impl crate::plugin::Plugin) -> Self;
 }
 
-impl<C: RuntimeConfig> ConfigureMoreWorld for AppBuilder<C> {
-    fn register_event<E: Event>(mut self) -> Self {
-        Events::register::<C, E>(&mut self);
-        self
-    }
-
+impl ConfigureMoreWorld for AppBuilder {
     fn add_plugin(mut self, plugin: impl crate::plugin::Plugin) -> Self {
         plugin.setup(&mut self);
         self
     }
 }
 
-impl<C: RuntimeConfig> ConfigureWorld for &mut AppBuilder<C> {
+impl ConfigureWorld for &mut AppBuilder {
     fn world(&self) -> &World {
         AppBuilder::world(self)
     }
@@ -126,12 +106,7 @@ impl<C: RuntimeConfig> ConfigureWorld for &mut AppBuilder<C> {
     }
 }
 
-impl<C: RuntimeConfig> ConfigureMoreWorld for &mut AppBuilder<C> {
-    fn register_event<E: Event>(self) -> Self {
-        Events::register::<C, E>(self);
-        self
-    }
-
+impl ConfigureMoreWorld for &mut AppBuilder {
     fn add_plugin(self, plugin: impl crate::plugin::Plugin) -> Self {
         plugin.setup(&mut *self);
         self

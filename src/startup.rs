@@ -7,7 +7,7 @@ use lump_core::{
     world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
 };
 
-use crate::runtime::{AsyncRuntime, JoinHandle, RuntimeConfig};
+use crate::async_runtime::AsyncRuntime;
 
 #[derive(Default)]
 struct StartupSystems {
@@ -53,7 +53,7 @@ impl ScheduleConfigure<(), ()> for Startup {
         >,
     ) {
         let system = system.map(|_: In<()>| Ok(()) as Result<(), LumpUnknownError>);
-        <Self as ScheduleConfigure<(), Result<(), LumpUnknownError>>>::add(world, system); 
+        <Self as ScheduleConfigure<(), Result<(), LumpUnknownError>>>::add(world, system);
     }
 }
 
@@ -62,10 +62,10 @@ impl Startup {
         world.resources.init::<StartupSystems>();
     }
 
-    pub fn create_invoker<'w, C: RuntimeConfig>(
+    pub fn create_invoker<'w, C: AsyncRuntime>(
         center: &'w mut WorldCenter,
         state: &'w mut WorldState,
-        rt: &'w C::AsyncRuntime,
+        rt: &'w C,
     ) -> StartupInvoke<'w, C> {
         let systems = center
             .resources
@@ -82,17 +82,15 @@ impl Startup {
     }
 }
 
-type StartupFutures<C> = FuturesUnordered<JoinHandle<C, (SystemId, Result<(), LumpUnknownError>)>>;
-
-pub struct StartupInvoke<'w, C: RuntimeConfig> {
+pub struct StartupInvoke<'w, C: AsyncRuntime> {
     center: &'w mut WorldCenter,
-    rt: &'w C::AsyncRuntime,
+    rt: &'w C,
     state: &'w mut WorldState,
     systems: StartupSystems,
-    futures: StartupFutures<C>,
+    futures: FuturesUnordered<C::JoinHandle<(SystemId, Result<(), LumpUnknownError>)>>,
 }
 
-impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
+impl<'w, C: AsyncRuntime> StartupInvoke<'w, C> {
     fn collect_pending_systems(&mut self) {
         let Self {
             center,
@@ -132,7 +130,7 @@ impl<'w, C: RuntimeConfig> StartupInvoke<'w, C> {
     pub async fn invoke(mut self) -> Result<(), LumpUnknownError> {
         self.collect_pending_systems();
 
-        while let Some((systemid, result)) = self.futures.next().await {
+        while let Some(Ok((systemid, result))) = self.futures.next().await {
             self.center.system_locks.release(systemid);
             self.center.tick_commands(self.state);
 

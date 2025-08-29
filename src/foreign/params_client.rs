@@ -11,7 +11,7 @@ use lump_core::{
     world::{SystemLock, SystemLocks, WorldState},
 };
 
-use crate::runtime::{Runtime, RuntimeConfig};
+use crate::locks_runtime::{Runtime, RuntimeConfig};
 
 struct ParamsResponse {
     params: Box<dyn Any + Send>,

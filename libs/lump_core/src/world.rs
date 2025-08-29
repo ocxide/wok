@@ -240,7 +240,10 @@ impl WorldState {
         if let Some(handle) = handle {
             handle
         } else {
-            panic!("Resource with type `{}` not found", std::any::type_name::<R>())
+            panic!(
+                "Resource with type `{}` not found",
+                std::any::type_name::<R>()
+            )
         }
     }
 
@@ -295,7 +298,9 @@ impl SystemLocks {
     }
 
     pub fn try_lock_rw(&mut self, rw: &access::SystemLock) -> Result<(), WorldSystemLockError> {
-        self.rw.try_access(rw).map_err(|_| WorldSystemLockError::InvalidAccess)?;
+        self.rw
+            .try_access(rw)
+            .map_err(|_| WorldSystemLockError::InvalidAccess)?;
         Ok(())
     }
 
@@ -318,6 +323,13 @@ impl WorldCenter {
                 center: &mut self.resources,
             });
         }
+    }
+
+    pub fn register_system(&mut self, system: &impl System) -> SystemId {
+        let mut rw = SystemLock::default();
+        system.init(&mut rw);
+
+        self.system_locks.systems_rw.add(rw)
     }
 }
 
@@ -350,11 +362,9 @@ impl Default for World {
 }
 
 impl World {
+    #[inline]
     pub fn register_system(&mut self, system: &impl System) -> SystemId {
-        let mut rw = SystemLock::default();
-        system.init(&mut rw);
-
-        self.center.system_locks.systems_rw.add(rw)
+        self.center.register_system(system)
     }
 
     pub fn into_parts(self) -> (WorldState, WorldCenter) {

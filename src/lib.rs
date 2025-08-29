@@ -11,7 +11,8 @@ pub mod prelude {
 pub mod app;
 pub mod foreign;
 pub mod plugin;
-pub(crate) mod runtime;
+pub(crate) mod locks_runtime;
+mod async_runtime;
 mod startup;
 
 pub mod assets;
