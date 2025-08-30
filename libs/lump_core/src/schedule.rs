@@ -1,16 +1,9 @@
 pub use storages::*;
 
-use crate::system::IntoSystem;
-use crate::system::System;
-use crate::system::SystemInput;
+pub trait ScheduleLabel: Send + Sync + 'static {}
 
-pub trait ScheduleLabel: Copy + Clone + Send + Sync + 'static {}
-
-pub trait ScheduleConfigure<In: SystemInput, Out> {
-    fn add<Marker>(
-        world: &mut crate::world::World,
-        system: impl IntoSystem<Marker, System: System<In = In, Out = Out>>,
-    );
+pub trait ScheduleConfigure<T: 'static, Marker> {
+    fn add(world: &mut crate::world::World, thing: T);
 }
 
 mod storages {

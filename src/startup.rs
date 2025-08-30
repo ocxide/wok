@@ -1,7 +1,7 @@
 use futures::{StreamExt, stream::FuturesUnordered};
 use lump_core::{
     error::LumpUnknownError,
-    prelude::{In, IntoSystem},
+    prelude::{IntoSystem, System},
     resources::LocalResource,
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
     world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
@@ -22,14 +22,14 @@ pub struct Startup;
 
 impl ScheduleLabel for Startup {}
 
-impl ScheduleConfigure<(), Result<(), LumpUnknownError>> for Startup {
-    fn add<Marker>(
-        world: &mut lump_core::world::World,
-        system: impl lump_core::prelude::IntoSystem<
-            Marker,
-            System: lump_core::prelude::System<In = (), Out = Result<(), LumpUnknownError>>,
-        >,
-    ) {
+#[doc(hidden)]
+pub struct FallibleStartup;
+impl<Marker, S> ScheduleConfigure<S, (FallibleStartup, Marker)> for Startup
+where
+    S: IntoSystem<Marker> + 'static,
+    S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
+{
+    fn add(world: &mut lump_core::world::World, system: S) {
         let system = system.into_system();
         let systemid = world.register_system(&system);
 
@@ -44,16 +44,16 @@ impl ScheduleConfigure<(), Result<(), LumpUnknownError>> for Startup {
     }
 }
 
-impl ScheduleConfigure<(), ()> for Startup {
-    fn add<Marker>(
-        world: &mut lump_core::world::World,
-        system: impl lump_core::prelude::IntoSystem<
-            Marker,
-            System: lump_core::prelude::System<In = (), Out = ()>,
-        >,
-    ) {
-        let system = system.map(|_: In<()>| Ok(()) as Result<(), LumpUnknownError>);
-        <Self as ScheduleConfigure<(), Result<(), LumpUnknownError>>>::add(world, system);
+#[doc(hidden)]
+pub struct InfallibleStartup;
+impl<Marker, S> ScheduleConfigure<S, (InfallibleStartup, Marker)> for Startup
+where
+    S: IntoSystem<Marker> + 'static,
+    S::System: System<In = (), Out = ()>,
+{
+    fn add(world: &mut lump_core::world::World, system: S) {
+        let system = system.map(|| Ok(()));
+        <Self as ScheduleConfigure<_, (FallibleStartup, _)>>::add(world, system);
     }
 }
 
@@ -82,12 +82,13 @@ impl Startup {
     }
 }
 
+type FutJoinHandle<C> = <C as AsyncRuntime>::JoinHandle<(SystemId, Result<(), LumpUnknownError>)>;
 pub struct StartupInvoke<'w, C: AsyncRuntime> {
     center: &'w mut WorldCenter,
     rt: &'w C,
     state: &'w mut WorldState,
     systems: StartupSystems,
-    futures: FuturesUnordered<C::JoinHandle<(SystemId, Result<(), LumpUnknownError>)>>,
+    futures: FuturesUnordered<FutJoinHandle<C>>,
 }
 
 impl<'w, C: AsyncRuntime> StartupInvoke<'w, C> {

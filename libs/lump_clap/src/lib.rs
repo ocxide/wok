@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use lump::prelude::*;
-use lump_core::{schedule::{ScheduleConfigure, ScheduleLabel}, world::SystemId};
+use lump_core::{
+    schedule::{ScheduleConfigure, ScheduleLabel},
+    world::SystemId,
+};
 
 type ClapHandler =
     DynSystem<InRef<'static, ArgMatches>, Result<Result<(), LumpUnknownError>, clap::error::Error>>;
@@ -49,21 +52,17 @@ impl Plugin for ClapPlugin {
 pub struct MainHandler(SystemId, ClapHandler);
 impl Resource for MainHandler {}
 
-#[derive(Clone, Copy)]
 pub struct Main;
 
 impl ScheduleLabel for Main {}
 
-impl<Arg: FromArgMatches + Send + Sync + 'static>
-    ScheduleConfigure<In<Arg>, Result<(), LumpUnknownError>> for Main
+impl<Arg: FromArgMatches + Send + Sync + 'static, S, Marker> ScheduleConfigure<S, Marker> for Main
+where
+    S: IntoSystem<Marker>,
+    S: 'static,
+    S::System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
 {
-    fn add<Marker>(
-        world: &mut lump_core::world::World,
-        system: impl IntoSystem<
-            Marker,
-            System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
-        >,
-    ) {
+    fn add(world: &mut lump_core::world::World, system: S) {
         let system = (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
             .try_then(system)
             .into_system();
