@@ -67,15 +67,17 @@ impl App {
         let system = system.into_runner_system();
         let systemid = self.rt.world_center.register_system(&system);
 
-        let permit = self
-            .locking
-            .clone()
-            .with_state(&self.state)
-            .lock(systemid)
-            .await;
+        let sys_fut = async {
+            let permit = self
+                .locking
+                .clone()
+                .with_state(&self.state)
+                .lock(systemid)
+                .await;
 
-        let reserver = self.locking.with_state(&self.state);
-        let sys_fut = permit.run(&system, reserver);
+            let reserver = self.locking.with_state(&self.state);
+            permit.run(&system, reserver).await
+        };
 
         let bg_fut = async {
             self.rt.run().await;
