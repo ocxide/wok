@@ -1,6 +1,6 @@
 use lump_core::{
     error::LumpUnknownError,
-    prelude::{IntoSystem, System},
+    prelude::{IntoBlockingSystem, IntoSystem, ProtoSystem, System, SystemInput, TaskSystem},
     world::{ConfigureWorld, World, WorldState},
 };
 
@@ -55,20 +55,16 @@ pub struct App {
 }
 
 impl App {
-    pub async fn run<'w, S, Marker>(
+    pub async fn run<Marker>(
         mut self,
         runtime: impl AsyncRuntime,
-        system: S,
-    ) -> Result<(), LumpUnknownError>
-    where
-        S: IntoSystem<Marker>,
-        S::System: System<In = SystemReserver<'w>, Out = Result<(), LumpUnknownError>>,
-    {
+        system: impl IntoAppRunnerSystem<Marker>,
+    ) -> Result<(), LumpUnknownError> {
         Startup::create_invoker(&mut self.rt.world_center, &mut self.state, &runtime)
             .invoke()
             .await?;
 
-        let system = system.into_system();
+        let system = system.into_runner_system();
         let systemid = self.rt.world_center.register_system(&system);
 
         let permit = self
@@ -89,6 +85,42 @@ impl App {
         futures::future::try_join(sys_fut, bg_fut).await?;
 
         Ok(())
+    }
+}
+
+pub trait IntoAppRunnerSystem<Marker> {
+    fn into_runner_system(
+        self,
+    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>> + ProtoSystem;
+}
+
+#[doc(hidden)]
+pub struct WithInput;
+impl<Marker, S> IntoAppRunnerSystem<(WithInput, Marker)> for S
+where
+    S: IntoSystem<Marker>,
+    S::System: System<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>>,
+{
+    fn into_runner_system(
+        self,
+    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>> + ProtoSystem
+    {
+        self.into_system()
+    }
+}
+
+#[doc(hidden)]
+pub struct WithoutInput;
+impl<Marker, S> IntoAppRunnerSystem<(WithoutInput, Marker)> for S
+where
+    S: IntoSystem<Marker>,
+    S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
+{
+    fn into_runner_system(
+        self,
+    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>> + ProtoSystem
+    {
+        (|_: SystemReserver<'_>| {}).pipe_then(self).into_system()
     }
 }
 

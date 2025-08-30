@@ -6,12 +6,14 @@ pub mod prelude {
     pub use crate::startup::Startup;
 
     pub use crate::plugin::Plugin;
+
+    pub use crate::locks_runtime::{LockingGateway, SystemPermit, SystemReserver};
 }
 
 pub mod app;
-pub mod plugin;
-pub(crate) mod locks_runtime;
 mod async_runtime;
+pub(crate) mod locks_runtime;
+pub mod plugin;
 mod startup;
 
 pub mod assets;

@@ -44,9 +44,11 @@ async fn long_in(
 ) {
 }
 
+fn blocking_reserver<In: SystemInput + 'static>(_: In::Wrapped<'_>) {}
+
 fn main() {
-    let _ = single.into_system();
-    let _ = single_in.into_system();
+    // let _ = single.into_system();
+    // let _ = single_in.into_system();
     let _ = res.into_system();
     let _ = res_2.into_system();
     let _ = res_3.into_system();
@@ -56,4 +58,5 @@ fn main() {
     let _ = long_res.into_system();
     let _ = long_in.into_system();
     let _ = single_in_ref.into_system();
+    let _ = blocking_reserver::<In<u32>>.into_system();
 }
