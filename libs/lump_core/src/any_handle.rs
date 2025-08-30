@@ -100,6 +100,12 @@ impl<T: ?Sized + Sync + Send + 'static> AnyHandle<T> {
         AnyHandle(self.0, PhantomData)
     }
 
+    /// SAFETY: The caller must the correct type
+    pub unsafe fn unchecked_downcast_ref<O: Send + Sync + 'static>(&self) -> &AnyHandle<O> {
+        // Safety: The caller must the correct type
+        unsafe { std::mem::transmute(self) }
+    }
+
     #[cfg(test)]
     fn reference_count(&self) -> usize {
         Arc::strong_count(&self.0)

@@ -3,7 +3,7 @@ pub use storages::*;
 pub trait ScheduleLabel: Send + Sync + 'static {}
 
 pub trait ScheduleConfigure<T: 'static, Marker> {
-    fn add(world: &mut crate::world::World, thing: T);
+    fn add(self, world: &mut crate::world::World, thing: T);
 }
 
 mod storages {

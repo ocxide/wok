@@ -29,7 +29,7 @@ where
     S: IntoSystem<Marker> + 'static,
     S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
 {
-    fn add(world: &mut lump_core::world::World, system: S) {
+    fn add(self, world: &mut lump_core::world::World, system: S) {
         let system = system.into_system();
         let systemid = world.register_system(&system);
 
@@ -51,9 +51,9 @@ where
     S: IntoSystem<Marker> + 'static,
     S::System: System<In = (), Out = ()>,
 {
-    fn add(world: &mut lump_core::world::World, system: S) {
+    fn add(self, world: &mut lump_core::world::World, system: S) {
         let system = system.map(|| Ok(()));
-        <Self as ScheduleConfigure<_, (FallibleStartup, _)>>::add(world, system);
+        self.add(world, system);
     }
 }
 

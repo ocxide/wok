@@ -4,11 +4,12 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use lump::prelude::*;
 use lump_core::{
     schedule::{ScheduleConfigure, ScheduleLabel},
-    world::SystemId,
+    world::{SystemId, WorldCenter},
 };
 
-type ClapHandler =
-    DynSystem<InRef<'static, ArgMatches>, Result<Result<(), LumpUnknownError>, clap::error::Error>>;
+type ClapHandler = DynSystem<HandlerIn, HandlerOut>;
+type HandlerIn = InRef<'static, ArgMatches>;
+type HandlerOut = Result<Result<(), LumpUnknownError>, clap::error::Error>;
 
 pub struct CommandRoot(pub Option<clap::Command>);
 impl Resource for CommandRoot {}
@@ -20,9 +21,9 @@ pub struct Router {
 
 impl Resource for Router {}
 impl Router {
-    fn add<const N: usize>(
+    fn add(
         &mut self,
-        route: [&'static str; N],
+        route: impl Into<Box<[&'static str]>>,
         system_id: SystemId,
         handler: ClapHandler,
     ) {
@@ -62,10 +63,8 @@ where
     S: 'static,
     S::System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
 {
-    fn add(world: &mut lump_core::world::World, system: S) {
-        let system = (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
-            .try_then(system)
-            .into_system();
+    fn add(self, world: &mut lump_core::world::World, system: S) {
+        let system = make_route_handler(system);
 
         let id = world.register_system(&system);
         world.insert_resource(MainHandler(id, Box::new(system)));
@@ -107,4 +106,82 @@ pub async fn clap_runtime(
     // }
 
     Ok(())
+}
+
+fn make_route_handler<Arg: FromArgMatches + Send + Sync + 'static, Marker>(
+    system: impl IntoSystem<Marker, System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>>,
+) -> impl TaskSystem<In = HandlerIn, Out = HandlerOut> + ProtoSystem {
+    (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
+        .try_then(system)
+        .into_system()
+}
+
+pub struct Route(&'static str);
+impl ScheduleLabel for Route {}
+
+pub struct RouteCfg<'r> {
+    prefix: &'r [&'static str],
+    world: &'r mut WorldCenter,
+    router: &'r mut Router,
+}
+
+impl<F> ScheduleConfigure<F, ()> for Route
+where
+    F: FnOnce(&mut RouteCfg<'_>) + 'static,
+{
+    fn add(self, world: &mut lump_core::world::World, func: F) {
+        let mut router = world
+            .state
+            .resources
+            .get_mut::<Router>()
+            .expect("to have a router");
+
+        let mut cfg = RouteCfg {
+            world: &mut world.center,
+            prefix: &[self.0],
+            router: &mut router,
+        };
+        func(&mut cfg);
+    }
+}
+
+impl RouteCfg<'_> {
+    pub fn add<Marker, Arg, S>(
+        &mut self,
+        name: &'static str,
+        system: impl IntoSystem<
+            Marker,
+            System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
+        >,
+    ) -> &mut Self
+    where
+        Arg: FromArgMatches + Send + Sync + 'static,
+    {
+        let system = make_route_handler(system);
+        let id = self.world.register_system(&system);
+
+        let mut route = self.prefix.to_vec();
+        route.push(name);
+
+        self.router.add(route, id, Box::new(system));
+
+        self
+    }
+
+    pub fn cfg(&mut self, f: impl FnOnce(&mut RouteCfg<'_>)) -> &mut Self {
+        (f)(self);
+        self
+    }
+
+    pub fn nested(&mut self, name: &'static str, f: impl FnOnce(&mut RouteCfg<'_>)) -> &mut Self {
+        let prefix = [self.prefix, &[name]].concat();
+        let mut cfg = RouteCfg {
+            prefix: &prefix,
+            world: self.world,
+            router: self.router,
+        };
+        f(&mut cfg);
+
+        self
+    }
 }

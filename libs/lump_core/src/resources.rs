@@ -1,5 +1,8 @@
-use crate::{any_handle::AnyHandle, local_any_handle::LocalAnyHandle};
-use std::{any::TypeId, collections::HashMap};
+use crate::{
+    any_handle::{AnyHandle, HandleLock},
+    local_any_handle::LocalAnyHandle,
+};
+use std::{any::TypeId, collections::HashMap, ops::DerefMut};
 
 #[derive(Default)]
 pub struct Resources(HashMap<TypeId, AnyHandle>);
@@ -37,6 +40,16 @@ impl Resources {
 
     pub fn init<R: Resource + Default>(&mut self) {
         self.insert(R::default());
+    }
+
+    pub fn get_mut<R: Resource>(&mut self) -> Option<HandleLock<'_, R>> {
+        let handle = self.0.get_mut(&TypeId::of::<R>())?;
+        // Safety: The type is guaranteed to be R
+        let write = unsafe { handle.unchecked_downcast_ref::<R>() }
+            .write()
+            .expect("to write");
+
+        Some(write)
     }
 }
 
