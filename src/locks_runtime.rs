@@ -75,7 +75,7 @@ mod locking {
         channel::{mpsc, oneshot},
     };
     use lump_core::{
-        prelude::{SystemIn, SystemInput, TaskSystem},
+        prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
         world::{SystemId, SystemLocks, WorldState},
     };
 
@@ -156,6 +156,17 @@ mod locking {
             system: &S,
             input: SystemIn<'i, S>,
         ) -> impl Future<Output = S::Out> + Send + 'i {
+            system.run(self.world, input).map(move |out| {
+                drop(self.releaser);
+                out
+            })
+        }
+
+        pub fn run_task<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
+            self,
+            system: &DynSystem<In, Out>,
+            input: In::Inner<'i>,
+        ) -> impl Future<Output = Out> + Send + 'i {
             system.run(self.world, input).map(move |out| {
                 drop(self.releaser);
                 out

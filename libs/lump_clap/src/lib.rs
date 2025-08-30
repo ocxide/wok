@@ -1,62 +1,29 @@
-use std::{any::Any, collections::HashMap};
+use std::collections::HashMap;
 
 use clap::{ArgMatches, CommandFactory, FromArgMatches};
-use lump::{foreign::ParamsClient, prelude::*};
-use lump_core::schedule::ScheduleConfigure;
+use lump::prelude::*;
+use lump_core::{schedule::{ScheduleConfigure, ScheduleLabel}, world::SystemId};
+
+type ClapHandler =
+    DynSystem<InRef<'static, ArgMatches>, Result<Result<(), LumpUnknownError>, clap::error::Error>>;
 
 pub struct CommandRoot(pub Option<clap::Command>);
 impl Resource for CommandRoot {}
 
-type HandlerIn = Box<dyn Any + Send + Sync + 'static>;
-type HandlerOut = Result<(), LumpUnknownError>;
-
-struct Handler {
-    parser: fn(&ArgMatches) -> Result<HandlerIn, clap::Error>,
-    system: DynSystem<In<HandlerIn>, HandlerOut>,
-}
-
-impl Handler {
-    fn new<Arg, S, Marker>(system: S) -> Self
-    where
-        Arg: FromArgMatches + Send + Sync + 'static,
-        S: IntoSystem<Marker>,
-        S::System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
-    {
-        let parser = |matches: &ArgMatches| {
-            Arg::from_arg_matches(matches).map(|arg| Box::new(arg) as HandlerIn)
-        };
-
-        let system = (|data: In<HandlerIn>| {
-            let data = data.0.downcast::<Arg>().expect("To be the same type");
-            *data
-        })
-        .pipe_then(system);
-
-        Self {
-            parser,
-            system: Box::new(system.into_system()),
-        }
-    }
-
-    pub fn run(
-        &self,
-        matches: &ArgMatches,
-        client: &ParamsClient,
-    ) -> Result<impl Future<Output = HandlerOut>, clap::Error> {
-        let arg = (self.parser)(matches)?;
-        Ok(client.clone().run(self.system, arg))
-    }
-}
-
 #[derive(Default)]
 pub struct Router {
-    routes: HashMap<Box<[&'static str]>, Handler>,
+    routes: HashMap<Box<[&'static str]>, (SystemId, ClapHandler)>,
 }
 
 impl Resource for Router {}
 impl Router {
-    fn add<const N: usize>(&mut self, route: [&'static str; N], handler: Handler) {
-        self.routes.insert(route.into(), handler);
+    fn add<const N: usize>(
+        &mut self,
+        route: [&'static str; N],
+        system_id: SystemId,
+        handler: ClapHandler,
+    ) {
+        self.routes.insert(route.into(), (system_id, handler));
     }
 }
 
@@ -79,10 +46,14 @@ impl Plugin for ClapPlugin {
     }
 }
 
-pub struct MainHandler(Handler);
+pub struct MainHandler(SystemId, ClapHandler);
 impl Resource for MainHandler {}
 
+#[derive(Clone, Copy)]
 pub struct Main;
+
+impl ScheduleLabel for Main {}
+
 impl<Arg: FromArgMatches + Send + Sync + 'static>
     ScheduleConfigure<In<Arg>, Result<(), LumpUnknownError>> for Main
 {
@@ -93,24 +64,48 @@ impl<Arg: FromArgMatches + Send + Sync + 'static>
             System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
         >,
     ) {
-        let handler = Handler::new(system);
-        world.insert_resource(MainHandler(handler));
+        let system = (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
+            .try_then(system)
+            .into_system();
+
+        let id = world.register_system(&system);
+        world.insert_resource(MainHandler(id, Box::new(system)));
     }
 }
 
 pub async fn clap_runtime(
+    reserver: SystemReserver<'_>,
     main: Option<Res<'_, MainHandler>>,
-    router: Res<'_, Router>,
     mut command: ResMut<'_, CommandRoot>,
-    client: Res<'_, ParamsClient>
 ) -> Result<(), LumpUnknownError> {
-    command.0.build();
-    let args = command.0.take().expect("to have a command").try_get_matches()?;
+    let mut command = command.0.take().expect("to have a command");
+    command.build();
 
-    if let Some(main) = main {
-        let res = main.0.run(&args, &client.state).await?;
+    let args = command.try_get_matches()?;
+
+    if let Some(MainHandler(id, main)) = main.as_deref() {
+        let res = reserver.lock(*id).await.run_task(main, &args).await?;
         return res;
     }
+
+    // let mut sub_args: MaybeUninit<_>;
+    // let mut rotue = vec![];
+    // while let Some((name, matches)) = args.subcommand() {
+    //     rotue.push(name);
+    //     sub_args = MaybeUninit::new(matches);
+    // }
+    //
+    // if sub_args
+    //
+    // if let Some((id, system)) = router.routes.get(rotue.as_slice()) {
+    //     let res = reserver
+    //         .lock(*id)
+    //         .await
+    //         .run_task(system, &sub_args)
+    //         .await?;
+    //
+    //     return res;
+    // }
 
     Ok(())
 }
