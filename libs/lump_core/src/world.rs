@@ -2,10 +2,11 @@ use std::sync::mpsc::Sender;
 
 use crate::any_handle::AnyHandle;
 use crate::commands::{self, CommandSender, CommandsReceiver};
+use crate::param::Param;
 use crate::prelude::Resource;
 use crate::resources::{LocalResource, LocalResources, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
-use crate::system::{IntoSystem, System};
+use crate::system::System;
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -254,6 +255,21 @@ impl WorldState {
     #[inline]
     pub fn try_take_resource<R: Resource>(&mut self) -> Option<R> {
         self.resources.try_take()
+    }
+
+    /// # Panics
+    /// Panics if the resources are not found
+    #[inline]
+    pub fn get<P: Param>(&self) -> WorldStateGet<P> {
+        WorldStateGet(P::get(self))
+    }
+}
+
+pub struct WorldStateGet<P: Param>(P::Owned);
+
+impl<P: Param>  WorldStateGet<P> {
+    pub fn get(&self) -> P::AsRef<'_>{
+       P::from_owned(&self.0) 
     }
 }
 
