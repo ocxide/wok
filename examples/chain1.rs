@@ -1,6 +1,6 @@
+#![allow(unused)]
 use std::convert::Infallible;
 
-use lump::prelude::LumpUnknownError;
 use lump_core::{prelude::*,  world::World};
 
 async fn first(input8: In<u8>) -> u32 {

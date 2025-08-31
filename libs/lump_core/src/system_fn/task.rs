@@ -76,11 +76,6 @@ where
     }
 }
 
-pub trait IsSystemFn<Marker>: Sized + Send + Sync + 'static {
-    type Input;
-    type Params;
-}
-
 #[doc(hidden)]
 pub struct HasSystemInput;
 

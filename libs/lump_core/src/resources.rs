@@ -2,7 +2,7 @@ use crate::{
     any_handle::{AnyHandle, HandleLock},
     local_any_handle::LocalAnyHandle,
 };
-use std::{any::TypeId, collections::HashMap, ops::DerefMut};
+use std::{any::TypeId, collections::HashMap};
 
 #[derive(Default)]
 pub struct Resources(HashMap<TypeId, AnyHandle>);

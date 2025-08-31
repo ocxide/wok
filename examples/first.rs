@@ -1,3 +1,4 @@
+#![allow(unused)]
 use lump::prelude::*;
 
 #[derive(Clone)]
