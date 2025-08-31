@@ -1,6 +1,6 @@
 use lump_core::{
     error::LumpUnknownError,
-    prelude::{IntoBlockingSystem, IntoSystem, ProtoSystem, System, SystemInput, TaskSystem},
+    prelude::{IntoBlockingSystem, IntoSystem, ProtoSystem, System, TaskSystem},
     world::{ConfigureWorld, World, WorldState},
 };
 
@@ -55,10 +55,10 @@ pub struct App {
 }
 
 impl App {
-    pub async fn run<Marker>(
+    pub async fn run<Marker, S: IntoAppRunnerSystem<Marker, Out = Result<(), LumpUnknownError>>>(
         mut self,
         runtime: impl AsyncRuntime,
-        system: impl IntoAppRunnerSystem<Marker>,
+        system: S,
     ) -> Result<(), LumpUnknownError> {
         Startup::create_invoker(&mut self.rt.world_center, &mut self.state, &runtime)
             .invoke()
@@ -85,15 +85,15 @@ impl App {
         };
 
         futures::future::try_join(sys_fut, bg_fut).await?;
-
         Ok(())
     }
 }
 
 pub trait IntoAppRunnerSystem<Marker> {
+    type Out: Send + Sync + 'static;
     fn into_runner_system(
         self,
-    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>> + ProtoSystem;
+    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Self::Out> + ProtoSystem;
 }
 
 #[doc(hidden)]
@@ -101,11 +101,12 @@ pub struct WithInput;
 impl<Marker, S> IntoAppRunnerSystem<(WithInput, Marker)> for S
 where
     S: IntoSystem<Marker>,
-    S::System: System<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>>,
+    S::System: System<In = SystemReserver<'static>>,
 {
+    type Out = <S::System as System>::Out;
     fn into_runner_system(
         self,
-    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>> + ProtoSystem
+    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Self::Out> + ProtoSystem
     {
         self.into_system()
     }
@@ -116,11 +117,12 @@ pub struct WithoutInput;
 impl<Marker, S> IntoAppRunnerSystem<(WithoutInput, Marker)> for S
 where
     S: IntoSystem<Marker>,
-    S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
+    S::System: System<In = ()>,
 {
+    type Out = <S::System as System>::Out;
     fn into_runner_system(
         self,
-    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Result<(), LumpUnknownError>> + ProtoSystem
+    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Self::Out> + ProtoSystem
     {
         (|_: SystemReserver<'_>| {}).pipe_then(self).into_system()
     }
