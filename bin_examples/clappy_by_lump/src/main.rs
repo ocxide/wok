@@ -3,6 +3,7 @@ use lump::{
     prelude::*,
 };
 use lump_clap::{ClapPlugin, Main, Route, RouteCfg};
+use lump_params_client::LumpParamsClientRuntime;
 
 #[derive(clap::Parser)]
 struct AppArgs {}
@@ -21,7 +22,12 @@ pub async fn main() {
         .add_system(Main, do_main)
         .add_system(Route("person"), |cfg| cfg.cfg(add_more_routes).finish())
         .build()
-        .run(tokio::runtime::Handle::current(), lump_clap::clap_runtime)
+        .run(
+            RuntimeCfg::default()
+                .use_async(tokio::runtime::Handle::current())
+                .use_addons::<LumpParamsClientRuntime>(),
+            lump_clap::clap_runtime,
+        )
         .await
         .unwrap();
 }

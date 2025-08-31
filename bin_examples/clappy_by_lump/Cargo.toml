@@ -12,3 +12,4 @@ lump_db = { path = "../../libs/lump_db" }
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.45.1", features = ["full"] }
 idn = { git = "https://github.com/ocxide/idn" }
+lump_params_client = { path = "../../libs/lump_params_client" }

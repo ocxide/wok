@@ -8,7 +8,7 @@ use futures::{
 };
 use lump_core::{
     prelude::{Param, Resource},
-    runtime::Runtime,
+    runtime::RuntimeAddon,
     world::{SystemLock, SystemLocks, WorldState},
 };
 
@@ -114,7 +114,7 @@ impl<T> UnorderedQueue<T> {
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 pub(crate) struct ForeignParamsKey(usize);
 
-pub struct ParamsLenderRuntime {
+pub struct LumpParamsClientRuntime {
     requests: mpsc::Receiver<LockParamsRequest>,
     closes: mpsc::Receiver<ForeignParamsKey>,
     pending_close: Option<ForeignParamsKey>,
@@ -122,9 +122,9 @@ pub struct ParamsLenderRuntime {
     foreign_locks: UnorderedQueue<SystemLock>,
 }
 
-impl Runtime for ParamsLenderRuntime {
+impl RuntimeAddon for LumpParamsClientRuntime {
     fn create(state: &mut WorldState) -> Self {
-        let (this, client) = ParamsLenderRuntime::new();
+        let (this, client) = LumpParamsClientRuntime::new();
 
         state.resources.insert(client);
 
@@ -152,13 +152,13 @@ impl Runtime for ParamsLenderRuntime {
     }
 }
 
-impl ParamsLenderRuntime {
+impl LumpParamsClientRuntime {
     pub fn new() -> (Self, ParamsClient) {
         let (requester, requests) = mpsc::channel(1);
         let (close_sender, close_receiver) = mpsc::channel(1);
 
         (
-            ParamsLenderRuntime {
+            LumpParamsClientRuntime {
                 requests,
                 buf: VecDeque::new(),
                 closes: close_receiver,

@@ -7,6 +7,7 @@ pub mod prelude {
     pub use crate::startup::Startup;
 
     pub use crate::plugin::Plugin;
+    pub use crate::locks_runtime::RuntimeCfg;
 
     pub use crate::locks_runtime::{LockingGateway, SystemPermit, SystemReserver};
 }

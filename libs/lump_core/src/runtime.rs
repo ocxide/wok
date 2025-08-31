@@ -1,6 +1,6 @@
 use crate::world::{SystemLocks, WorldState};
 
-pub trait Runtime {
+pub trait RuntimeAddon {
     fn create(state: &mut WorldState) -> Self;
     fn tick(&mut self) -> impl Future<Output = Option<()>>;
     fn act(&mut self, state: &WorldState, locks: &mut SystemLocks);
@@ -8,7 +8,7 @@ pub trait Runtime {
 
 macro_rules! impl_runtime {
     ( $( $ty:ident ),* ) => {
-        impl<$($ty: Runtime),*> Runtime for ($($ty),*) {
+        impl<$($ty: RuntimeAddon),*> RuntimeAddon for ($($ty),*) {
             fn create(state: &mut WorldState) -> Self {
                 ($($ty::create(state)),*)
             }
@@ -36,7 +36,7 @@ impl_runtime!(R1, R2, R3);
 impl_runtime!(R1, R2, R3, R4);
 impl_runtime!(R1, R2, R3, R4, R5);
 
-impl Runtime for () {
+impl RuntimeAddon for () {
     async fn tick(&mut self) -> Option<()> {
         Some(())
     }

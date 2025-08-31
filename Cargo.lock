@@ -761,6 +761,7 @@ dependencies = [
  "lump",
  "lump_clap",
  "lump_db",
+ "lump_params_client",
  "serde",
  "surrealdb",
  "tokio",

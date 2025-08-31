@@ -1,8 +1,47 @@
-use futures::{FutureExt, StreamExt, channel::mpsc};
-use locking::LockingQueue;
-use lump_core::world::{SystemId, WorldCenter};
+mod system_lock_runtime;
 
-pub use locking::{LockingGateway, SystemReserver, SystemPermit};
+use std::marker::PhantomData;
+
+use futures::{FutureExt, StreamExt, channel::mpsc};
+use lump_core::{
+    runtime::RuntimeAddon,
+    world::{SystemId, WorldCenter, WorldState},
+};
+use system_lock_runtime::LockingQueue;
+
+pub use system_lock_runtime::{LockingGateway, SystemPermit, SystemReserver};
+
+use crate::async_runtime::AsyncRuntime;
+
+pub struct RuntimeCfg<AR = (), Addon = ()> {
+    pub async_runtime: AR,
+    _addon_marker: PhantomData<Addon>,
+}
+
+impl<AR, Addon> RuntimeCfg<AR, Addon> {
+    pub fn use_addons<Addon2: RuntimeAddon>(self) -> RuntimeCfg<AR, Addon2> {
+        RuntimeCfg {
+            async_runtime: self.async_runtime,
+            _addon_marker: PhantomData,
+        }
+    }
+
+    pub fn use_async<AR2: AsyncRuntime>(self, async_runtime: AR2) -> RuntimeCfg<AR2, Addon> {
+        RuntimeCfg {
+            async_runtime,
+            _addon_marker: PhantomData,
+        }
+    }
+}
+
+impl Default for RuntimeCfg {
+    fn default() -> Self {
+        RuntimeCfg {
+            async_runtime: (),
+            _addon_marker: PhantomData,
+        }
+    }
+}
 
 pub struct Runtime {
     pub(crate) world_center: WorldCenter,
@@ -26,7 +65,7 @@ impl Runtime {
         (this, locking)
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self, state: &WorldState, mut addon: impl RuntimeAddon) {
         loop {
             futures::select! {
                 // Check for new requests of system locking
@@ -37,6 +76,10 @@ impl Runtime {
                     else {
                         break;
                     }
+                }
+
+                _ = addon.tick().fuse() => {
+                    addon.act(state, &mut self.world_center.system_locks);
                 }
 
                 // Release system locks
@@ -63,163 +106,6 @@ impl Drop for ReleaseSystem {
     fn drop(&mut self) {
         if self.sx.try_send(self.system_id).is_err() {
             println!("WARNING: failed to release system {:?}", self.system_id);
-        }
-    }
-}
-
-mod locking {
-    use std::collections::VecDeque;
-
-    use futures::{
-        FutureExt, SinkExt, StreamExt,
-        channel::{mpsc, oneshot},
-    };
-    use lump_core::{
-        prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
-        world::{SystemId, SystemLocks, WorldState},
-    };
-
-    use super::ReleaseSystem;
-
-    #[derive(Clone)]
-    pub struct LockingGateway {
-        locker: mpsc::Sender<LockRequest>,
-        releaser: mpsc::Sender<SystemId>,
-    }
-
-    impl LockingGateway {
-        pub fn with_state(self, world: &WorldState) -> SystemReserver<'_> {
-            SystemReserver {
-                locking: self,
-                world,
-            }
-        }
-    }
-
-    #[derive(Clone)]
-    pub struct SystemReserver<'w> {
-        locking: LockingGateway,
-        world: &'w WorldState,
-    }
-
-    impl<'w> SystemInput for SystemReserver<'w> {
-        type Inner<'i> = SystemReserver<'i>;
-        type Wrapped<'i> = SystemReserver<'i>;
-
-        fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
-            this
-        }
-    }
-
-    pub struct LockRequest {
-        respond_to: oneshot::Sender<()>,
-        system_id: SystemId,
-    }
-
-    impl<'w> SystemReserver<'w> {
-        pub async fn lock(mut self, system_id: SystemId) -> SystemPermit<'w> {
-            let (sx, rx) = oneshot::channel();
-
-            let req = LockRequest {
-                respond_to: sx,
-                system_id,
-            };
-
-            self.locking
-                .locker
-                .send(req)
-                .await
-                .expect("to be connected to the main world");
-
-            rx.await.expect("to be connected to the main world");
-
-            let releaser = ReleaseSystem {
-                system_id,
-                sx: self.locking.releaser,
-            };
-
-            SystemPermit {
-                world: self.world,
-                releaser,
-            }
-        }
-    }
-
-    pub struct SystemPermit<'w> {
-        world: &'w WorldState,
-        releaser: ReleaseSystem,
-    }
-
-    impl SystemPermit<'_> {
-        pub fn run<'i, S: TaskSystem>(
-            self,
-            system: &S,
-            input: SystemIn<'i, S>,
-        ) -> impl Future<Output = S::Out> + Send + 'i {
-            system.run(self.world, input).map(move |out| {
-                drop(self.releaser);
-                out
-            })
-        }
-
-        pub fn run_task<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
-            self,
-            system: &DynSystem<In, Out>,
-            input: In::Inner<'i>,
-        ) -> impl Future<Output = Out> + Send + 'i {
-            system.run(self.world, input).map(move |out| {
-                drop(self.releaser);
-                out
-            })
-        }
-    }
-
-    pub struct LockingQueue {
-        rx: mpsc::Receiver<LockRequest>,
-        buf: VecDeque<LockRequest>,
-    }
-
-    impl LockingQueue {
-        pub fn new(releaser: mpsc::Sender<SystemId>) -> (Self, LockingGateway) {
-            let (tx, rx) = mpsc::channel(5);
-
-            (
-                LockingQueue {
-                    rx,
-                    buf: VecDeque::new(),
-                },
-                LockingGateway {
-                    locker: tx,
-                    releaser,
-                },
-            )
-        }
-
-        pub async fn poll(&mut self) -> Option<()> {
-            let req = self.rx.next().await?;
-
-            self.buf.push_back(req);
-            Some(())
-        }
-
-        pub fn try_respond(&mut self, locks: &mut SystemLocks) {
-            while let Some(req) = self.buf.iter().next() {
-                if locks.try_lock(req.system_id).is_err() {
-                    let req = self.buf.pop_front().unwrap();
-                    self.buf.push_back(req);
-
-                    continue;
-                }
-
-                let req = self.buf.pop_front().unwrap();
-                if req.respond_to.send(()).is_err() {
-                    locks.release(req.system_id);
-                }
-            }
-        }
-
-        pub fn release(&mut self, system_id: SystemId, locks: &mut SystemLocks) {
-            locks.release(system_id);
         }
     }
 }

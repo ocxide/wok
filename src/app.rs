@@ -1,12 +1,13 @@
+mod app_runner;
+
+use app_runner::IntoAppRunnerSystem;
 use lump_core::{
-    error::LumpUnknownError,
-    prelude::{IntoBlockingSystem, IntoSystem, ProtoSystem, System, TaskSystem},
-    world::{ConfigureWorld, World, WorldState},
+    error::LumpUnknownError, runtime::RuntimeAddon, world::{ConfigureWorld, World, WorldState}
 };
 
 use crate::{
     async_runtime::AsyncRuntime,
-    locks_runtime::{LockingGateway, Runtime, SystemReserver},
+    locks_runtime::{LockingGateway, Runtime, RuntimeCfg},
     startup::Startup,
 };
 
@@ -55,14 +56,18 @@ pub struct App {
 }
 
 impl App {
-    pub async fn run<Marker, S: IntoAppRunnerSystem<Marker, Out = Result<(), LumpUnknownError>>>(
+    pub async fn run<Marker, S, AsyncRt: AsyncRuntime, RtAddon: RuntimeAddon>(
         mut self,
-        runtime: impl AsyncRuntime,
+        cfg: RuntimeCfg<AsyncRt, RtAddon>,
         system: S,
-    ) -> Result<(), LumpUnknownError> {
-        Startup::create_invoker(&mut self.rt.world_center, &mut self.state, &runtime)
+    ) -> Result<(), LumpUnknownError>
+    where
+        S: IntoAppRunnerSystem<Marker, Out = Result<(), LumpUnknownError>>,
+    {
+        Startup::create_invoker(&mut self.rt.world_center, &mut self.state, &cfg.async_runtime)
             .invoke()
             .await?;
+        let addon = RtAddon::create(&mut self.state);
 
         let system = system.into_runner_system();
         let systemid = self.rt.world_center.register_system(&system);
@@ -80,51 +85,12 @@ impl App {
         };
 
         let bg_fut = async {
-            self.rt.run().await;
+            self.rt.run(&self.state, addon).await;
             Ok(())
         };
 
         futures::future::try_join(sys_fut, bg_fut).await?;
         Ok(())
-    }
-}
-
-pub trait IntoAppRunnerSystem<Marker> {
-    type Out: Send + Sync + 'static;
-    fn into_runner_system(
-        self,
-    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Self::Out> + ProtoSystem;
-}
-
-#[doc(hidden)]
-pub struct WithInput;
-impl<Marker, S> IntoAppRunnerSystem<(WithInput, Marker)> for S
-where
-    S: IntoSystem<Marker>,
-    S::System: System<In = SystemReserver<'static>>,
-{
-    type Out = <S::System as System>::Out;
-    fn into_runner_system(
-        self,
-    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Self::Out> + ProtoSystem
-    {
-        self.into_system()
-    }
-}
-
-#[doc(hidden)]
-pub struct WithoutInput;
-impl<Marker, S> IntoAppRunnerSystem<(WithoutInput, Marker)> for S
-where
-    S: IntoSystem<Marker>,
-    S::System: System<In = ()>,
-{
-    type Out = <S::System as System>::Out;
-    fn into_runner_system(
-        self,
-    ) -> impl TaskSystem<In = SystemReserver<'static>, Out = Self::Out> + ProtoSystem
-    {
-        (|_: SystemReserver<'_>| {}).pipe_then(self).into_system()
     }
 }
 
