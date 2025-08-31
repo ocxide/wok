@@ -137,6 +137,38 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
         }
     };
 
+    let get_ref_impl = match &struct_data.fields {
+        syn::Fields::Unit => quote! { #thing_name },
+        syn::Fields::Named(fields) => {
+            let fields_map = fields.named.iter().map(|field| {
+                let name = &field.ident;
+                let ty = &field.ty;
+
+                quote! { #name: <#ty as #trait_path>::get_ref(&world) }
+            });
+
+            quote! {
+                #thing_name {
+                    #(#fields_map,)*
+                }
+            }
+        }
+
+        syn::Fields::Unnamed(fields) => {
+            let fields_map = fields.unnamed.iter().map(|field| {
+                let ty = &field.ty;
+
+                quote! { <#ty as #trait_path>::get_ref(&world) }
+            });
+
+            quote! {
+                #thing_name(
+                    #(#fields_map,)*
+                )
+            }
+        }
+    };
+
     let mut reborrow_generics = ast.generics.clone();
 
     let altern_lifetime = {
@@ -176,7 +208,9 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 #from_owned_impl
             }
 
-
+           fn get_ref(world: &#world) -> Self::AsRef<'_> {
+                #get_ref_impl
+            }
         }
     };
 
