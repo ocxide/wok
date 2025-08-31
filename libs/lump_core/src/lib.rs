@@ -7,6 +7,8 @@ mod system;
 pub mod system_fn;
 pub mod world;
 
+pub mod runtime;
+
 pub mod prelude {
     pub use crate::commands::{Command, Commands};
     pub use crate::param::*;

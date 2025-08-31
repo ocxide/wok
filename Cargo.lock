@@ -1960,6 +1960,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lump_params_client"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "lump_core",
+]
+
+[[package]]
 name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
