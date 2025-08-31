@@ -6,15 +6,14 @@ use futures::{
 };
 use lump_core::{
     prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
+    system_locking::{ReleaseSystem, SystemReleaser},
     world::{SystemId, SystemLocks, WorldState},
 };
-
-use super::ReleaseSystem;
 
 #[derive(Clone)]
 pub struct LockingGateway {
     locker: mpsc::Sender<LockRequest>,
-    releaser: mpsc::Sender<SystemId>,
+    releaser: SystemReleaser,
 }
 
 impl LockingGateway {
@@ -63,10 +62,7 @@ impl<'w> SystemReserver<'w> {
 
         rx.await.expect("to be connected to the main world");
 
-        let releaser = ReleaseSystem {
-            system_id,
-            sx: self.locking.releaser,
-        };
+        let releaser = ReleaseSystem::new(system_id, self.locking.releaser);
 
         SystemPermit {
             world: self.world,
@@ -110,7 +106,7 @@ pub struct LockingQueue {
 }
 
 impl LockingQueue {
-    pub fn new(releaser: mpsc::Sender<SystemId>) -> (Self, LockingGateway) {
+    pub fn new(releaser: SystemReleaser) -> (Self, LockingGateway) {
         let (tx, rx) = mpsc::channel(5);
 
         (
@@ -152,4 +148,3 @@ impl LockingQueue {
         locks.release(system_id);
     }
 }
-

@@ -7,7 +7,7 @@ use lump_core::{
     world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
 };
 
-use crate::async_executor::AsyncExecutor;
+use lump_core::async_executor::AsyncExecutor;
 
 #[derive(Default)]
 struct StartupSystems {

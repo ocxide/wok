@@ -59,6 +59,13 @@ impl<'s> Param for Commands<'s> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    fn get_ref<'r>(world: &'r WorldState) -> Self::AsRef<'r> {
+        Commands {
+            sender: world.commands_sx.clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 pub trait Command: Send {

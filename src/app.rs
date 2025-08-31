@@ -2,13 +2,13 @@ mod app_runner;
 
 use app_runner::IntoAppRunnerSystem;
 use lump_core::{
+    async_executor::AsyncExecutor,
     error::LumpUnknownError,
     runtime::RuntimeAddon,
     world::{ConfigureWorld, World},
 };
 
 use crate::{
-    async_executor::AsyncExecutor,
     runtime::{Runtime, RuntimeCfg},
     startup::Startup,
 };
@@ -56,7 +56,7 @@ impl App {
         };
 
         let bg_fut = async {
-            runtime.run().await;
+            runtime.run(&cfg.async_runtime).await;
             Ok(())
         };
 

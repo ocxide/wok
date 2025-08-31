@@ -1,9 +1,9 @@
-use crate::world::{SystemLocks, WorldState};
+use crate::{async_executor::AsyncExecutor, system_locking::StateLocker, world::WorldState};
 
 pub trait RuntimeAddon {
     fn create(state: &mut WorldState) -> Self;
     fn tick(&mut self) -> impl Future<Output = Option<()>>;
-    fn act(&mut self, state: &WorldState, locks: &mut SystemLocks);
+    fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut StateLocker<'_>);
 }
 
 macro_rules! impl_runtime {
@@ -22,10 +22,10 @@ macro_rules! impl_runtime {
                 Some(())
             }
 
-            fn act(&mut self, state: &WorldState, locks: &mut SystemLocks) {
+            fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut StateLocker<'_>) {
                 #[allow(non_snake_case)]
                 let ($($ty),*) = self;
-                $($ty.act(state, locks));*
+                $($ty.act(async_executor, state));*
             }
         }
     };
@@ -40,6 +40,6 @@ impl RuntimeAddon for () {
     async fn tick(&mut self) -> Option<()> {
         Some(())
     }
-    fn act(&mut self, _state: &WorldState, _locks: &mut SystemLocks) {}
+    fn act(&mut self, _async_executor: &impl AsyncExecutor, _state: &mut StateLocker<'_>) {}
     fn create(_state: &mut WorldState) -> Self {}
 }

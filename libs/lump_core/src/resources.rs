@@ -38,6 +38,15 @@ impl Resources {
         })
     }
 
+    pub fn handle_ref<R: Resource>(&self) -> Option<&AnyHandle<R>> {
+        // Safety: The type is guaranteed to be R
+        unsafe {
+            self.0
+                .get(&TypeId::of::<R>())
+                .map(|handle| handle.unchecked_downcast_ref())
+        }
+    }
+
     pub fn init<R: Resource + Default>(&mut self) {
         self.insert(R::default());
     }

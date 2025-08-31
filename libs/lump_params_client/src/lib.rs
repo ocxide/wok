@@ -7,9 +7,7 @@ use futures::{
     channel::{mpsc, oneshot},
 };
 use lump_core::{
-    prelude::{Param, Resource},
-    runtime::RuntimeAddon,
-    world::{SystemLock, SystemLocks, WorldState},
+    async_executor::AsyncExecutor, prelude::{Param, Resource}, runtime::RuntimeAddon, system_locking::StateLocker, world::{SystemLock, SystemLocks, WorldState}
 };
 
 struct ParamsResponse {
@@ -143,11 +141,11 @@ impl RuntimeAddon for LumpParamsClientRuntime {
         Some(())
     }
 
-    fn act(&mut self, state: &WorldState, locks: &mut SystemLocks) {
-        self.try_lend(state, locks);
+    fn act(&mut self, _: &impl AsyncExecutor, state: &mut StateLocker<'_>) {
+        self.try_lend(state);
 
         if let Some(key) = self.pending_close.take() {
-            self.release(key, locks);
+            self.release(key, state.locks);
         }
     }
 }
@@ -178,9 +176,9 @@ impl LumpParamsClientRuntime {
         }
     }
 
-    fn try_lend(&mut self, state: &WorldState, locks: &mut SystemLocks) {
+    fn try_lend(&mut self, state: &mut StateLocker<'_>) {
         while let Some(locking) = self.buf.iter().next() {
-            if locks.try_lock_rw(&locking.system_rw).is_err() {
+            if state.locks.try_lock_rw(&locking.system_rw).is_err() {
                 let lock = self.buf.pop_front().unwrap();
                 self.buf.push_back(lock);
 
@@ -188,7 +186,7 @@ impl LumpParamsClientRuntime {
             }
 
             let locking = self.buf.pop_front().unwrap();
-            let params = (locking.param_getter)(state);
+            let params = (locking.param_getter)(state.state);
 
             let key = self.foreign_locks.add(locking.system_rw);
             if let Err(response) = locking.respond_to.send(ParamsResponse {
@@ -196,7 +194,7 @@ impl LumpParamsClientRuntime {
                 key: ForeignParamsKey(key),
             }) {
                 eprintln!("WARNING: failed to respond to foreign param request");
-                self.release(response.key, locks);
+                self.release(response.key, state.locks);
             }
         }
     }

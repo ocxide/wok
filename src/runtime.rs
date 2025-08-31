@@ -4,7 +4,9 @@ use std::marker::PhantomData;
 
 use futures::{FutureExt, StreamExt, channel::mpsc};
 use lump_core::{
+    async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
+    system_locking::{StateLocker, SystemReleaser},
     world::{SystemId, WorldCenter, WorldState},
 };
 use system_lock_runtime::LockingQueue;
@@ -58,6 +60,7 @@ pub struct Runtime<'w, Addon: RuntimeAddon> {
     addon: Addon,
     foreign_rt: LockingQueue,
     release_recv: ReleaseRecv,
+    releaser: SystemReleaser,
 }
 
 impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
@@ -66,10 +69,10 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
         state: &'w WorldState,
         addon: Addon,
     ) -> (Self, LockingGateway) {
-        let (tx, rx) = mpsc::channel(5);
+        let (tx, rx) = SystemReleaser::new();
         let release_recv = ReleaseRecv(rx);
 
-        let (foreign_rt, locking) = LockingQueue::new(tx);
+        let (foreign_rt, locking) = LockingQueue::new(tx.clone());
 
         let this = Self {
             foreign_rt,
@@ -77,12 +80,13 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
             state,
             addon,
             release_recv,
+            releaser: tx,
         };
 
         (this, locking)
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self, async_executor: &impl AsyncExecutor) {
         loop {
             futures::select! {
                 // Check for new requests of system locking
@@ -96,7 +100,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 }
 
                 _ = self.addon.tick().fuse() => {
-                    self.addon.act(&self.state, &mut self.world_center.system_locks);
+                    self.addon.act(async_executor, &mut StateLocker::new(self.state, &mut self.world_center.system_locks, &self.releaser));
                 }
 
                 // Release system locks
@@ -114,15 +118,3 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
 }
 
 struct ReleaseRecv(mpsc::Receiver<SystemId>);
-struct ReleaseSystem {
-    system_id: SystemId,
-    sx: mpsc::Sender<SystemId>,
-}
-
-impl Drop for ReleaseSystem {
-    fn drop(&mut self) {
-        if self.sx.try_send(self.system_id).is_err() {
-            println!("WARNING: failed to release system {:?}", self.system_id);
-        }
-    }
-}

@@ -28,6 +28,13 @@ impl<'r, R: Resource> Param for AssetInit<'r, R> {
             _marker: std::marker::PhantomData,
         }
     }
+
+    fn get_ref(world: &lump_core::prelude::WorldState) -> Self::AsRef<'_> {
+        AssetInit {
+            commands: <Commands<'r> as Param>::get_ref(world),
+            _marker: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<'r, R: Resource> AssetInit<'r, R> {

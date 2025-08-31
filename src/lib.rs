@@ -13,9 +13,10 @@ pub mod prelude {
 
 /// Set of exports that will probaly needed for creating the app
 pub mod setup {
-    pub use crate::async_executor::{AsyncExecutorabel, tokio::TokioRt};
+    pub use crate::async_executor::tokio::TokioRt;
     pub use crate::run::runtime;
     pub use crate::runtime::RuntimeCfg;
+    pub use lump_core::async_executor::AsyncExecutorabel;
 }
 
 pub mod app;

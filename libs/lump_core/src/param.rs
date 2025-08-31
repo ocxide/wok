@@ -14,6 +14,7 @@ pub trait Param: Send {
 
     fn get(world: &WorldState) -> Self::Owned;
     fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_>;
+    fn get_ref<'r>(world: &'r WorldState) -> Self::AsRef<'r>;
 }
 
 impl Param for () {
@@ -23,6 +24,7 @@ impl Param for () {
     fn init(_rw: &mut SystemLock) {}
     fn get(_world: &WorldState) -> Self::Owned {}
     fn from_owned(_world: &()) -> Self::AsRef<'_> {}
+    fn get_ref<'r>(_world: &'r WorldState) -> Self::AsRef<'r> {}
 }
 
 macro_rules! impl_param {
@@ -47,6 +49,12 @@ macro_rules! impl_param {
             #[allow(non_snake_case)]
             let ($($params),*) = owned;
             ($($params::from_owned($params)),*)
+        }
+
+        fn get_ref(world: &WorldState) -> Self::AsRef<'_> {
+            #[allow(non_snake_case)]
+            let ($($params),*) = ($($params::get_ref(world)),*);
+            ($($params),*)
         }
      }
      };
@@ -98,6 +106,17 @@ impl<R: Resource> Param for Res<'_, R> {
 
     fn from_owned(handle: &Self::Owned) -> Self::AsRef<'_> {
         Res(handle.read().expect("to read"))
+    }
+
+    fn get_ref<'r>(world: &'r WorldState) -> Self::AsRef<'r> {
+        let handle = world.resources.handle_ref();
+        match handle {
+            Some(handle) => Res(handle.read().expect("to read")),
+            None => panic!(
+                "Resource of type `{}` was not registered",
+                std::any::type_name::<R>()
+            ),
+        }
     }
 }
 
@@ -151,6 +170,17 @@ impl<R: Resource> Param for ResMut<'_, R> {
     fn from_owned(handle: &Self::Owned) -> Self::AsRef<'_> {
         ResMut(handle.write().expect("to write"))
     }
+
+    fn get_ref<'r>(world: &'r WorldState) -> Self::AsRef<'r> {
+        let handle = world.resources.handle_ref();
+        match handle {
+            Some(handle) => ResMut(handle.write().expect("to write")),
+            None => panic!(
+                "Resource of type `{}` was not registered",
+                std::any::type_name::<R>()
+            ),
+        }
+    }
 }
 
 impl<R: Resource> Param for Option<Res<'_, R>> {
@@ -168,6 +198,11 @@ impl<R: Resource> Param for Option<Res<'_, R>> {
     fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
         owned.as_ref().map(Res::from_owned)
     }
+
+    fn get_ref<'r>(world: &'r WorldState) -> Self::AsRef<'r> {
+        let handle = world.resources.handle_ref();
+        handle.map(|handle| Res(handle.read().expect("to read")))
+    }
 }
 
 impl<R: Resource> Param for Option<ResMut<'_, R>> {
@@ -184,5 +219,10 @@ impl<R: Resource> Param for Option<ResMut<'_, R>> {
 
     fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
         owned.as_ref().map(ResMut::from_owned)
+    }
+
+    fn get_ref<'r>(world: &'r WorldState) -> Self::AsRef<'r> {
+        let handle = world.resources.handle_ref();
+        handle.map(|handle| ResMut(handle.write().expect("to write")))
     }
 }

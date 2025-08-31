@@ -1,26 +1,3 @@
-pub trait AsyncExecutorabel {
-    type AsyncRuntime: AsyncExecutor;
-    fn create() -> Self::AsyncRuntime;
-}
-
-pub trait AsyncExecutor: Send + Sync + 'static {
-    type JoinHandle<Out>: JoinHandle<Out>
-    where
-        Out: Send + 'static;
-
-    fn spawn<Fut>(&self, fut: Fut) -> Self::JoinHandle<<Fut as Future>::Output>
-    where
-        Fut: Future + Send + 'static,
-        Fut::Output: Send + 'static;
-}
-
-pub struct FutSpawnError;
-
-pub trait JoinHandle<Out: Send + 'static>:
-    Future<Output = Result<Out, FutSpawnError>> + Send
-{
-}
-
 pub mod tokio {
     use std::{
         pin::Pin,
@@ -29,18 +6,20 @@ pub mod tokio {
 
     use futures::FutureExt;
 
-    use super::{AsyncExecutor, AsyncExecutorabel, FutSpawnError};
+    use lump_core::async_executor::{AsyncExecutor, AsyncExecutorabel, FutSpawnError, JoinHandle};
 
     pub struct TokioRt;
 
     impl AsyncExecutorabel for TokioRt {
-        type AsyncRuntime = tokio::runtime::Handle;
+        type AsyncRuntime = TokioRuntimeHandle;
         fn create() -> Self::AsyncRuntime {
-            tokio::runtime::Handle::current()
+            TokioRuntimeHandle(tokio::runtime::Handle::current())
         }
     }
 
-    impl AsyncExecutor for tokio::runtime::Handle {
+    pub struct TokioRuntimeHandle(tokio::runtime::Handle);
+
+    impl AsyncExecutor for TokioRuntimeHandle {
         type JoinHandle<Out>
             = TokioJoinHandle<Out>
         where
@@ -51,7 +30,7 @@ pub mod tokio {
             Fut: Future + Send + 'static,
             Fut::Output: Send + 'static,
         {
-            TokioJoinHandle(self.spawn(fut))
+            TokioJoinHandle(self.0.spawn(fut))
         }
     }
 
@@ -67,5 +46,5 @@ pub mod tokio {
         }
     }
 
-    impl<Out: Send + 'static> super::JoinHandle<Out> for TokioJoinHandle<Out> {}
+    impl<Out: Send + 'static> JoinHandle<Out> for TokioJoinHandle<Out> {}
 }
