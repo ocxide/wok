@@ -1,5 +1,5 @@
 use lump::{
-    app::{AppBuilder, ConfigureApp},
+    app::{App, ConfigureApp},
     prelude::*,
     setup::{RuntimeCfg, TokioRt},
 };
@@ -17,12 +17,11 @@ struct PersonArgs {
 
 #[tokio::main]
 pub async fn main() {
-    AppBuilder::default()
+    App::default()
         .add_plugin(ClapPlugin::parser::<AppArgs>())
         .add_system(Startup, connect_to_db)
         .add_system(Main, do_main)
         .add_system(Route("person"), |cfg| cfg.cfg(add_more_routes).finish())
-        .build()
         .run(
             RuntimeCfg::default()
                 .use_async(TokioRt)

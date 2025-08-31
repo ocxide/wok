@@ -52,14 +52,20 @@ impl Default for RuntimeCfg {
     }
 }
 
-pub struct Runtime {
-    pub(crate) world_center: WorldCenter,
+pub struct Runtime<'w, Addon: RuntimeAddon> {
+    world_center: &'w mut WorldCenter,
+    state: &'w WorldState,
+    addon: Addon,
     foreign_rt: LockingQueue,
     release_recv: ReleaseRecv,
 }
 
-impl Runtime {
-    pub fn new(world_center: WorldCenter) -> (Self, LockingGateway) {
+impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
+    pub fn new(
+        world_center: &'w mut WorldCenter,
+        state: &'w WorldState,
+        addon: Addon,
+    ) -> (Self, LockingGateway) {
         let (tx, rx) = mpsc::channel(5);
         let release_recv = ReleaseRecv(rx);
 
@@ -68,13 +74,15 @@ impl Runtime {
         let this = Self {
             foreign_rt,
             world_center,
+            state,
+            addon,
             release_recv,
         };
 
         (this, locking)
     }
 
-    pub async fn run(mut self, state: &WorldState, mut addon: impl RuntimeAddon) {
+    pub async fn run(mut self) {
         loop {
             futures::select! {
                 // Check for new requests of system locking
@@ -87,8 +95,8 @@ impl Runtime {
                     }
                 }
 
-                _ = addon.tick().fuse() => {
-                    addon.act(state, &mut self.world_center.system_locks);
+                _ = self.addon.tick().fuse() => {
+                    self.addon.act(&self.state, &mut self.world_center.system_locks);
                 }
 
                 // Release system locks

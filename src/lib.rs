@@ -1,5 +1,5 @@
 pub mod prelude {
-    pub use crate::app::{AppBuilder, ConfigureApp};
+    pub use crate::app::{App, ConfigureApp};
     pub use lump_core::error::LumpUnknownError;
     pub use lump_core::prelude::*;
 
