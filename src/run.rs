@@ -25,9 +25,7 @@ where
         let system = system.into_system();
         let id = world.register_system(&system);
 
-        let state = world.state.get::<ResMut<RunSystems>>();
-        let mut systems = state.get();
-
+        let mut systems = world.state.get::<ResMut<RunSystems>>();
         systems.0.add(id, Box::new(system), ());
     }
 }

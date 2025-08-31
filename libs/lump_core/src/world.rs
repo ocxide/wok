@@ -260,16 +260,8 @@ impl WorldState {
     /// # Panics
     /// Panics if the resources are not found
     #[inline]
-    pub fn get<P: Param>(&mut self) -> WorldStateGet<P> {
-        WorldStateGet(P::get(self))
-    }
-}
-
-pub struct WorldStateGet<P: Param>(P::Owned);
-
-impl<P: Param>  WorldStateGet<P> {
-    pub fn get(&self) -> P::AsRef<'_>{
-       P::from_owned(&self.0) 
+    pub fn get<P: Param>(&mut self) -> P::AsRef<'_> {
+        P::get_ref(self)
     }
 }
 

@@ -157,9 +157,7 @@ where
     F: FnOnce(&mut RouteCfg<'_>) + 'static,
 {
     fn add(self, world: &mut lump_core::world::World, func: F) {
-        let state = world.state.get::<(ResMut<Router>, ResMut<CommandRoot>)>();
-        let (mut router, mut command) = state.get();
-
+        let (mut router, mut command) = world.state.get::<(ResMut<Router>, ResMut<CommandRoot>)>();
         let command = command.0.as_mut().expect("to have a command");
 
         let mut cfg = RouteCfg {

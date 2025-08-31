@@ -175,6 +175,8 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
             fn from_owned<#altern_lifetime>(owned: &#altern_lifetime Self::Owned) -> Self::AsRef<#altern_lifetime> {
                 #from_owned_impl
             }
+
+
         }
     };
 
