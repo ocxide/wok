@@ -11,7 +11,7 @@ use system_lock_runtime::LockingQueue;
 
 pub use system_lock_runtime::{LockingGateway, SystemPermit, SystemReserver};
 
-use crate::setup::AsyncRuntimeLabel;
+use crate::setup::AsyncExecutorabel;
 
 pub struct RuntimeCfg<AR = (), Addon = ()> {
     pub async_runtime: AR,
@@ -27,7 +27,7 @@ impl<AR, Addon> RuntimeCfg<AR, Addon> {
     }
 
     /// Define the async runtime
-    pub fn use_async<AR2: AsyncRuntimeLabel>(self, _: AR2) -> RuntimeCfg<AR2::AsyncRuntime, Addon> {
+    pub fn use_async<AR2: AsyncExecutorabel>(self, _: AR2) -> RuntimeCfg<AR2::AsyncRuntime, Addon> {
         RuntimeCfg {
             async_runtime: AR2::create(),
             _addon_marker: PhantomData,
@@ -35,7 +35,7 @@ impl<AR, Addon> RuntimeCfg<AR, Addon> {
     }
 
     /// Set the async runtime
-    pub fn with_async_rt<AR2: AsyncRuntimeLabel>(self, rt: AR2) -> RuntimeCfg<AR2, Addon> {
+    pub fn with_async_rt<AR2: AsyncExecutorabel>(self, rt: AR2) -> RuntimeCfg<AR2, Addon> {
         RuntimeCfg {
             async_runtime: rt,
             _addon_marker: PhantomData,

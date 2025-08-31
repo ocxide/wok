@@ -6,8 +6,8 @@ use lump_core::{
 };
 
 use crate::{
-    async_runtime::AsyncRuntime,
-    locks_runtime::{LockingGateway, Runtime, RuntimeCfg},
+    async_executor::AsyncExecutor,
+    runtime::{LockingGateway, Runtime, RuntimeCfg},
     startup::Startup,
 };
 
@@ -56,7 +56,7 @@ pub struct App {
 }
 
 impl App {
-    pub async fn run<Marker, S, AsyncRt: AsyncRuntime, RtAddon: RuntimeAddon>(
+    pub async fn run<Marker, S, AsyncRt: AsyncExecutor, RtAddon: RuntimeAddon>(
         mut self,
         cfg: RuntimeCfg<AsyncRt, RtAddon>,
         system: S,

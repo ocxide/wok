@@ -7,7 +7,7 @@ use lump_core::{
     world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
 };
 
-use crate::async_runtime::AsyncRuntime;
+use crate::async_executor::AsyncExecutor;
 
 #[derive(Default)]
 struct StartupSystems {
@@ -62,7 +62,7 @@ impl Startup {
         world.resources.init::<StartupSystems>();
     }
 
-    pub fn create_invoker<'w, C: AsyncRuntime>(
+    pub fn create_invoker<'w, C: AsyncExecutor>(
         center: &'w mut WorldCenter,
         state: &'w mut WorldState,
         rt: &'w C,
@@ -82,8 +82,8 @@ impl Startup {
     }
 }
 
-type FutJoinHandle<C> = <C as AsyncRuntime>::JoinHandle<(SystemId, Result<(), LumpUnknownError>)>;
-pub struct StartupInvoke<'w, C: AsyncRuntime> {
+type FutJoinHandle<C> = <C as AsyncExecutor>::JoinHandle<(SystemId, Result<(), LumpUnknownError>)>;
+pub struct StartupInvoke<'w, C: AsyncExecutor> {
     center: &'w mut WorldCenter,
     rt: &'w C,
     state: &'w mut WorldState,
@@ -91,7 +91,7 @@ pub struct StartupInvoke<'w, C: AsyncRuntime> {
     futures: FuturesUnordered<FutJoinHandle<C>>,
 }
 
-impl<'w, C: AsyncRuntime> StartupInvoke<'w, C> {
+impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
     fn collect_pending_systems(&mut self) {
         let Self {
             center,

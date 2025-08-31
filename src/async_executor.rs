@@ -1,9 +1,9 @@
-pub trait AsyncRuntimeLabel {
-    type AsyncRuntime: AsyncRuntime;
+pub trait AsyncExecutorabel {
+    type AsyncRuntime: AsyncExecutor;
     fn create() -> Self::AsyncRuntime;
 }
 
-pub trait AsyncRuntime: Send + Sync + 'static {
+pub trait AsyncExecutor: Send + Sync + 'static {
     type JoinHandle<Out>: JoinHandle<Out>
     where
         Out: Send + 'static;
@@ -29,18 +29,18 @@ pub mod tokio {
 
     use futures::FutureExt;
 
-    use super::{AsyncRuntime, AsyncRuntimeLabel, FutSpawnError};
+    use super::{AsyncExecutor, AsyncExecutorabel, FutSpawnError};
 
     pub struct TokioRt;
 
-    impl AsyncRuntimeLabel for TokioRt {
+    impl AsyncExecutorabel for TokioRt {
         type AsyncRuntime = tokio::runtime::Handle;
         fn create() -> Self::AsyncRuntime {
             tokio::runtime::Handle::current()
         }
     }
 
-    impl AsyncRuntime for tokio::runtime::Handle {
+    impl AsyncExecutor for tokio::runtime::Handle {
         type JoinHandle<Out>
             = TokioJoinHandle<Out>
         where

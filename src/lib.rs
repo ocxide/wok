@@ -8,20 +8,20 @@ pub mod prelude {
 
     pub use crate::plugin::Plugin;
 
-    pub use crate::locks_runtime::{LockingGateway, SystemPermit, SystemReserver};
+    pub use crate::runtime::{LockingGateway, SystemPermit, SystemReserver};
 }
 
 /// Set of exports that will probaly needed for creating the app
 pub mod setup {
-    pub use crate::async_runtime::{AsyncRuntimeLabel, tokio::TokioRt};
-    pub use crate::locks_runtime::RuntimeCfg;
+    pub use crate::async_executor::{AsyncExecutorabel, tokio::TokioRt};
     pub use crate::run::runtime;
+    pub use crate::runtime::RuntimeCfg;
 }
 
 pub mod app;
-mod async_runtime;
-pub(crate) mod locks_runtime;
+mod async_executor;
 pub mod plugin;
+mod runtime;
 
 pub mod assets;
 
