@@ -44,7 +44,7 @@ impl ClapPlugin {
 }
 
 impl Plugin for ClapPlugin {
-    fn setup(self, app: impl ConfigureMoreWorld) {
+    fn setup(self, app: impl ConfigureApp) {
         app.insert_resource(CommandRoot(Some(self.command)))
             .init_resource::<Router>();
     }

@@ -1,5 +1,5 @@
-use crate::app::ConfigureMoreWorld;
+use crate::app::ConfigureApp;
 
 pub trait Plugin {
-    fn setup(self, app: impl ConfigureMoreWorld);
+    fn setup(self, app: impl ConfigureApp);
 }

@@ -260,7 +260,7 @@ impl WorldState {
     /// # Panics
     /// Panics if the resources are not found
     #[inline]
-    pub fn get<P: Param>(&self) -> WorldStateGet<P> {
+    pub fn get<P: Param>(&mut self) -> WorldStateGet<P> {
         WorldStateGet(P::get(self))
     }
 }

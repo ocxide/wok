@@ -2,7 +2,7 @@ pub use storages::*;
 
 pub trait ScheduleLabel: Send + Sync + 'static {}
 
-pub trait ScheduleConfigure<T: 'static, Marker> {
+pub trait ScheduleConfigure<T, Marker> {
     fn add(self, world: &mut crate::world::World, thing: T);
 }
 
@@ -68,6 +68,12 @@ mod storages {
         #[inline]
         pub fn add(&mut self, systemid: SystemId, system: DynSystem<In, Out>, meta: Meta) {
             self.0.push((systemid, system, meta));
+        }
+
+        pub fn iter(&self) -> impl Iterator<Item = (SystemId, &DynSystem<In, Out>, &Meta)> {
+            self.0
+                .iter()
+                .map(|(id, system, meta)| (*id, system, meta))
         }
 
         pub fn iter_mut(

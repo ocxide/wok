@@ -128,11 +128,11 @@ where
     }
 }
 
-pub trait ConfigureMoreWorld: ConfigureWorld {
+pub trait ConfigureApp: ConfigureWorld {
     fn add_plugin(self, plugin: impl crate::plugin::Plugin) -> Self;
 }
 
-impl ConfigureMoreWorld for AppBuilder {
+impl ConfigureApp for AppBuilder {
     fn add_plugin(mut self, plugin: impl crate::plugin::Plugin) -> Self {
         plugin.setup(&mut self);
         self
@@ -149,7 +149,7 @@ impl ConfigureWorld for &mut AppBuilder {
     }
 }
 
-impl ConfigureMoreWorld for &mut AppBuilder {
+impl ConfigureApp for &mut AppBuilder {
     fn add_plugin(self, plugin: impl crate::plugin::Plugin) -> Self {
         plugin.setup(&mut *self);
         self

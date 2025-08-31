@@ -1,5 +1,5 @@
 use lump::{
-    app::{AppBuilder, ConfigureMoreWorld},
+    app::{AppBuilder, ConfigureApp},
     prelude::*,
 };
 use lump_clap::{ClapPlugin, Main, Route, RouteCfg};
