@@ -1,6 +1,7 @@
 use lump::{
     app::{AppBuilder, ConfigureApp},
     prelude::*,
+    setup::{RuntimeCfg, TokioRt},
 };
 use lump_clap::{ClapPlugin, Main, Route, RouteCfg};
 use lump_params_client::LumpParamsClientRuntime;
@@ -24,7 +25,7 @@ pub async fn main() {
         .build()
         .run(
             RuntimeCfg::default()
-                .use_async(tokio::runtime::Handle::current())
+                .use_async(TokioRt)
                 .use_addons::<LumpParamsClientRuntime>(),
             lump_clap::clap_runtime,
         )

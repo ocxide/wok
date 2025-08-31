@@ -1,3 +1,8 @@
+pub trait AsyncRuntimeLabel {
+    type AsyncRuntime: AsyncRuntime;
+    fn create() -> Self::AsyncRuntime;
+}
+
 pub trait AsyncRuntime: Send + Sync + 'static {
     type JoinHandle<Out>: JoinHandle<Out>
     where
@@ -16,7 +21,7 @@ pub trait JoinHandle<Out: Send + 'static>:
 {
 }
 
-mod tokio {
+pub mod tokio {
     use std::{
         pin::Pin,
         task::{Context, Poll},
@@ -24,7 +29,16 @@ mod tokio {
 
     use futures::FutureExt;
 
-    use super::{AsyncRuntime, FutSpawnError};
+    use super::{AsyncRuntime, AsyncRuntimeLabel, FutSpawnError};
+
+    pub struct TokioRt;
+
+    impl AsyncRuntimeLabel for TokioRt {
+        type AsyncRuntime = tokio::runtime::Handle;
+        fn create() -> Self::AsyncRuntime {
+            tokio::runtime::Handle::current()
+        }
+    }
 
     impl AsyncRuntime for tokio::runtime::Handle {
         type JoinHandle<Out>
