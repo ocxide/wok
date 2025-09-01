@@ -17,6 +17,7 @@ pub mod prelude {
     pub use crate::system::*;
     pub use crate::world::{ConfigureWorld, World, WorldState};
     pub use lump_derive::Param;
+    pub use crate::error::LumpUnknownError;
 }
 
 pub mod error {
