@@ -21,7 +21,7 @@ pub struct RuntimeCfg<AR = (), Addon = ()> {
 }
 
 impl<AR, Addon> RuntimeCfg<AR, Addon> {
-    pub fn use_addons<Addon2: RuntimeAddon>(self) -> RuntimeCfg<AR, Addon2> {
+    pub fn with_addons<Addon2: RuntimeAddon>(self) -> RuntimeCfg<AR, Addon2> {
         RuntimeCfg {
             async_runtime: self.async_runtime,
             _addon_marker: PhantomData,
@@ -29,7 +29,7 @@ impl<AR, Addon> RuntimeCfg<AR, Addon> {
     }
 
     /// Define the async runtime
-    pub fn use_async<AR2: AsyncExecutorabel>(self, _: AR2) -> RuntimeCfg<AR2::AsyncRuntime, Addon> {
+    pub fn with_async<AR2: AsyncExecutorabel>(self, _: AR2) -> RuntimeCfg<AR2::AsyncRuntime, Addon> {
         RuntimeCfg {
             async_runtime: AR2::create(),
             _addon_marker: PhantomData,

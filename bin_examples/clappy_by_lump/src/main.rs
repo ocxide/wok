@@ -24,8 +24,8 @@ pub async fn main() {
         .add_system(Route("person"), |cfg| cfg.cfg(add_more_routes).finish())
         .run(
             RuntimeCfg::default()
-                .use_async(TokioRt)
-                .use_addons::<LumpParamsClientRuntime>(),
+                .with_async(TokioRt)
+                .with_addons::<LumpParamsClientRuntime>(),
             lump_clap::clap_runtime,
         )
         .await
