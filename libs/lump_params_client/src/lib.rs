@@ -7,7 +7,11 @@ use futures::{
     channel::{mpsc, oneshot},
 };
 use lump_core::{
-    async_executor::AsyncExecutor, prelude::{Param, Resource}, runtime::RuntimeAddon, system_locking::StateLocker, world::{SystemLock, SystemLocks, WorldState}
+    async_executor::AsyncExecutor,
+    prelude::{Param, Resource},
+    runtime::RuntimeAddon,
+    system_locking::StateLocker,
+    world::{SystemLock, SystemLocks, WorldState},
 };
 
 struct ParamsResponse {
@@ -21,6 +25,7 @@ struct LockParamsRequest {
     respond_to: oneshot::Sender<ParamsResponse>,
 }
 
+#[derive(Clone)]
 pub struct ParamsClient {
     requester: mpsc::Sender<LockParamsRequest>,
     close_sender: mpsc::Sender<ForeignParamsKey>,
@@ -130,13 +135,16 @@ impl RuntimeAddon for LumpParamsClientRuntime {
     }
 
     async fn tick(&mut self) -> Option<()> {
-        let (locking, close) = futures::join!(self.requests.next(), self.closes.next());
-
-        let locking = locking?;
-        let close = close?;
-
-        self.pending_close = Some(close);
-        self.buf.push_back(locking);
+        futures::select! {
+            req = self.requests.next() => {
+                let req = req?;
+                self.buf.push_back(req);
+            }
+            key = self.closes.next() => {
+                let key = key?;
+                self.pending_close = Some(key);
+            }
+        }
 
         Some(())
     }

@@ -1,3 +1,6 @@
+#![allow(non_snake_case)]
+use futures::FutureExt;
+
 use crate::{async_executor::AsyncExecutor, system_locking::StateLocker, world::WorldState};
 
 pub trait RuntimeAddon {
@@ -14,12 +17,11 @@ macro_rules! impl_runtime {
             }
 
             async fn tick(&mut self) -> Option<()> {
-                #[allow(non_snake_case)]
                 let ($($ty),*) = self;
-                #[allow(non_snake_case)]
-                let ($($ty),*) = futures::join!($($ty.tick()),*);
-                $($ty?;)*
-                Some(())
+
+                futures::select! {
+                    $($ty = $ty.tick().fuse() => $ty),*
+                }
             }
 
             fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut StateLocker<'_>) {

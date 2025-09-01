@@ -4,7 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [ "bin_examples/clappy_by_lump", "libs/lump_clap", "libs/lump_core","libs/lump_db", "libs/lump_db_derive", "libs/lump_derive", "libs/lump_params_client", "libs/lump_trigger"]
+members = [ 
+	"bin_examples/clappy_by_lump", 
+	"libs/lump_clap", 
+	"libs/lump_core",
+	"libs/lump_db",
+	"libs/lump_db_derive",
+	"libs/lump_derive",
+	"libs/lump_params_client",
+	"libs/lump_trigger"
+]
 
 [dependencies]
 lump_core = { path = "libs/lump_core" }

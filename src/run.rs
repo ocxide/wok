@@ -4,12 +4,13 @@ use lump_core::{
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
 };
 
-use crate::prelude::SystemReserver;
+use crate::{plugin::Plugin, prelude::SystemReserver};
 
 #[derive(Copy, Clone)]
 pub struct Run;
 impl ScheduleLabel for Run {}
 
+#[derive(Default)]
 pub struct RunSystems(Systems<(), Result<(), LumpUnknownError>>);
 impl Resource for RunSystems {}
 
@@ -58,3 +59,10 @@ pub async fn runtime(
     Ok(())
 }
 
+pub struct DefaultPlugins;
+
+impl Plugin for DefaultPlugins {
+    fn setup(self, app: impl crate::prelude::ConfigureApp) {
+        app.init_resource::<RunSystems>();
+    }
+}

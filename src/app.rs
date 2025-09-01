@@ -38,6 +38,9 @@ impl App {
         let mut state = self.world.state;
         let mut center = self.world.center;
 
+        // Run addon build before startup to allow the use of ParamsClient
+        let addon = RtAddon::create(&mut state);
+
         Startup::create_invoker(&mut center, &mut state, &cfg.async_runtime)
             .invoke()
             .await?;
@@ -45,7 +48,6 @@ impl App {
         let system = system.into_runner_system();
         let systemid = center.register_system(&system);
 
-        let addon = RtAddon::create(&mut state);
         let (runtime, locking) = Runtime::new(&mut center, &state, addon);
 
         let sys_fut = async {
