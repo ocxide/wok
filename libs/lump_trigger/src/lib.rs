@@ -1,8 +1,9 @@
 use futures::{StreamExt, channel::mpsc};
 use lump_core::{
-    prelude::{DynSystem, In, Resource},
+    prelude::{DynSystem, In, IntoSystem, Resource, System},
     runtime::RuntimeAddon,
-    world::SystemId,
+    schedule::{ScheduleConfigure, ScheduleLabel},
+    world::{ConfigureWorld, SystemId},
 };
 
 pub trait Event: Send + Sync + 'static {}
@@ -11,10 +12,30 @@ pub struct EventTrigger<T: Event> {
     sender: mpsc::Sender<T>,
 }
 
+impl<T: Event> EventTrigger<T> {
+    pub fn trigger(&mut self, event: T) {
+        let _ = self.sender.try_send(event);
+    }
+}
+
+impl<E: Event> Resource for EventTrigger<E> {}
+
 struct EventHandler<E: Event>(SystemId, DynSystem<In<E>, ()>);
 impl<E: Event> Resource for EventHandler<E> {}
 
-impl<E: Event> Resource for EventTrigger<E> {}
+pub struct Events;
+impl ScheduleLabel for Events {}
+impl<E: Event, Marker, S> ScheduleConfigure<S, (E, Marker)> for Events
+where
+    S: IntoSystem<Marker>,
+    S::System: System<In = In<E>, Out = ()>,
+{
+    fn add(self, world: &mut lump_core::world::World, system: S) {
+        let system = system.into_system();
+        let id = world.register_system(&system);
+        world.insert_resource(EventHandler(id, Box::new(system)));
+    }
+}
 
 pub struct LumpTriggerRuntime<T: Event> {
     rx: mpsc::Receiver<T>,
@@ -27,9 +48,12 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
 
         state.resources.insert(EventTrigger { sender: sx });
 
-        let handler = state
-            .try_take_resource::<EventHandler<T>>()
-            .expect("event handler not registered");
+        let Some(handler) = state.try_take_resource::<EventHandler<T>>() else {
+            panic!(
+                "Event handler of type `{}` was not registered",
+                std::any::type_name::<T>()
+            );
+        };
 
         LumpTriggerRuntime {
             rx,
@@ -54,7 +78,9 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
         async_executor: &impl lump_core::async_executor::AsyncExecutor,
         state: &mut lump_core::system_locking::StateLocker<'_>,
     ) {
-        let Some(event) = self.pending.take() else { return };
+        let Some(event) = self.pending.take() else {
+            return;
+        };
 
         let result = state.run_task(self.handler.0, &self.handler.1, event);
         match result {
@@ -65,6 +91,5 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
                 self.pending = Some(event);
             }
         }
-
     }
 }
