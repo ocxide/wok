@@ -2,8 +2,8 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches};
 use lump::prelude::{ConfigureWorld, ResMut};
 use lump_core::{
     prelude::{
-        In, InRef, IntoBlockingSystem, IntoSystem, LumpUnknownError, ProtoSystem, Resource,
-        System, TaskSystem,
+        In, InRef, IntoBlockingSystem, IntoSystem, LumpUnknownError, ProtoSystem, Resource, System,
+        TaskSystem,
     },
     schedule::{ScheduleConfigure, ScheduleLabel},
     world::{SystemId, WorldCenter},
@@ -35,10 +35,7 @@ where
 }
 
 fn make_route_handler<Arg: FromArgMatches + Send + Sync + 'static, Marker>(
-    system: impl IntoSystem<
-        Marker,
-        System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
-    >,
+    system: impl IntoSystem<Marker, System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>>,
 ) -> impl TaskSystem<In = HandlerIn, Out = HandlerOut> + ProtoSystem {
     (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
         .try_then(system)
@@ -48,7 +45,7 @@ fn make_route_handler<Arg: FromArgMatches + Send + Sync + 'static, Marker>(
 pub struct Route(pub &'static str);
 impl ScheduleLabel for Route {}
 
-pub struct RouteCfg<'r> {
+pub struct RoutesCfg<'r> {
     prefix: &'r [&'static str],
     world: &'r mut WorldCenter,
     router: &'r mut Router,
@@ -57,14 +54,13 @@ pub struct RouteCfg<'r> {
 
 impl<F> ScheduleConfigure<F, ()> for Route
 where
-    F: FnOnce(&mut RouteCfg<'_>) + 'static,
+    F: FnOnce(&mut RoutesCfg<'_>),
 {
     fn add(self, world: &mut lump_core::world::World, func: F) {
-        let (mut router, mut command) =
-            world.state.get::<(ResMut<Router>, ResMut<CommandRoot>)>();
+        let (mut router, mut command) = world.state.get::<(ResMut<Router>, ResMut<CommandRoot>)>();
         let command = command.0.as_mut().expect("to have a command");
 
-        let mut cfg = RouteCfg {
+        let mut cfg = RoutesCfg {
             world: &mut world.center,
             prefix: &[self.0],
             router: &mut router,
@@ -74,8 +70,8 @@ where
     }
 }
 
-impl RouteCfg<'_> {
-    pub fn add<Marker, Arg, S>(
+impl RoutesCfg<'_> {
+    pub fn add<Marker, Arg>(
         &mut self,
         name: &'static str,
         system: impl IntoSystem<
@@ -102,20 +98,16 @@ impl RouteCfg<'_> {
         self
     }
 
-    pub fn cfg(&mut self, f: impl FnOnce(&mut RouteCfg<'_>)) -> &mut Self {
+    pub fn cfg(&mut self, f: impl FnOnce(&mut RoutesCfg<'_>)) -> &mut Self {
         (f)(self);
         self
     }
 
-    pub fn nested(
-        &mut self,
-        name: &'static str,
-        f: impl FnOnce(&mut RouteCfg<'_>),
-    ) -> &mut Self {
+    pub fn nested(&mut self, name: &'static str, f: impl FnOnce(&mut RoutesCfg<'_>)) -> &mut Self {
         let prefix = [self.prefix, &[name]].concat();
 
         let mut subcommand = clap::Command::new(name);
-        let mut cfg = RouteCfg {
+        let mut cfg = RoutesCfg {
             prefix: &prefix,
             world: self.world,
             router: self.router,
@@ -150,4 +142,3 @@ impl RouteCfg<'_> {
         take_mut::take(self.command, move |command| command.subcommand(subcommand));
     }
 }
-

@@ -1,5 +1,6 @@
+mod plugin;
 mod router;
 mod schedule;
-mod plugin;
+pub mod db;
 
 pub use plugin::{ClapPlugin, clap_runtime};
