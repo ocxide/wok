@@ -1,6 +1,5 @@
 use std::{error::Error, fmt::Display, str::FromStr};
 
-use clap::{CommandFactory, FromArgMatches};
 use lump::{
     plugin::Plugin,
     prelude::{In, LumpUnknownError, Res, Resource},
@@ -10,7 +9,7 @@ use lump_db::{
     db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle, Query},
 };
 
-use crate::schedule::{Route, RoutesCfg};
+use crate::schedule::{ConfigureRoutesSet, OneOrMore, Route, SubRoutes};
 
 pub struct RecordCrudCfgBuilder<Marker, Db = (), IdStat = ()> {
     _marker: std::marker::PhantomData<(Marker, Db, IdStat)>,
@@ -40,48 +39,33 @@ impl<Db: Resource, IdStat> RecordCrudCfg for RecordCrudCfgBuilder<Db, IdStat> {
     type IdStrategy = IdStat;
 }
 
-pub struct RecordCrudPlugin<Cfg: RecordCrudCfg, R = (), Fc = ()> {
+pub struct RecordCrudPlugin<Cfg: RecordCrudCfg, R = (), Routes = ()> {
     _marker: std::marker::PhantomData<fn(Cfg, R)>,
-    fc: Fc,
+    subroutes: Routes,
 }
 
 impl<Cfg: RecordCrudCfg> RecordCrudPlugin<Cfg, (), ()> {
     pub fn new(_cfg: Cfg) -> Self {
         RecordCrudPlugin {
             _marker: std::marker::PhantomData,
-            fc: (),
+            subroutes: (),
         }
     }
 
-    pub const fn record<R: Record>(
-        self,
-    ) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)> {
+    pub const fn record<R: Record>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes> {
         RecordCrudPlugin {
             _marker: std::marker::PhantomData,
-            fc: |_: &mut RoutesCfg<'_>| {},
+            subroutes: SubRoutes::empty(),
         }
     }
 }
 
-impl<Cfg: RecordCrudCfg, R, Fc> RecordCrudPlugin<Cfg, R, Fc>
+impl<Cfg: RecordCrudCfg, R, Routes> RecordCrudPlugin<Cfg, R, SubRoutes<Routes>>
 where
     R: Record,
-    Fc: FnOnce(&mut RoutesCfg<'_>),
+    Routes: ConfigureRoutesSet,
 {
-    fn layer(
-        self,
-        func: impl FnOnce(&mut RoutesCfg<'_>),
-    ) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)> {
-        RecordCrudPlugin {
-            _marker: std::marker::PhantomData,
-            fc: move |cfg: &mut RoutesCfg<'_>| {
-                (self.fc)(cfg);
-                func(cfg);
-            },
-        }
-    }
-
-    pub fn list<Item>(self) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)>
+    pub fn list<Item>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
     where
         Cfg::Db: DbList<Item>,
         Item: Display,
@@ -96,15 +80,16 @@ where
             Ok(()) as Result<_, LumpUnknownError>
         };
 
-        self.layer(move |cfg| {
-            cfg.add("list", system);
-        })
+        RecordCrudPlugin {
+            _marker: std::marker::PhantomData,
+            subroutes: self.subroutes.add(Route(R::TABLE), system),
+        }
     }
 
-    pub fn create<Data>(self) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)>
+    pub fn create<Data>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
     where
         Cfg::Db: DbCreate<R, Data>,
-        Data: Send + Sync + CommandFactory + FromArgMatches + 'static,
+        Data: Send + Sync + clap::Args + clap::FromArgMatches + 'static,
         R: Display,
     {
         let system = async |data: In<Data>, db: Res<'_, Cfg::Db>| {
@@ -114,12 +99,13 @@ where
             Ok(())
         };
 
-        self.layer(move |cfg| {
-            cfg.add("create", system);
-        })
+        RecordCrudPlugin {
+            _marker: std::marker::PhantomData,
+            subroutes: self.subroutes.add(Route(R::TABLE), system),
+        }
     }
 
-    pub fn delete(self) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)>
+    pub fn delete(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
     where
         Cfg::Db: DbDelete<R>,
         R: FromStr<Err: Error> + Display,
@@ -137,12 +123,13 @@ where
             Ok(())
         };
 
-        self.layer(move |cfg| {
-            cfg.add("delete", system);
-        })
+        RecordCrudPlugin {
+            _marker: std::marker::PhantomData,
+            subroutes: self.subroutes.add(Route(R::TABLE), system),
+        }
     }
 
-    pub fn get<Data>(self) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)>
+    pub fn get<Data>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
     where
         Cfg::Db: DbSelectSingle<R, Data>,
         Data: Display,
@@ -162,17 +149,18 @@ where
             Ok(())
         };
 
-        self.layer(move |cfg| {
-            cfg.add("get", system);
-        })
+        RecordCrudPlugin {
+            _marker: std::marker::PhantomData,
+            subroutes: self.subroutes.add(Route(R::TABLE), system),
+        }
     }
 
-    pub fn all<Data>(self) -> RecordCrudPlugin<Cfg, R, impl FnOnce(&mut RoutesCfg<'_>)>
+    pub fn all<Data>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
     where
         Cfg::Db: DbList<Data> + DbSelectSingle<R, Data> + DbDelete<R> + DbCreate<R, Data>,
         R: FromStr<Err: Error> + Display,
         R::Err: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
-        Data: Display + Send + Sync + CommandFactory + FromArgMatches + 'static,
+        Data: Display + Send + Sync + clap::Args + clap::FromArgMatches + 'static,
     {
         self.list().create().delete().get()
     }
@@ -192,13 +180,12 @@ struct ArgsId<
     id: R,
 }
 
-impl<Cfg: RecordCrudCfg, R, Fc> Plugin for RecordCrudPlugin<Cfg, R, Fc>
+impl<Cfg: RecordCrudCfg, R, Fc> Plugin for RecordCrudPlugin<Cfg, R, SubRoutes<Fc>>
 where
     R: Record,
-    Fc: FnOnce(&mut RoutesCfg<'_>),
+    Fc: ConfigureRoutesSet<Cardinality = OneOrMore>,
 {
     fn setup(self, app: impl lump::prelude::ConfigureApp) {
-        app.add_system(Route(R::TABLE), self.fc);
+        app.add_system(Route(R::TABLE), self.subroutes);
     }
 }
-
