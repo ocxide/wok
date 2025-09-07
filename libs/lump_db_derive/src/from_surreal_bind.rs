@@ -74,7 +74,7 @@ pub fn from_surreal_db_derive(ast: DeriveInput) -> Result<TokenStream, CompileEr
         });
 
             let mapping = quote! {
-                #mapping_name {
+                #thing_name {
                     #(#fields_map,)*
                 }
             };
@@ -105,7 +105,7 @@ pub fn from_surreal_db_derive(ast: DeriveInput) -> Result<TokenStream, CompileEr
             });
 
             let mapping = quote! {
-                #mapping_name(
+                #thing_name(
                     #(#fields_map,)*
                 )
             };
@@ -152,7 +152,7 @@ mod tests {
             impl FromSurrealBind for Foo {
                 type Bind = SurrealFoo;
                 fn from_bind(bind: Self::Bind) -> Self {
-                    SurrealFoo(<u32 as FromSurrealBind>::from_bind(bind.0),)
+                    Foo(<u32 as FromSurrealBind>::from_bind(bind.0),)
                 }
             }
         };
@@ -178,7 +178,7 @@ mod tests {
             impl FromSurrealBind for Foo {
                 type Bind = SurrealFoo;
                 fn from_bind(bind: Self::Bind) -> Self {
-                    SurrealFoo {
+                    Foo {
                         bar: <u32 as FromSurrealBind>::from_bind(bind.bar),
                     }
                 }
@@ -208,7 +208,7 @@ mod tests {
             impl FromSurrealBind for Foo {
                 type Bind = SurrealFoo;
                 fn from_bind(bind: Self::Bind) -> Self {
-                    SurrealFoo {
+                    Foo {
                         inner: <FooInner as FromSurrealBind>::from_bind(bind.inner),
                     }
                 }
