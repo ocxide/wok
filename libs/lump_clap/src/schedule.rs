@@ -278,6 +278,21 @@ mod sub_routes {
             );
             SubRoutes((self.0, cfg))
         }
+
+        pub fn sub(
+            self,
+            route: Route,
+            sub: SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
+        ) -> SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>> {
+            let cfg = SubRoute::new(
+                CommandInfo {
+                    name: route.0,
+                    command: clap::Command::new(route.0),
+                },
+                sub,
+            );
+            SubRoutes((self.0, cfg))
+        }
     }
 }
 
