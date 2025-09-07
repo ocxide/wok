@@ -9,13 +9,19 @@ use lump_db::{
     db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle, Query},
 };
 
-use crate::schedule::{ConfigureRoute, ConfigureRoutesSet, Route, SubRoutes};
+use crate::schedule::{ConfigureRoute, ConfigureRoutesSet, Route, SubRoutes, cardinality};
 
 pub struct RecordCrudCfgBuilder<Marker, Db = (), IdStat = ()> {
     _marker: std::marker::PhantomData<(Marker, Db, IdStat)>,
 }
 
 impl<Db, IdStat> RecordCrudCfgBuilder<Db, IdStat> {
+    pub const fn new() -> RecordCrudCfgBuilder<Db, IdStat> {
+        RecordCrudCfgBuilder {
+            _marker: std::marker::PhantomData,
+        }
+    }
+
     pub const fn db<Db2: Resource>(self) -> RecordCrudCfgBuilder<Db2, IdStat> {
         RecordCrudCfgBuilder {
             _marker: std::marker::PhantomData,
@@ -26,6 +32,12 @@ impl<Db, IdStat> RecordCrudCfgBuilder<Db, IdStat> {
         RecordCrudCfgBuilder {
             _marker: std::marker::PhantomData,
         }
+    }
+}
+
+impl<Db, IdStat> Default for RecordCrudCfgBuilder<Db, IdStat> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -65,7 +77,13 @@ where
     R: Record,
     Routes: ConfigureRoutesSet,
 {
-    pub fn list<Item>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
+    pub fn list<Item>(
+        self,
+    ) -> RecordCrudPlugin<
+        Cfg,
+        R,
+        SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
+    >
     where
         Cfg::Db: DbList<Item>,
         Item: Display,
@@ -86,7 +104,13 @@ where
         }
     }
 
-    pub fn create<Data>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
+    pub fn create<Data>(
+        self,
+    ) -> RecordCrudPlugin<
+        Cfg,
+        R,
+        SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
+    >
     where
         Cfg::Db: DbCreate<R, Data>,
         Data: Send + Sync + clap::Args + clap::FromArgMatches + 'static,
@@ -105,7 +129,13 @@ where
         }
     }
 
-    pub fn delete(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
+    pub fn delete(
+        self,
+    ) -> RecordCrudPlugin<
+        Cfg,
+        R,
+        SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
+    >
     where
         Cfg::Db: DbDelete<R>,
         R: FromStr<Err: Error> + Display,
@@ -129,7 +159,13 @@ where
         }
     }
 
-    pub fn get<Data>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
+    pub fn get<Data>(
+        self,
+    ) -> RecordCrudPlugin<
+        Cfg,
+        R,
+        SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
+    >
     where
         Cfg::Db: DbSelectSingle<R, Data>,
         Data: Display,
@@ -155,7 +191,13 @@ where
         }
     }
 
-    pub fn all<Data>(self) -> RecordCrudPlugin<Cfg, R, SubRoutes<impl ConfigureRoutesSet>>
+    pub fn all<Data>(
+        self,
+    ) -> RecordCrudPlugin<
+        Cfg,
+        R,
+        SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
+    >
     where
         Cfg::Db: DbList<Data> + DbSelectSingle<R, Data> + DbDelete<R> + DbCreate<R, Data>,
         R: FromStr<Err: Error> + Display,
