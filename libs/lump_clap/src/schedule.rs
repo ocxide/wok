@@ -331,12 +331,13 @@ mod one_route {
             self,
             route: &[&'static str],
             center: &mut lump_core::world::WorldCenter,
-            _command: &mut super::CommmandMut<'_>,
+            command: &mut super::CommmandMut<'_>,
             router: &mut crate::router::Router,
         ) {
             let system = make_route_handler(self.system);
             let id = center.register_system(&system);
 
+            command.mutate(|c| Arg::augment_args(c));
             router.add(route, id, Box::new(system));
         }
     }

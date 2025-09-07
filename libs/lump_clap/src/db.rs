@@ -7,6 +7,7 @@ use lump::{
 use lump_db::{
     Record,
     db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle, Query},
+    id_strategy::IdStrategy,
 };
 
 use crate::schedule::{ConfigureRoute, ConfigureRoutesSet, Route, SubRoutes, cardinality};
@@ -100,7 +101,7 @@ where
 
         RecordCrudPlugin {
             _marker: std::marker::PhantomData,
-            subroutes: self.subroutes.add(Route(R::TABLE), system),
+            subroutes: self.subroutes.add(Route("list"), system),
         }
     }
 
@@ -112,12 +113,14 @@ where
         SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
     >
     where
-        Cfg::Db: DbCreate<R, Data>,
+        Cfg::Db: DbCreate<R, <Cfg::IdStrategy as IdStrategy<R>>::Wrap<Data>>,
+        Cfg::IdStrategy: IdStrategy<R>,
         Data: Send + Sync + clap::Args + clap::FromArgMatches + 'static,
         R: Display,
     {
         let system = async |data: In<Data>, db: Res<'_, Cfg::Db>| {
-            let id = db.create(R::TABLE, data.0).execute().await?;
+            let body = <Cfg::IdStrategy as IdStrategy<R>>::wrap(data.0);
+            let id = db.create(R::TABLE, body).execute().await?;
             println!("Created `{}`:{}", R::TABLE, id);
 
             Ok(())
@@ -125,7 +128,7 @@ where
 
         RecordCrudPlugin {
             _marker: std::marker::PhantomData,
-            subroutes: self.subroutes.add(Route(R::TABLE), system),
+            subroutes: self.subroutes.add(Route("create"), system),
         }
     }
 
@@ -155,7 +158,7 @@ where
 
         RecordCrudPlugin {
             _marker: std::marker::PhantomData,
-            subroutes: self.subroutes.add(Route(R::TABLE), system),
+            subroutes: self.subroutes.add(Route("delete"), system),
         }
     }
 
@@ -187,7 +190,7 @@ where
 
         RecordCrudPlugin {
             _marker: std::marker::PhantomData,
-            subroutes: self.subroutes.add(Route(R::TABLE), system),
+            subroutes: self.subroutes.add(Route("get"), system),
         }
     }
 
@@ -199,7 +202,11 @@ where
         SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
     >
     where
-        Cfg::Db: DbList<Data> + DbSelectSingle<R, Data> + DbDelete<R> + DbCreate<R, Data>,
+        Cfg::IdStrategy: IdStrategy<R>,
+        Cfg::Db: DbList<Data>
+            + DbSelectSingle<R, Data>
+            + DbDelete<R>
+            + DbCreate<R, <Cfg::IdStrategy as IdStrategy<R>>::Wrap<Data>>,
         R: FromStr<Err: Error> + Display,
         R::Err: Into<Box<dyn std::error::Error + Send + Sync + 'static>>,
         Data: Display + Send + Sync + clap::Args + clap::FromArgMatches + 'static,
