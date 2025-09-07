@@ -46,6 +46,23 @@ fn make_route_handler<Arg: FromArgMatches + Send + Sync + 'static, Marker>(
 }
 
 pub struct Route(pub &'static str);
+
+impl Route {
+    pub fn mut_command(self, f: impl FnOnce(clap::Command) -> clap::Command) -> RouteCommand {
+        RouteCommand(CommandInfo {
+            name: self.0,
+            command: f(clap::Command::new(self.0)),
+        })
+    }
+
+    fn command(self) -> RouteCommand {
+        RouteCommand(CommandInfo {
+            name: self.0,
+            command: clap::Command::new(self.0),
+        })
+    }
+}
+
 impl ScheduleLabel for Route {}
 
 #[doc(hidden)]
@@ -57,16 +74,7 @@ where
     S::System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
 {
     fn add(self, world: &mut lump_core::world::World, system: S) {
-        let subcommand = clap::Command::new(self.0);
-        let command_info = CommandInfo {
-            name: self.0,
-            command: subcommand,
-        };
-
-        self.add(world, SubRoute::new(
-            command_info,
-            OneRoute::new(system),
-        ));
+        self.command().add(world, system);
     }
 }
 
@@ -77,12 +85,37 @@ where
     R: ConfigureRoute,
 {
     fn add(self, world: &mut lump_core::world::World, route: R) {
+        self.command().add(world, route);
+    }
+}
+
+pub struct RouteCommand(pub CommandInfo);
+
+impl<Arg, S, Marker> ScheduleConfigure<S, (Arg, Marker, SingleRoute)> for RouteCommand
+where
+    Arg: FromArgMatches + Args + Send + Sync + 'static,
+    S: IntoSystem<Marker>,
+    S::System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>,
+{
+    fn add(self, world: &mut lump_core::world::World, system: S) {
+        let route = OneRoute::new(system);
+        self.add(world, route);
+    }
+}
+
+impl<R> ScheduleConfigure<R, MultiRoute> for RouteCommand
+where
+    R: ConfigureRoute,
+{
+    fn add(self, world: &mut lump_core::world::World, route: R) {
         let (mut command_root, mut router) = world
             .state
             .get::<(ResMut<'_, CommandRoot>, ResMut<'_, Router>)>();
 
         let mut command_root = CommmandMut(command_root.0.as_mut().expect("command root"));
-        route.one(&[], &mut world.center, &mut command_root, &mut router);
+
+        let subroute = SubRoute::new(self.0, route);
+        subroute.sub(&[], &mut world.center, &mut command_root, &mut router);
     }
 }
 
@@ -109,8 +142,10 @@ pub trait ConfigureRoute {
     );
 }
 
-pub struct OneOrMore;
-pub struct ZeroOrMore;
+pub(crate) mod cardinality {
+    pub struct OneOrMore;
+    pub struct ZeroOrMore;
+}
 
 pub trait ConfigureRoutesSet {
     type Cardinality;
@@ -125,7 +160,7 @@ pub trait ConfigureRoutesSet {
 }
 
 impl ConfigureRoutesSet for () {
-    type Cardinality = ZeroOrMore;
+    type Cardinality = cardinality::ZeroOrMore;
 
     fn set(
         self,
@@ -141,7 +176,7 @@ impl<M: ConfigureRoutesSet, C> ConfigureRoutesSet for (M, SubRoute<C>)
 where
     C: ConfigureRoute,
 {
-    type Cardinality = OneOrMore;
+    type Cardinality = cardinality::OneOrMore;
 
     fn set(
         self,
@@ -151,7 +186,7 @@ where
         router: &mut Router,
     ) {
         self.0.set(route, center, command, router);
-        self.1.one(route, center, command, router);
+        self.1.sub(route, center, command, router);
     }
 }
 
@@ -160,8 +195,8 @@ pub struct SubRoute<C: ConfigureRoute> {
     config: C,
 }
 
-impl<C: ConfigureRoute> ConfigureRoute for SubRoute<C> {
-    fn one(
+impl<C: ConfigureRoute> SubRoute<C> {
+    fn sub(
         mut self,
         route: &[&'static str],
         center: &mut WorldCenter,
@@ -192,7 +227,7 @@ mod sub_routes {
     use crate::router::Router;
 
     use super::{
-        CommandInfo, CommmandMut, ConfigureRoute, ConfigureRoutesSet, OneOrMore, Route, SubRoute,
+        CommandInfo, CommmandMut, ConfigureRoute, ConfigureRoutesSet, Route, SubRoute, cardinality,
         one_route::OneRoute,
     };
 
@@ -210,7 +245,9 @@ mod sub_routes {
         }
     }
 
-    impl<Routes: ConfigureRoutesSet<Cardinality = OneOrMore>> ConfigureRoute for SubRoutes<Routes> {
+    impl<Routes: ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>> ConfigureRoute
+        for SubRoutes<Routes>
+    {
         fn one(
             self,
             prefix: &[&'static str],
@@ -227,7 +264,7 @@ mod sub_routes {
             self,
             route: Route,
             system: S,
-        ) -> SubRoutes<impl ConfigureRoutesSet<Cardinality = OneOrMore>>
+        ) -> SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>
         where
             Arg: FromArgMatches + Args + Send + Sync + 'static,
             S: IntoSystem<Marker, System: System<In = In<Arg>, Out = Result<(), LumpUnknownError>>>,

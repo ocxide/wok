@@ -9,7 +9,7 @@ use lump_db::{
     db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle, Query},
 };
 
-use crate::schedule::{ConfigureRoutesSet, OneOrMore, Route, SubRoutes};
+use crate::schedule::{ConfigureRoute, ConfigureRoutesSet, Route, SubRoutes};
 
 pub struct RecordCrudCfgBuilder<Marker, Db = (), IdStat = ()> {
     _marker: std::marker::PhantomData<(Marker, Db, IdStat)>,
@@ -180,10 +180,10 @@ struct ArgsId<
     id: R,
 }
 
-impl<Cfg: RecordCrudCfg, R, Fc> Plugin for RecordCrudPlugin<Cfg, R, SubRoutes<Fc>>
+impl<Cfg: RecordCrudCfg, R, SubRoutes> Plugin for RecordCrudPlugin<Cfg, R, SubRoutes>
 where
     R: Record,
-    Fc: ConfigureRoutesSet<Cardinality = OneOrMore>,
+    SubRoutes: ConfigureRoute,
 {
     fn setup(self, app: impl lump::prelude::ConfigureApp) {
         app.add_system(Route(R::TABLE), self.subroutes);

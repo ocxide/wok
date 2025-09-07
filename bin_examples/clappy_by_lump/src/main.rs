@@ -3,7 +3,7 @@ use lump::{
     prelude::*,
     setup::{RuntimeCfg, TokioRt},
 };
-use lump_clap::{ClapPlugin, Main, Route, RouteCfg};
+use lump_clap::{ClapPlugin, Main, Route, SubRoutes};
 use lump_params_client::LumpParamsClientRuntime;
 
 #[derive(clap::Parser)]
@@ -21,7 +21,10 @@ pub async fn main() {
         .add_plugin(ClapPlugin::parser::<AppArgs>())
         .add_system(Startup, connect_to_db)
         .add_system(Main, do_main)
-        .add_system(Route("person"), |cfg| cfg.cfg(add_more_routes).finish())
+        .add_system(
+            Route("person"),
+            SubRoutes::default().add(Route("a"), for_person),
+        )
         .run(
             RuntimeCfg::default()
                 .with_async(TokioRt)
@@ -44,8 +47,4 @@ async fn do_main(_args: In<AppArgs>) -> Result<(), LumpUnknownError> {
 async fn for_person(args: In<PersonArgs>) -> Result<(), LumpUnknownError> {
     println!("Hello {}!", args.name);
     Ok(())
-}
-
-fn add_more_routes(cfg: &mut RouteCfg<'_>) {
-    cfg.single(for_person);
 }
