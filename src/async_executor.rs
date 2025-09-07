@@ -1,3 +1,4 @@
+#[cfg(feature = "tokio")]
 pub mod tokio {
     use std::{
         pin::Pin,

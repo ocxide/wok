@@ -13,6 +13,7 @@ pub mod prelude {
 
 /// Set of exports that will probaly needed for creating the app
 pub mod setup {
+    #[cfg(feature = "tokio")]
     pub use crate::async_executor::tokio::TokioRt;
     pub use crate::run::{runtime, DefaultPlugins};
     pub use crate::runtime::RuntimeCfg;

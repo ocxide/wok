@@ -65,8 +65,13 @@ pub mod loaders {
         P: AsRef<Path> + Send,
     {
         async fn load(self) -> Result<T, LumpUnknownError> {
+            #[cfg(feature = "tokio")]
             let buf = tokio::task::spawn_blocking(move || std::fs::read_to_string(self.0.as_ref()))
                 .await??;
+
+            // TODO: make this async
+            #[cfg(not(feature = "tokio"))]
+            let buf = std::fs::read_to_string(self.0.as_ref())?;
 
             toml::from_str(&buf).map_err(Into::into)
         }
