@@ -18,6 +18,7 @@ pub mod setup {
     pub use crate::run::{runtime, DefaultPlugins};
     pub use crate::runtime::RuntimeCfg;
     pub use lump_core::async_executor::AsyncExecutorabel;
+    pub use lump_core::error::MainError;
 }
 
 pub mod app;

@@ -11,8 +11,8 @@ use lump_db::{
 
 use crate::schedule::{ConfigureRoute, ConfigureRoutesSet, Route, SubRoutes, cardinality};
 
-pub struct RecordCrudCfgBuilder<Marker, Db = (), IdStat = ()> {
-    _marker: std::marker::PhantomData<(Marker, Db, IdStat)>,
+pub struct RecordCrudCfgBuilder<Db = (), IdStat = ()> {
+    _marker: std::marker::PhantomData<(Db, IdStat)>,
 }
 
 impl<Db, IdStat> RecordCrudCfgBuilder<Db, IdStat> {
@@ -35,7 +35,7 @@ impl<Db, IdStat> RecordCrudCfgBuilder<Db, IdStat> {
     }
 }
 
-impl<Db, IdStat> Default for RecordCrudCfgBuilder<Db, IdStat> {
+impl Default for RecordCrudCfgBuilder<(), ()> {
     fn default() -> Self {
         Self::new()
     }

@@ -12,12 +12,12 @@ pub mod runtime;
 
 pub mod prelude {
     pub use crate::commands::{Command, Commands};
+    pub use crate::error::LumpUnknownError;
     pub use crate::param::*;
     pub use crate::resources::Resource;
     pub use crate::system::*;
     pub use crate::world::{ConfigureWorld, World, WorldState};
     pub use lump_derive::Param;
-    pub use crate::error::LumpUnknownError;
 }
 
 pub mod error {
@@ -64,8 +64,17 @@ pub mod error {
         }
     }
 
-    pub fn panic(e: &LumpUnknownError) -> ! {
-        panic!("{}", e);
+    pub struct MainError(pub LumpUnknownError);
+    impl std::fmt::Debug for MainError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            <LumpUnknownError as Display>::fmt(&self.0, f)
+        }
+    }
+
+    impl From<LumpUnknownError> for MainError {
+        fn from(value: LumpUnknownError) -> Self {
+            MainError(value)
+        }
     }
 }
 
