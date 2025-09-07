@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 async_fn_traits = "0.1.1"
-futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
+futures = { workspace = true }
 parking_lot = { version = "^0.12", features = ["send_guard"] }
 lump_derive = { path = "../lump_derive" }
