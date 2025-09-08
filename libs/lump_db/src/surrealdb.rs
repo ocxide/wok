@@ -1,3 +1,4 @@
+use record_serde::ThingOwned;
 use surrealdb::{Connection, Surreal};
 
 pub use as_surreal_bind::{AsSurrealBind, SurrealSerialize};
@@ -5,7 +6,7 @@ pub use from_surreal_bind::FromSurrealBind;
 pub use record_serde::{IdFlavor, StringFlavor, SurrealRecord};
 
 use crate::{
-    RecordGenerate,
+    RecordEntry, RecordGenerate,
     id_strategy::{GenerateId, IdStrategy},
 };
 
@@ -28,6 +29,13 @@ impl<C: Connection> lump::prelude::Resource for SurrealDb<C> {}
 pub struct KeyValue<R: SurrealRecord, B> {
     pub id: R,
     pub data: B,
+}
+
+#[derive(serde::Deserialize)]
+pub struct FromRecordEntrySurreal<R, D> {
+    pub id: R,
+    #[serde(flatten)]
+    pub data: D,
 }
 
 #[derive(serde::Serialize)]
@@ -54,5 +62,26 @@ impl<R: SurrealRecord + RecordGenerate> IdStrategy<R> for GenerateId {
             id: R::generate(),
             data: body,
         }
+    }
+}
+
+impl<R: SurrealRecord, D: AsSurrealBind> AsSurrealBind for RecordEntry<R, D> {
+    type Bind<'b> = SurrealKeyValueRef<'b, R, D>;
+    fn as_bind(&self) -> Self::Bind<'_> {
+        SurrealKeyValueRef {
+            id: &self.id,
+            data: self.data.as_bind(),
+        }
+    }
+}
+
+impl<R: SurrealRecord, D: FromSurrealBind> FromSurrealBind for RecordEntry<R, D> {
+    type Bind = FromRecordEntrySurreal<ThingOwned<R>, D::Bind>;
+
+    fn from_bind(bind: Self::Bind) -> Self {
+        Self {
+            id: R::from_owned(bind.id),
+            data: D::from_bind(bind.data),
+        } 
     }
 }

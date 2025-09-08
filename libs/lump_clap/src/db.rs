@@ -8,6 +8,7 @@ use lump_db::{
     Record,
     db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle, Query},
     id_strategy::IdStrategy,
+    RecordEntry,
 };
 
 use crate::schedule::{ConfigureRoute, ConfigureRoutesSet, Route, SubRoutes, cardinality};
@@ -86,7 +87,8 @@ where
         SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>,
     >
     where
-        Cfg::Db: DbList<Item>,
+        R: Display,
+        Cfg::Db: DbList<RecordEntry<R, Item>>,
         Item: Display,
     {
         let system = async |_: In<Unit>, db: Res<'_, Cfg::Db>| {
@@ -95,8 +97,8 @@ where
             if list.is_empty() {
                 println!("<None>");
             }
-            for item in list {
-                println!("{}", item);
+            for entry in list {
+                println!("{}:{} {}", R::TABLE, entry.id, entry.data);
             }
 
             Ok(())
@@ -124,7 +126,7 @@ where
         let system = async |data: In<Data>, db: Res<'_, Cfg::Db>| {
             let body = <Cfg::IdStrategy as IdStrategy<R>>::wrap(data.0);
             let id = db.create(R::TABLE, body).execute().await?;
-            println!("Created `{}`:{}", R::TABLE, id);
+            println!("Created {}:{}", R::TABLE, id);
 
             Ok(())
         };
@@ -151,7 +153,7 @@ where
             let result = db.delete(R::TABLE, id.0.id).execute().await?;
 
             if let Err(DbDeleteError::None) = result {
-                println!("Could not find `{}`:{}", R::TABLE, id.0.id);
+                println!("Could not find {}:{}", R::TABLE, id.0.id);
                 return Ok(());
             }
 
@@ -182,11 +184,11 @@ where
             let result = db.select(R::TABLE, id.0.id).execute().await?;
 
             let Some(data) = result else {
-                println!("Could not find `{}`:{}", R::TABLE, id.0.id);
+                println!("Could not find {}:{}", R::TABLE, id.0.id);
                 return Ok(());
             };
 
-            println!("{}", data);
+            println!("{}:{} {}", R::TABLE, id.0.id, data);
 
             Ok(())
         };
@@ -206,7 +208,7 @@ where
     >
     where
         Cfg::IdStrategy: IdStrategy<R>,
-        Cfg::Db: DbList<Data>
+        Cfg::Db: DbList<RecordEntry<R, Data>>
             + DbSelectSingle<R, Data>
             + DbDelete<R>
             + DbCreate<R, <Cfg::IdStrategy as IdStrategy<R>>::Wrap<Data>>,

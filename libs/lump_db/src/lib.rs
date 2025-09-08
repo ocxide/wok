@@ -6,6 +6,11 @@ pub trait RecordGenerate: Record {
     fn generate() -> Self;
 }
 
+pub struct RecordEntry<R, D> {
+    pub id: R,
+    pub data: D,
+}
+
 pub mod db;
 #[cfg(feature = "surrealdb")]
 pub mod surrealdb;

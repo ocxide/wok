@@ -1,5 +1,4 @@
 use lump::prelude::LumpUnknownError;
-use serde::de::DeserializeOwned;
 use surrealdb::{Connection, Surreal};
 
 use crate::db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle};
@@ -64,20 +63,18 @@ pub struct SurrealList<'db, C: Connection> {
 
 impl<'db, C: Connection, D> crate::db::Query<Vec<D>> for SurrealList<'db, C>
 where
-    D: DeserializeOwned,
+    D: FromSurrealBind,
 {
     async fn execute(self) -> Result<Vec<D>, LumpUnknownError> {
-        self.db
-            .select(self.table.to_owned())
-            .await
-            .map_err(LumpUnknownError::new)
+        let response: Vec<D::Bind> = self.db.select(self.table.to_owned()).await?;
+        Ok(response.into_iter().map(D::from_bind).collect())
     }
 }
 
 impl<C, D> DbList<D> for SurrealDb<C>
 where
     C: Connection,
-    D: DeserializeOwned,
+    D: FromSurrealBind,
 {
     type ListQuery<'q> = SurrealList<'q, C>;
     fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q> {
