@@ -2,7 +2,7 @@ mod system_lock_runtime;
 
 use std::marker::PhantomData;
 
-use futures::{FutureExt, StreamExt, channel::mpsc};
+use futures::{FutureExt, StreamExt, channel::mpsc, future::Either};
 use lump_core::{
     async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
@@ -29,7 +29,10 @@ impl<AR, Addon> RuntimeCfg<AR, Addon> {
     }
 
     /// Define the async runtime
-    pub fn with_async<AR2: AsyncExecutorabel>(self, _: AR2) -> RuntimeCfg<AR2::AsyncRuntime, Addon> {
+    pub fn with_async<AR2: AsyncExecutorabel>(
+        self,
+        _: AR2,
+    ) -> RuntimeCfg<AR2::AsyncRuntime, Addon> {
         RuntimeCfg {
             async_runtime: AR2::create(),
             _addon_marker: PhantomData,
@@ -60,7 +63,7 @@ pub struct Runtime<'w, Addon: RuntimeAddon> {
     addon: Addon,
     foreign_rt: LockingQueue,
     release_recv: ReleaseRecv,
-    releaser: SystemReleaser,
+    releaser: Option<SystemReleaser>,
 }
 
 impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
@@ -80,39 +83,73 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
             state,
             addon,
             release_recv,
-            releaser: tx,
+            releaser: Some(tx),
         };
 
         (this, locking)
     }
 
     pub async fn run(mut self, async_executor: &impl AsyncExecutor) {
+        let mut foreign_rt_open = true;
+        let mut release_recv_open = true;
+        let mut addon_open = true;
+
         loop {
+            if !foreign_rt_open && !release_recv_open && !addon_open {
+                break;
+            }
+
+            let foreign_fut = if foreign_rt_open {
+                Either::Left(self.foreign_rt.poll())
+            } else {
+                Either::Right(futures::future::pending::<Option<()>>())
+            };
+
+            let release_fut = if release_recv_open {
+                Either::Left(self.release_recv.0.next())
+            } else {
+                Either::Right(futures::future::pending::<Option<SystemId>>())
+            };
+
+            let addon_tick = if addon_open {
+                Either::Left(self.addon.tick())
+            } else {
+                Either::Right(futures::future::pending())
+            };
+
             futures::select! {
                 // Check for new requests of system locking
-                next = self.foreign_rt.poll().fuse() => {
+                next = foreign_fut.fuse() => {
                     if let Some(()) = next {
                         self.foreign_rt.try_respond(&mut self.world_center.system_locks);
                     }
                     else {
-                        break;
+                        foreign_rt_open = false;
                     }
                 }
 
-                _ = self.addon.tick().fuse() => {
-                    self.addon.act(async_executor, &mut StateLocker::new(self.state, &mut self.world_center.system_locks, &self.releaser));
+                addon_tick = addon_tick.fuse() => {
+                    if let Some(()) = addon_tick {
+                        if let Some(releaser) = self.releaser.as_ref() {
+                            self.addon.act(async_executor, &mut StateLocker::new(self.state, &mut self.world_center.system_locks, releaser));
+                        }
+                    }
+                    else {
+                        addon_open = false;
+                        self.releaser = None;
+                    }
                 }
 
                 // Release system locks
-                system_id = self.release_recv.0.next() => {
+                system_id = release_fut.fuse() => {
                     if let Some(system_id) = system_id {
                         self.foreign_rt.release(system_id, &mut self.world_center.system_locks);
                     }
                     else {
-                        break;
+                        release_recv_open = false;
                     }
                 }
-            }
+            };
         }
     }
 }

@@ -39,9 +39,10 @@ impl_runtime!(R1, R2, R3, R4);
 impl_runtime!(R1, R2, R3, R4, R5);
 
 impl RuntimeAddon for () {
-    fn tick(&mut self) -> impl Future<Output = Option<()>> {
-        futures::future::pending()
+    async fn tick(&mut self) -> Option<()> {
+        None
     }
+
     fn act(&mut self, _async_executor: &impl AsyncExecutor, _state: &mut StateLocker<'_>) {}
     fn create(_state: &mut WorldState) -> Self {}
 }

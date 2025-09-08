@@ -93,10 +93,14 @@ impl SystemPermit<'_> {
         system: &DynSystem<In, Out>,
         input: In::Inner<'i>,
     ) -> impl Future<Output = Out> + Send + 'i {
-        system.run(self.world, input).map(move |out| {
-            drop(self.releaser);
-            out
-        })
+        let fut = system.run(self.world, input);
+
+        async move {
+            let result = fut.await;
+            self.releaser.release().await;
+
+            result
+        }
     }
 }
 

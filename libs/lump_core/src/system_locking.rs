@@ -1,4 +1,4 @@
-use futures::{FutureExt, channel::mpsc};
+use futures::{FutureExt, SinkExt, channel::mpsc};
 
 use crate::{
     param::Param,
@@ -10,6 +10,14 @@ use crate::{
 pub struct ReleaseSystem {
     system_id: SystemId,
     sx: SystemReleaser,
+}
+
+impl ReleaseSystem {
+    pub async fn release(mut self) {
+         if self.sx.0.send(self.system_id).await.is_err() {
+             println!("WARNING: failed to release system {:?}", self.system_id);             
+         };
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -85,4 +93,3 @@ impl<'w> StateLocker<'w> {
         Some(P::get_ref(self.state))
     }
 }
-
