@@ -75,7 +75,8 @@ pub async fn clap_runtime(
     }
 
     if let Some((id, system)) = router.routes.get(rotue.as_slice()) {
-        let res = match reserver.lock(*id).await.run_task(system, sub_args).await {
+        let permit = reserver.lock(*id).await;
+        let result = match permit.run_task(system, sub_args).await {
             Ok(res) => res,
             Err(err) => {
                 println!("{}", err);
@@ -83,7 +84,7 @@ pub async fn clap_runtime(
             }
         };
 
-        return res;
+        return result;
     }
 
     Ok(())

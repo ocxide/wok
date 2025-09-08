@@ -2,7 +2,7 @@ use std::{error::Error, fmt::Display, str::FromStr};
 
 use lump::{
     plugin::Plugin,
-    prelude::{In, LumpUnknownError, Res, Resource},
+    prelude::{In, Res, Resource},
 };
 use lump_db::{
     Record,
@@ -92,11 +92,14 @@ where
         let system = async |_: In<Unit>, db: Res<'_, Cfg::Db>| {
             let list = db.list(R::TABLE).execute().await?;
 
+            if list.is_empty() {
+                println!("<None>");
+            }
             for item in list {
                 println!("{}", item);
             }
 
-            Ok(()) as Result<_, LumpUnknownError>
+            Ok(())
         };
 
         RecordCrudPlugin {
