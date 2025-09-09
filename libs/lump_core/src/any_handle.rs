@@ -22,7 +22,7 @@ impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
     }
 
     /// # SAFETY: The caller must guarantee that no other thread is mutating the object
-    pub unsafe fn read(&self) -> &T {
+    pub unsafe fn get(&self) -> &T {
         // SAFETY: the lock guarantees that the object is of type T
         let any = unsafe { &*self.0.0.get() };
         any.downcast_ref().expect("downcast failed")
@@ -32,8 +32,8 @@ impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
         AnyHandle(self.0.clone(), PhantomData)
     }
 
-    pub fn handle_read(&self) -> HandleRead<T> {
-        HandleRead(self.self_clone())
+    pub fn handle(&self) -> Handle<T> {
+        Handle(self.self_clone())
     }
 
     /// SAFETY: The caller must guarantee that no other thread is holding the object
@@ -45,7 +45,7 @@ impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
         }
     }
 
-    pub unsafe fn write(&mut self) -> &mut T {
+    pub unsafe fn get_mut(&mut self) -> &mut T {
         // SAFETY: the lock guarantees that the object is of type T
         let any = unsafe { &mut *self.0.0.get() };
         any.downcast_mut().expect("downcast failed")
@@ -77,6 +77,12 @@ impl<T: ?Sized + Sync + Send + 'static> AnyHandle<T> {
         unsafe { std::mem::transmute(self) }
     }
 
+    /// SAFETY: The caller must the correct type
+    pub unsafe fn unchecked_downcast_mut<O: Send + Sync + 'static>(&mut self) -> &mut AnyHandle<O> {
+        // Safety: The caller must the correct type
+        unsafe { std::mem::transmute(self) }
+    }
+
     #[cfg(test)]
     fn reference_count(&self) -> usize {
         Arc::strong_count(&self.0)
@@ -89,24 +95,45 @@ impl<T: Sized + Sync + Send + 'static> Deref for HandleMut<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         // Safety: Given this point its guaranteed that there is only one owner
-        unsafe { self.0.read() }
+        unsafe { self.0.get() }
     }
 }
 
 impl<T: Sized + Sync + Send + 'static> DerefMut for HandleMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         // Safety: Given this point its guaranteed that there is only one owner
-        unsafe { self.0.write() }
+        unsafe { self.0.get_mut() }
     }
 }
 
-pub struct HandleRead<T: Sized + Sync + Send + 'static>(AnyHandle<T>);
+impl<T: Sized + Sync + Send + 'static> AsRef<T> for HandleMut<T> {
+    fn as_ref(&self) -> &T {
+        // Safety: Given this point its guaranteed that there is only one owner
+        unsafe { self.0.get() }
+    }
+}
 
-impl<T: Sized + Sync + Send + 'static> Deref for HandleRead<T> {
+impl<T: Sized + Sync + Send + 'static> AsMut<T> for HandleMut<T> {
+    fn as_mut(&mut self) -> &mut T {
+        // Safety: Given this point its guaranteed that there is only one owner
+        unsafe { self.0.get_mut() }
+    }
+}
+
+pub struct Handle<T: Sized + Sync + Send + 'static>(AnyHandle<T>);
+
+impl<T: Sized + Sync + Send + 'static> AsRef<T> for Handle<T> {
+    fn as_ref(&self) -> &T {
+        // Safety: Given this point its guaranteed that there are only read owners
+        unsafe { self.0.get() }
+    }
+}
+
+impl<T: Sized + Sync + Send + 'static> Deref for Handle<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         // Safety: Given this point its guaranteed that there are only read owners
-        unsafe { self.0.read() }
+        unsafe { self.0.get() }
     }
 }
 
@@ -127,8 +154,8 @@ mod tests {
         let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
 
         {
-            let handle_one = handle.handle_read();
-            let handle_two = handle.handle_read();
+            let handle_one = handle.handle();
+            let handle_two = handle.handle();
 
             assert_eq!(handle_one.value, 12);
             assert_eq!(handle_two.value, 12);
@@ -150,7 +177,7 @@ mod tests {
         let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
 
         let tr = {
-            let handle = handle.handle_read();
+            let handle = handle.handle();
             std::thread::spawn(move || {
                 sleep(Duration::from_millis(100));
 
@@ -159,7 +186,7 @@ mod tests {
         };
 
         let tr2 = {
-            let handle_two = handle.handle_read();
+            let handle_two = handle.handle();
             std::thread::spawn(move || {
                 sleep(Duration::from_millis(101));
 
@@ -180,7 +207,7 @@ mod tests {
 
         tr3.join().unwrap();
 
-        assert_eq!(handle.handle_read().value, 1);
+        assert_eq!(handle.handle().value, 1);
     }
 
     struct DropCounter {

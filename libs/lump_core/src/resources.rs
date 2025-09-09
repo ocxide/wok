@@ -1,5 +1,5 @@
 use crate::{
-    any_handle::{AnyHandle, HandleLock},
+    any_handle::{AnyHandle, HandleMut, Handle},
     local_any_handle::LocalAnyHandle,
 };
 use std::{any::TypeId, collections::HashMap};
@@ -12,23 +12,12 @@ impl Resources {
         self.0.insert(TypeId::of::<R>(), AnyHandle::new_any(value));
     }
 
-    pub fn handle<R: Resource>(&self) -> Option<AnyHandle<R>> {
-        let wrapped = self.0.get(&TypeId::of::<R>())?;
-        // Safety: The type is guaranteed to be R
-        let read = unsafe { wrapped.clone().unchecked_downcast::<R>() };
-
-        Some(read)
+    pub fn handle<R: Resource>(&self) -> Option<Handle<R>> {
+        Some(self.handle_ref()?.handle())
     }
 
-    pub fn handle_or_else<R: Resource>(&mut self, f: impl FnOnce() -> R) -> AnyHandle<R> {
-        let handle = self.0.entry(TypeId::of::<R>()).or_insert_with(|| {
-            let value = f();
-            AnyHandle::new_any(value)
-        });
-
-        // Safety: The type is guaranteed to be R
-
-        unsafe { handle.clone().unchecked_downcast::<R>() }
+    pub fn handle_mut<R: Resource>(&self) -> Option<HandleMut<R>> {
+        self.handle_ref()?.handle_mut()
     }
 
     pub fn try_take<R: Resource>(&mut self) -> Option<R> {
@@ -47,18 +36,17 @@ impl Resources {
         }
     }
 
-    pub fn init<R: Resource + Default>(&mut self) {
-        self.insert(R::default());
+    pub fn handle_ref_mut<R: Resource>(&mut self) -> Option<&mut AnyHandle<R>> {
+        // Safety: The type is guaranteed to be R
+        unsafe {
+            self.0
+                .get_mut(&TypeId::of::<R>())
+                .map(|handle| handle.unchecked_downcast_mut())
+        }
     }
 
-    pub fn get_mut<R: Resource>(&mut self) -> Option<HandleLock<'_, R>> {
-        let handle = self.0.get_mut(&TypeId::of::<R>())?;
-        // Safety: The type is guaranteed to be R
-        let write = unsafe { handle.unchecked_downcast_ref::<R>() }
-            .write()
-            .expect("to write");
-
-        Some(write)
+    pub fn init<R: Resource + Default>(&mut self) {
+        self.insert(R::default());
     }
 }
 
