@@ -1,96 +1,159 @@
-use futures::{FutureExt, SinkExt, channel::mpsc};
+pub use local::*;
+pub use remote::*;
+pub use system_entry::*;
 
-use crate::{
-    param::Param,
-    system::{DynSystem, SystemInput},
-    world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldState},
-};
+mod remote {
+    use futures::{FutureExt, SinkExt, channel::mpsc};
 
-#[derive(Debug, Clone)]
-pub struct ReleaseSystem {
-    system_id: SystemId,
-    sx: SystemReleaser,
-}
+    use crate::{
+        system::{DynSystem, SystemInput},
+        world::SystemId,
+    };
 
-impl ReleaseSystem {
-    pub async fn release(mut self) {
-         if self.sx.0.send(self.system_id).await.is_err() {
-             println!("WARNING: failed to release system {:?}", self.system_id);             
-         };
+    use super::{SystemEntryRef, WorldMut};
+
+    #[derive(Debug, Clone)]
+    pub struct ReleaseSystem {
+        system_id: SystemId,
+        sx: SystemReleaser,
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct SystemReleaser(mpsc::Sender<SystemId>);
-
-impl SystemReleaser {
-    pub fn new() -> (Self, mpsc::Receiver<SystemId>) {
-        let (sx, rx) = mpsc::channel(0);
-        (Self(sx), rx)
+    impl ReleaseSystem {
+        pub async fn release(mut self) {
+            if self.sx.0.send(self.system_id).await.is_err() {
+                println!("WARNING: failed to release system {:?}", self.system_id);
+            };
+        }
     }
-}
 
-impl ReleaseSystem {
-    pub fn new(system_id: SystemId, sx: SystemReleaser) -> Self {
-        Self { system_id, sx }
+    #[derive(Debug, Clone)]
+    pub struct SystemReleaser(mpsc::Sender<SystemId>);
+
+    impl SystemReleaser {
+        pub fn new() -> (Self, mpsc::Receiver<SystemId>) {
+            let (sx, rx) = mpsc::channel(0);
+            (Self(sx), rx)
+        }
     }
-}
 
-pub struct StateLocker<'w> {
-    pub state: &'w UnsafeWorldState,
-    pub locks: &'w mut SystemLocks,
-    releaser: &'w SystemReleaser,
-}
+    impl ReleaseSystem {
+        pub fn new(system_id: SystemId, sx: SystemReleaser) -> Self {
+            Self { system_id, sx }
+        }
+    }
 
-impl Drop for ReleaseSystem {
-    fn drop(&mut self) {
-        if self.sx.0.try_send(self.system_id).is_err() {
-            println!("WARNING: failed to release system {:?}", self.system_id);
+    pub struct RemoteWorldMut<'w> {
+        pub(crate) world_mut: &'w mut WorldMut<'w>,
+        pub(crate) releaser: &'w SystemReleaser,
+    }
+
+    impl Drop for ReleaseSystem {
+        fn drop(&mut self) {
+            if self.sx.0.try_send(self.system_id).is_err() {
+                println!("WARNING: failed to release system {:?}", self.system_id);
+            }
+        }
+    }
+
+    impl<'w> RemoteWorldMut<'w> {
+        pub fn world_mut(&'w mut self) -> WorldMut<'w> {
+            self.world_mut.duplicate()
+        }
+
+        pub fn try_run<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
+            &mut self,
+            system: SystemEntryRef<'_, DynSystem<In, Out>>,
+            input: In::Inner<'i>,
+        ) -> Result<impl Future<Output = Out> + 'i + Send, In::Inner<'i>> {
+            let result = self.world_mut.locks.try_lock(system.id);
+            if result.is_err() {
+                return Err(input);
+            }
+
+            let release = ReleaseSystem::new(system.id, SystemReleaser(self.releaser.0.clone()));
+            // Safety: Already checked with locks
+            let fut = unsafe { system.system.run(self.world_mut.state, input) };
+            Ok(fut.map(|out| {
+                drop(release);
+                out
+            }))
         }
     }
 }
 
-impl<'w> StateLocker<'w> {
-    pub fn new(
-        state: &'w UnsafeWorldState,
-        locks: &'w mut SystemLocks,
-        releaser: &'w SystemReleaser,
-    ) -> Self {
-        Self {
-            state,
-            locks,
-            releaser,
+mod local {
+    use crate::{
+        param::Param,
+        world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState},
+    };
+
+    use super::{RemoteWorldMut, SystemReleaser};
+
+    pub struct WorldMut<'w> {
+        pub(crate) state: &'w UnsafeWorldState,
+        pub locks: &'w mut SystemLocks,
+    }
+
+    impl<'w> WorldMut<'w> {
+        pub fn duplicate(&'w mut self) -> Self {
+            Self {
+                state: self.state,
+                locks: self.locks,
+            }
+        }
+
+        pub fn new(state: &'w UnsafeWorldState, locks: &'w mut SystemLocks) -> Self {
+            Self { state, locks }
+        }
+
+        pub fn get<P: Param>(&self) -> Option<P::AsRef<'_>> {
+            let mut system_locks = SystemLock::default();
+            P::init(&mut system_locks);
+
+            if !self.locks.can_lock_rw(&system_locks) {
+                return None;
+            }
+            // Safety: Already checked with locks
+            Some(unsafe { P::get_ref(self.state) })
+        }
+
+        pub fn remote(&'w mut self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
+            RemoteWorldMut {
+                world_mut: self,
+                releaser,
+            }
         }
     }
 
-    pub fn run_task<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
-        &mut self,
-        systemid: SystemId,
-        system: &DynSystem<In, Out>,
-        input: In::Inner<'i>,
-    ) -> Result<impl Future<Output = Out> + 'i + Send, In::Inner<'i>> {
-        let result = self.locks.try_lock(systemid);
-        if result.is_err() {
-            return Err(input);
+    impl WorldMut<'_> {
+        pub fn release(&mut self, system_id: SystemId) {
+            self.locks.release(system_id);
         }
+    }
+}
 
-        let release = ReleaseSystem::new(systemid, SystemReleaser(self.releaser.0.clone()));
-        // Safety: Already checked with locks
-        let fut = unsafe { system.run(self.state, input) };
-        Ok(fut.map(|out| {
-            drop(release);
-            out
-        }))
+mod system_entry {
+    use crate::{
+        system::{DynSystem, SystemInput},
+        world::SystemId,
+    };
+
+    pub struct TaskSystemEntry<In: SystemInput + 'static, Out: Send + Sync + 'static> {
+        system: DynSystem<In, Out>,
+        id: SystemId,
     }
 
-    pub fn get<P: Param>(&mut self) -> Option<P::AsRef<'w>> {
-        let mut system_locks = SystemLock::default();
-        P::init(&mut system_locks);
-
-        if !self.locks.can_lock_rw(&system_locks) {
-            return None;
+    impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystemEntry<In, Out> {
+        pub fn entry_ref(&self) -> SystemEntryRef<DynSystem<In, Out>> {
+            SystemEntryRef {
+                system: &self.system,
+                id: self.id,
+            }
         }
-        // Safety: Already checked with locks
-        Some(unsafe { P::get_ref(self.state) })
+    }
+
+    pub struct SystemEntryRef<'s, S> {
+        pub system: &'s S,
+        pub id: SystemId,
     }
 }

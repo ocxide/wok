@@ -22,6 +22,19 @@ pub struct WorldState {
     pub(crate) commands_sx: CommandSender,
 }
 
+impl WorldState {
+    pub fn get<P: Param>(&mut self) -> P::AsRef<'_> {
+        // Safety: by being the olny owner `&mut self`, this is allowed
+
+        unsafe { P::get_ref(self.as_unsafe_world_state()) }
+    }
+
+    fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
+        // Safety: by being the olny owner `&mut self`, this is allowed
+        unsafe { &*(self as *const WorldState as *const UnsafeWorldState) }
+    }
+}
+
 pub use unsafe_world_state::UnsafeWorldState;
 
 mod unsafe_world_state {
@@ -35,6 +48,7 @@ mod unsafe_world_state {
 
     use super::WorldState;
 
+    #[repr(transparent)]
     pub struct UnsafeWorldState(UnsafeCell<WorldState>);
     unsafe impl Sync for UnsafeWorldState {}
     unsafe impl Send for UnsafeWorldState {}
