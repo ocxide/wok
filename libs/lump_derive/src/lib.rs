@@ -108,7 +108,11 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                     span: field.span(),
                 };
 
-                quote! { #name: <#ty as #trait_path>::from_owned(&owned.#index) }
+                if has_default_attr(field) {
+                    quote! { #name: Default::default() }
+                } else {
+                    quote! { #name: <#ty as #trait_path>::from_owned(&owned.#index) }
+                }
             });
 
             quote! {
@@ -137,6 +141,17 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
         }
     };
 
+    fn has_default_attr(field: &syn::Field) -> bool {
+        field
+            .attrs
+            .iter()
+            .filter_map(|attr| match &attr.meta {
+                syn::Meta::List(meta_list) => Some(meta_list),
+                _ => None,
+            })
+            .any(|list| list.tokens.to_string() == "default")
+    }
+
     let get_ref_impl = match &struct_data.fields {
         syn::Fields::Unit => quote! { #thing_name },
         syn::Fields::Named(fields) => {
@@ -144,7 +159,11 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 let name = &field.ident;
                 let ty = &field.ty;
 
-                quote! { #name: <#ty as #trait_path>::get_ref(&world) }
+                if has_default_attr(field) {
+                    quote! { #name: Default::default() }
+                } else {
+                    quote! { #name: <#ty as #trait_path>::get_ref(world) }
+                }
             });
 
             quote! {
@@ -158,11 +177,108 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
             let fields_map = fields.unnamed.iter().map(|field| {
                 let ty = &field.ty;
 
-                quote! { <#ty as #trait_path>::get_ref(&world) }
+                quote! { <#ty as #trait_path>::get_ref(world) }
             });
 
             quote! {
                 #thing_name(
+                    #(#fields_map,)*
+                )
+            }
+        }
+    };
+
+    let owned_tuple_ty = match &struct_data.fields {
+        syn::Fields::Unit => quote! { () },
+        syn::Fields::Named(fields) => {
+            let fields_map = fields.named.iter().map(|field| {
+                let ty = &field.ty;
+
+                if has_default_attr(field) {
+                    quote! { #ty }
+                } else {
+                    quote! { <#ty as #trait_path>::Owned }
+                }
+            });
+
+            quote! {
+                ( #(#fields_map,)* )
+            }
+        }
+
+        syn::Fields::Unnamed(fields) => {
+            let fields_map = fields.unnamed.iter().map(|field| {
+                let ty = &field.ty;
+
+                quote! { <#ty as #trait_path>::Owned }
+            });
+
+            quote! {
+                ( #(#fields_map,)* )
+            }
+        }
+    };
+
+    let init_impls = match &struct_data.fields {
+        syn::Fields::Unit => quote! {},
+        syn::Fields::Named(fields) => {
+            let fields_map = fields.named.iter().map(|field| {
+                let ty = &field.ty;
+
+                if has_default_attr(field) {
+                    quote! {}
+                } else {
+                    quote! { <#ty as #trait_path>::init(rw); }
+                }
+            });
+
+            quote! {
+                #(#fields_map)*
+            }
+        }
+
+        syn::Fields::Unnamed(fields) => {
+            let fields_map = fields.unnamed.iter().map(|field| {
+                let ty = &field.ty;
+
+                quote! { <#ty as #trait_path>::init(rw); }
+            });
+
+            quote! {
+                #(#fields_map)*
+            }
+        }
+    };
+
+    let get_owned_impl = match &struct_data.fields {
+        syn::Fields::Unit => quote! { () },
+        syn::Fields::Named(fields) => {
+            let fields_map = fields.named.iter().map(|field| {
+                let ty = &field.ty;
+
+                if has_default_attr(field) {
+                    quote! { Default::default() }
+                } else {
+                    quote! { <#ty as #trait_path>::get(world) }
+                }
+            });
+
+            quote! {
+                (
+                    #(#fields_map,)*
+                )
+            }
+        }
+
+        syn::Fields::Unnamed(fields) => {
+            let fields_map = fields.unnamed.iter().map(|field| {
+                let ty = &field.ty;
+
+                quote! { <#ty as #trait_path>::get(world) }
+            });
+
+            quote! {
+                (
                     #(#fields_map,)*
                 )
             }
@@ -187,21 +303,15 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
 
     let output = quote! {
         impl #impl_generics #trait_path for #thing_name #ty_generics #where_clause {
-            type Owned = ( #(<#fields_tyes as #trait_path>::Owned,)* );
+            type Owned = #owned_tuple_ty;
             type AsRef<#altern_lifetime> = #thing_name #reborrow_ty_generics;
 
             fn init(rw: &mut #rw) {
-                #(
-                    <#fields_tyes as #trait_path>::init(rw);
-                )*
+                #init_impls
             }
 
             fn get(world: &#world) -> Self::Owned {
-                (
-                    #(
-                        <#fields_tyes as #trait_path>::get(world),
-                    )*
-                )
+                #get_owned_impl
             }
 
             fn from_owned<#altern_lifetime>(owned: &#altern_lifetime Self::Owned) -> Self::AsRef<#altern_lifetime> {
@@ -274,6 +384,10 @@ fn single() {
                 fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
                     Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
                 }
+
+                fn get_ref(world: &lump::prelude::WorldState) -> Self::AsRef<'_> {
+                    Foo( <Bar<'w> as Param>::get_ref(world), )
+                }
             }
         }
         .to_string()
@@ -307,6 +421,10 @@ fn single_for_core() {
                 fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
                     Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
                 }
+
+                fn get_ref(world: &crate::prelude::WorldState) -> Self::AsRef<'_> {
+                    Foo( <Bar<'w> as Param>::get_ref(world), )
+                }
             }
         }
         .to_string()
@@ -339,6 +457,55 @@ fn single_for_lib() {
 
                 fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
                     Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
+                }
+
+                fn get_ref(world: &lump_core::prelude::WorldState) -> Self::AsRef<'_> {
+                    Foo( <Bar<'w> as Param>::get_ref(world), )
+                }
+            }
+        }
+        .to_string()
+    );
+}
+
+#[test]
+fn with_default() {
+    let input: syn::DeriveInput = syn::parse_quote! {
+        #[param(usage = core)]
+        struct Foo<'w> {
+            bar: Bar<'w>,
+
+            #[param(default)]
+            _marker: std::marker::PhantomData<()>,
+        }
+    };
+
+    let output = do_param_derive(input);
+    assert!(output.is_ok(), "{:?}", output.unwrap_err());
+    assert_eq!(
+        output.unwrap().to_string(),
+        quote! {
+            impl<'w> Param for Foo<'w> {
+                type Owned = ( <Bar<'w> as Param>::Owned, std::marker::PhantomData<()>, );
+                type AsRef<'p> = Foo<'p>;
+
+                fn init(rw: &mut crate::world::SystemLock) {
+                    <Bar<'w> as Param>::init(rw);
+                }
+
+                fn get(world: &crate::prelude::WorldState) -> Self::Owned {
+                    ( <Bar<'w> as Param>::get(world), Default::default(), )
+                }
+
+                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
+                    Foo {
+                        bar: <Bar<'w> as Param>::from_owned(&owned.0),
+                        _marker: Default::default(),
+                    }
+                }
+
+                fn get_ref(world: &crate::prelude::WorldState) -> Self::AsRef<'_> {
+                    Foo { bar: <Bar<'w> as Param>::get_ref(world), _marker: Default::default(), }
                 }
             }
         }

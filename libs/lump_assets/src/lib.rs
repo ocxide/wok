@@ -1,40 +1,16 @@
 use lump_core::{
     error::LumpUnknownError,
-    prelude::{Commands, Param, ResMut, Resource},
+    prelude::{Commands, Param, Resource},
 };
 
 pub use loaders::*;
 
+#[derive(Param)]
+#[param(usage = lib)]
 pub struct AssetInit<'r, R: Resource> {
     commands: Commands<'r>,
+    #[param(default)]
     _marker: std::marker::PhantomData<fn(R)>,
-}
-
-impl<'r, R: Resource> Param for AssetInit<'r, R> {
-    type Owned = <Commands<'r> as Param>::Owned;
-    type AsRef<'p> = AssetInit<'p, R>;
-
-    fn init(rw: &mut lump_core::world::SystemLock) {
-        ResMut::<R>::init(rw);
-    }
-
-    fn get(world: &lump_core::prelude::WorldState) -> Self::Owned {
-        <Commands<'r> as Param>::get(world)
-    }
-
-    fn from_owned(owned: &Self::Owned) -> Self::AsRef<'_> {
-        AssetInit {
-            commands: <Commands<'r> as Param>::from_owned(owned),
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    fn get_ref(world: &lump_core::prelude::WorldState) -> Self::AsRef<'_> {
-        AssetInit {
-            commands: <Commands<'r> as Param>::get_ref(world),
-            _marker: std::marker::PhantomData,
-        }
-    }
 }
 
 impl<'r, R: Resource> AssetInit<'r, R> {
