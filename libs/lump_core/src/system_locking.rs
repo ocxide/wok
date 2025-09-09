@@ -84,10 +84,11 @@ mod remote {
 mod local {
     use crate::{
         param::Param,
+        system::{SystemIn, TaskSystem},
         world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState},
     };
 
-    use super::{RemoteWorldMut, SystemReleaser};
+    use super::{RemoteWorldMut, SystemEntryRef, SystemReleaser};
 
     pub struct WorldMut<'w> {
         pub(crate) state: &'w UnsafeWorldState,
@@ -115,6 +116,28 @@ mod local {
             }
             // Safety: Already checked with locks
             Some(unsafe { P::get_ref(self.state) })
+        }
+
+        pub fn run_task<'i, S>(
+            &mut self,
+            system: SystemEntryRef<'_, S>,
+            input: SystemIn<'i, S>,
+        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
+        where
+            S: TaskSystem,
+        {
+            let result = self.locks.try_lock(system.id);
+            if result.is_err() {
+                return Err(input);
+            }
+
+            // Safety: Already checked with locks
+            let fut = unsafe { system.system.run(self.state, input) };
+            let id = system.id;
+            Ok(async move {
+                let out = fut.await;
+                (id, out)
+            })
         }
 
         pub fn remote(self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
@@ -155,5 +178,11 @@ mod system_entry {
     pub struct SystemEntryRef<'s, S> {
         pub system: &'s S,
         pub id: SystemId,
+    }
+
+    impl<'s, S> SystemEntryRef<'s, S> {
+        pub fn new(id: SystemId, system: &'s S) -> Self {
+            Self { system, id }
+        }
     }
 }

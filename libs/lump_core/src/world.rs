@@ -29,7 +29,7 @@ impl WorldState {
         unsafe { P::get_ref(self.as_unsafe_world_state()) }
     }
 
-    fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
+    pub fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
         // Safety: by being the olny owner `&mut self`, this is allowed
         unsafe { &*(self as *const WorldState as *const UnsafeWorldState) }
     }

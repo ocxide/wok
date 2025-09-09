@@ -10,18 +10,24 @@ pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sy
 
 // Dyn compatible
 pub trait TaskSystem: System {
+    /// # Safety
+    /// The caller must ensure no dupliated mutable access is happening
     unsafe fn run_owned<'i>(
         self,
         state: &UnsafeWorldState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self>;
 
+    /// # Safety
+    /// The caller must ensure no dupliated mutable access is happening
     unsafe fn run<'i>(
         &self,
         state: &UnsafeWorldState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self>;
 
+    /// # Safety
+    /// The caller must ensure no dupliated mutable access is happening
     unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out>;
 }
 
@@ -97,5 +103,36 @@ impl<S: ProtoSystem> TaskSystem for S {
         let system = self.clone();
         let param = unsafe { S::Param::get(state) };
         SystemTask::new(|input, _| Box::pin(system.run(param, input)))
+    }
+}
+
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System for DynSystem<In, Out> {
+    type In = In;
+    type Out = Out;
+
+    fn init(&self, rw: &mut crate::world::SystemLock) {
+        self.as_ref().init(rw);
+    }
+}
+
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystem for DynSystem<In, Out> {
+    unsafe fn run<'i>(
+        &self,
+        state: &UnsafeWorldState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self> {
+        unsafe { self.as_ref().run(state, input) }
+    }
+
+    unsafe fn run_owned<'i>(
+        self,
+        state: &UnsafeWorldState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self> {
+        unsafe { self.as_ref().run(state, input) }
+    }
+
+    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out> {
+        unsafe { self.as_ref().create_task(state) }
     }
 }

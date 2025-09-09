@@ -4,7 +4,8 @@ use lump_core::{
     prelude::{IntoSystem, System},
     resources::LocalResource,
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
-    world::{SystemId, WorldCenter, WorldState, WorldSystemLockError},
+    system_locking::{SystemEntryRef, WorldMut},
+    world::{SystemId, WorldCenter, WorldState},
 };
 
 use lump_core::async_executor::AsyncExecutor;
@@ -108,20 +109,12 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 None => return false,
             };
 
-            match center.system_locks.try_lock(id) {
-                Ok(_) => {}
-                Err(WorldSystemLockError::NotRegistered) => {
-                    panic!("System not registered")
-                }
-                Err(WorldSystemLockError::InvalidAccess) => return false,
+            let mut world = WorldMut::new(state.as_unsafe_world_state(), &mut center.system_locks);
+            let fut = match world.run_task(SystemEntryRef::new(id, system), ()) {
+                Ok(fut) => fut,
+                _ => return false,
             };
-
-            // Already checked with locks; TODO: Come up with better api
-            let fut = unsafe { system.run(state, ()) };
-            let fut = rt.spawn(async move {
-                let result = fut.await;
-                (id, result)
-            });
+            let fut = rt.spawn(fut);
 
             futures.push(fut);
 
