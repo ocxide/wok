@@ -1,74 +1,54 @@
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 pub use std::any::Any;
-use std::fmt::{Debug, Display};
+use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
+struct UnsafeAny<T: ?Sized>(UnsafeCell<T>);
+
+unsafe impl Send for UnsafeAny<dyn Any + Send + Sync + 'static> {}
+unsafe impl Sync for UnsafeAny<dyn Any + Send + Sync + 'static> {}
+
 /// Mutable handle of sized static obj
 pub struct AnyHandle<T: ?Sized + Sync + Send + 'static = dyn Any + Send + Sync + 'static>(
-    Arc<RwLock<dyn Any + Send + Sync + 'static>>,
+    Arc<UnsafeAny<dyn Any + Send + Sync + 'static>>,
     PhantomData<T>,
 );
 
-pub enum AnyLockError<T: ?Sized> {
-    WouldBlock,
-    Poisoned(PhantomData<fn(T)>),
-}
-
-impl<T: ?Sized> Display for AnyLockError<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AnyLockError::WouldBlock => write!(
-                f,
-                "WouldBlock locking of type {}",
-                std::any::type_name::<T>()
-            ),
-            AnyLockError::Poisoned(_) => {
-                write!(f, "Poisoned lock of type {}", std::any::type_name::<T>())
-            }
-        }
-    }
-}
-
-impl<T: ?Sized> Debug for AnyLockError<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AnyLockError")
-            .field(
-                "variant",
-                match self {
-                    AnyLockError::WouldBlock => &"WouldBlock",
-                    AnyLockError::Poisoned(_) => &"Poisoned",
-                },
-            )
-            .field("type", &std::any::type_name::<T>())
-            .finish()
-    }
-}
-
 impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
     pub fn new_any(value: T) -> AnyHandle<dyn Any + Send + Sync + 'static> {
-        AnyHandle(Arc::new(RwLock::new(value)), PhantomData)
+        let unsafe_any = UnsafeAny(UnsafeCell::new(value));
+        AnyHandle(Arc::new(unsafe_any), PhantomData)
     }
 
-    pub fn read(&self) -> Result<HandleRead<T>, AnyLockError<T>> {
-        let guad = match self.0.try_read() {
-            Some(guad) => guad,
-            _ => return Err(AnyLockError::WouldBlock),
-        };
-        let read = HandleRead(guad, PhantomData);
-
-        Ok(read)
+    /// # SAFETY: The caller must guarantee that no other thread is mutating the object
+    pub unsafe fn read(&self) -> &T {
+        // SAFETY: the lock guarantees that the object is of type T
+        let any = unsafe { &*self.0.0.get() };
+        any.downcast_ref().expect("downcast failed")
     }
 
-    pub fn write(&self) -> Result<HandleLock<T>, AnyLockError<T>> {
-        let guad = match self.0.try_write() {
-            Some(guad) => guad,
-            _ => return Err(AnyLockError::WouldBlock),
-        };
-        let read = HandleLock(guad, PhantomData);
+    fn self_clone(&self) -> AnyHandle<T> {
+        AnyHandle(self.0.clone(), PhantomData)
+    }
 
-        Ok(read)
+    pub fn handle_read(&self) -> HandleRead<T> {
+        HandleRead(self.self_clone())
+    }
+
+    /// SAFETY: The caller must guarantee that no other thread is holding the object
+    pub fn handle_mut(&self) -> Option<HandleMut<T>> {
+        if Arc::strong_count(&self.0) == 1 {
+            Some(HandleMut(self.self_clone()))
+        } else {
+            None
+        }
+    }
+
+    pub unsafe fn write(&mut self) -> &mut T {
+        // SAFETY: the lock guarantees that the object is of type T
+        let any = unsafe { &mut *self.0.0.get() };
+        any.downcast_mut().expect("downcast failed")
     }
 
     pub fn try_take(self) -> Option<T> {
@@ -77,7 +57,7 @@ impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
         let this = Arc::get_mut(&mut this)?;
 
         // SAFETY: The type is guaranteed to be T
-        let value_ref = unsafe { &mut *(this.get_mut() as *mut dyn Any as *mut T) };
+        let value_ref = unsafe { &*this.0.get() }.downcast_ref()?;
         // SAFETY: We is the only owner
         let value = unsafe { std::ptr::read(value_ref) };
 
@@ -86,15 +66,6 @@ impl<T: Sized + Sync + Send + 'static> AnyHandle<T> {
 }
 
 impl<T: ?Sized + Sync + Send + 'static> AnyHandle<T> {
-    /// Be aware, that in order to downcast, the handle should not be locked
-    pub fn downcast<O: Send + Sync + 'static>(self) -> Option<AnyHandle<O>> {
-        if self.0.try_read().expect("to read").is::<O>() {
-            Some(unsafe { self.unchecked_downcast() })
-        } else {
-            None
-        }
-    }
-
     /// SAFETY: The caller must the correct type
     pub unsafe fn unchecked_downcast<O: Send + Sync + 'static>(self) -> AnyHandle<O> {
         AnyHandle(self.0, PhantomData)
@@ -112,44 +83,30 @@ impl<T: ?Sized + Sync + Send + 'static> AnyHandle<T> {
     }
 }
 
-impl<T: ?Sized + Sync + Send + 'static> Clone for AnyHandle<T> {
-    fn clone(&self) -> Self {
-        AnyHandle(self.0.clone(), PhantomData)
-    }
-}
+pub struct HandleMut<T: Sized + Sync + Send + 'static>(AnyHandle<T>);
 
-pub struct HandleRead<'r, T: Sized + Sync + Send + 'static>(
-    RwLockReadGuard<'r, dyn Any + Send + Sync + 'static>,
-    PhantomData<T>,
-);
-
-pub struct HandleLock<'r, T: Sized + Sync + Send + 'static>(
-    RwLockWriteGuard<'r, dyn Any + Send + Sync + 'static>,
-    PhantomData<T>,
-);
-
-impl<T: Sized + Sync + Send + 'static> Deref for HandleRead<'_, T> {
+impl<T: Sized + Sync + Send + 'static> Deref for HandleMut<T> {
     type Target = T;
-
     fn deref(&self) -> &Self::Target {
-        // SAFETY: the lock guarantees that the object is of type T
-        unsafe { &*(self.0.deref() as *const dyn Any as *const T) }
+        // Safety: Given this point its guaranteed that there is only one owner
+        unsafe { self.0.read() }
     }
 }
 
-impl<T: Sized + Sync + Send + 'static> Deref for HandleLock<'_, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        // SAFETY: the lock guarantees that the object is of type T
-        unsafe { &*(self.0.deref() as *const dyn Any as *const T) }
-    }
-}
-
-impl<T: Sized + Sync + Send + 'static> DerefMut for HandleLock<'_, T> {
+impl<T: Sized + Sync + Send + 'static> DerefMut for HandleMut<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: the lock guarantees that the object is of type T
-        unsafe { &mut *(self.0.deref_mut() as *mut dyn Any as *mut T) }
+        // Safety: Given this point its guaranteed that there is only one owner
+        unsafe { self.0.write() }
+    }
+}
+
+pub struct HandleRead<T: Sized + Sync + Send + 'static>(AnyHandle<T>);
+
+impl<T: Sized + Sync + Send + 'static> Deref for HandleRead<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        // Safety: Given this point its guaranteed that there are only read owners
+        unsafe { self.0.read() }
     }
 }
 
@@ -167,17 +124,21 @@ mod tests {
     #[test]
     fn basic_reading_writing() {
         let handle = AnyHandle::new_any(SomeStruct { value: 12 });
-        let handle = handle.downcast::<SomeStruct>().expect("downcast failed");
+        let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
 
         {
-            let handle_two = handle.clone();
+            let handle_one = handle.handle_read();
+            let handle_two = handle.handle_read();
 
-            assert_eq!(handle.read().unwrap().value, 12);
-            assert_eq!(handle_two.read().unwrap().value, 12);
-            assert_eq!(handle.reference_count(), 2);
-            handle.write().unwrap().value = 24;
-            assert_eq!(handle.read().unwrap().value, 24);
-            assert_eq!(handle_two.read().unwrap().value, 24);
+            assert_eq!(handle_one.value, 12);
+            assert_eq!(handle_two.value, 12);
+        }
+
+        {
+            let mut write = handle.handle_mut().expect("mut failed");
+            write.value = 13;
+
+            assert_eq!(write.value, 13);
         }
 
         assert_eq!(handle.reference_count(), 1);
@@ -186,46 +147,40 @@ mod tests {
     #[test]
     fn multithreading() {
         let handle = AnyHandle::new_any(SomeStruct { value: 12 });
-        let handle = handle.downcast::<SomeStruct>().expect("downcast failed");
-
-        let handle_two = handle.clone();
-
-        let handle = std::thread::spawn(move || {
-            let handle = handle.downcast::<SomeStruct>().expect("downcast failed");
-            assert_eq!(handle.read().unwrap().value, 12);
-            assert_eq!(handle.reference_count(), 2);
-            handle.write().unwrap().value = 24;
-            assert_eq!(handle.read().unwrap().value, 24);
-            assert_eq!(handle_two.read().unwrap().value, 24);
-        });
-        handle.join().unwrap();
-    }
-
-    #[test]
-    fn simple_take() {
-        let handle = AnyHandle::new_any(SomeStruct { value: 12 });
         let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
 
-        let value = handle.try_take().expect("take failed");
-        assert_eq!(value.value, 12);
-    }
-
-    #[test]
-    fn cannot_take() {
-        let handle = AnyHandle::new_any(SomeStruct { value: 12 });
-        let handle = unsafe { handle.unchecked_downcast::<SomeStruct>() };
-
-        for _ in 0..2 {
-            let handle_two = handle.clone();
+        let tr = {
+            let handle = handle.handle_read();
             std::thread::spawn(move || {
                 sleep(Duration::from_millis(100));
-                let _taken = handle_two.try_take();
-            })
-            .join()
-            .unwrap();
-        }
 
-        assert!(handle.try_take().is_none(), "should not be able to take");
+                assert_eq!(handle.value, 12, "tr1");
+            })
+        };
+
+        let tr2 = {
+            let handle_two = handle.handle_read();
+            std::thread::spawn(move || {
+                sleep(Duration::from_millis(101));
+
+                assert_eq!(handle_two.value, 12, "tr2");
+            })
+        };
+        tr.join().unwrap();
+        tr2.join().unwrap();
+
+        let tr3 = {
+            let mut handle = handle.handle_mut().expect("mut failed");
+            std::thread::spawn(move || {
+                sleep(Duration::from_millis(200));
+
+                handle.value = 1;
+            })
+        };
+
+        tr3.join().unwrap();
+
+        assert_eq!(handle.handle_read().value, 1);
     }
 
     struct DropCounter {
