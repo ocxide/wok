@@ -6,8 +6,8 @@ use futures::{
 };
 use lump_core::{
     prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
-    system_locking::{ReleaseSystem, SystemReleaser},
-    world::{SystemId, SystemLocks, UnsafeWorldState},
+    system_locking::{ReleaseSystem, SystemReleaser, WorldMut},
+    world::{SystemId, UnsafeWorldState},
 };
 
 #[derive(Clone)]
@@ -134,23 +134,21 @@ impl LockingQueue {
         Some(())
     }
 
-    pub fn try_respond(&mut self, locks: &mut SystemLocks) {
+    pub fn try_respond(&mut self, world: &mut WorldMut<'_>) {
         while let Some(req) = self.buf.iter().next() {
-            if locks.try_lock(req.system_id).is_err() {
+            let result = world.locks.try_lock(req.system_id);
+            if result.is_err() {
                 let req = self.buf.pop_front().unwrap();
                 self.buf.push_back(req);
 
                 continue;
             }
+            drop(result);
 
             let req = self.buf.pop_front().unwrap();
             if req.respond_to.send(()).is_err() {
-                locks.release(req.system_id);
+                world.release(req.system_id);
             }
         }
-    }
-
-    pub fn release(&mut self, system_id: SystemId, locks: &mut SystemLocks) {
-        locks.release(system_id);
     }
 }

@@ -54,6 +54,10 @@ mod unsafe_world_state {
     unsafe impl Send for UnsafeWorldState {}
 
     impl UnsafeWorldState {
+        pub const fn new(world_state: WorldState) -> Self {
+            Self(UnsafeCell::new(world_state))
+        }
+
         /// # Safety
         /// Caller must ensure the access is valid
         pub unsafe fn resource_handle<R: Resource>(&self) -> Option<Handle<R>> {

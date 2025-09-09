@@ -76,13 +76,13 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
     fn act(
         &mut self,
         async_executor: &impl lump_core::async_executor::AsyncExecutor,
-        state: &mut lump_core::system_locking::StateLocker<'_>,
+        state: &mut lump_core::system_locking::RemoteWorldMut<'_>,
     ) {
         let Some(event) = self.pending.take() else {
             return;
         };
 
-        let result = state.run_task(self.handler.0, &self.handler.1, event);
+        let result = state.try_run(self.handler.0, &self.handler.1, event);
         match result {
             Ok(fut) => {
                 std::mem::drop(async_executor.spawn(fut));

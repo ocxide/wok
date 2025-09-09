@@ -6,8 +6,8 @@ use futures::{FutureExt, StreamExt, channel::mpsc, future::Either};
 use lump_core::{
     async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
-    system_locking::{StateLocker, SystemReleaser},
-    world::{SystemId, WorldCenter, WorldState},
+    system_locking::{SystemReleaser, WorldMut},
+    world::{SystemId, SystemLocks, UnsafeWorldState},
 };
 use system_lock_runtime::LockingQueue;
 
@@ -58,8 +58,8 @@ impl Default for RuntimeCfg {
 }
 
 pub struct Runtime<'w, Addon: RuntimeAddon> {
-    world_center: &'w mut WorldCenter,
-    state: &'w WorldState,
+    state: &'w UnsafeWorldState,
+    locks: &'w mut SystemLocks,
     addon: Addon,
     foreign_rt: LockingQueue,
     release_recv: ReleaseRecv,
@@ -68,8 +68,8 @@ pub struct Runtime<'w, Addon: RuntimeAddon> {
 
 impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
     pub fn new(
-        world_center: &'w mut WorldCenter,
-        state: &'w WorldState,
+        state: &'w UnsafeWorldState,
+        locks: &'w mut SystemLocks,
         addon: Addon,
     ) -> (Self, LockingGateway) {
         let (tx, rx) = SystemReleaser::new();
@@ -79,8 +79,8 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
 
         let this = Self {
             foreign_rt,
-            world_center,
             state,
+            locks,
             addon,
             release_recv,
             releaser: Some(tx),
@@ -121,7 +121,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 // Check for new requests of system locking
                 next = foreign_fut.fuse() => {
                     if let Some(()) = next {
-                        self.foreign_rt.try_respond(&mut self.world_center.system_locks);
+                        self.foreign_rt.try_respond(&mut WorldMut::new(&self.state, &mut self.locks));
                     }
                     else {
                         foreign_rt_open = false;
@@ -131,7 +131,8 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 addon_tick = addon_tick.fuse() => {
                     if let Some(()) = addon_tick {
                         if let Some(releaser) = self.releaser.as_ref() {
-                            self.addon.act(async_executor, &mut StateLocker::new(self.state, &mut self.world_center.system_locks, releaser));
+                            let mut remote = WorldMut::new(&self.state, &mut self.locks).remote(releaser);
+                            self.addon.act(async_executor, &mut remote);
                         }
                     }
                     else {
@@ -143,7 +144,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 // Release system locks
                 system_id = release_fut.fuse() => {
                     if let Some(system_id) = system_id {
-                        self.foreign_rt.release(system_id, &mut self.world_center.system_locks);
+                        self.locks.release(system_id);
                     }
                     else {
                         release_recv_open = false;

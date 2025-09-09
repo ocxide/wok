@@ -1,12 +1,12 @@
 #![allow(non_snake_case)]
 use futures::FutureExt;
 
-use crate::{async_executor::AsyncExecutor, system_locking::StateLocker, world::WorldState};
+use crate::{async_executor::AsyncExecutor, system_locking::RemoteWorldMut, world::WorldState};
 
 pub trait RuntimeAddon {
     fn create(state: &mut WorldState) -> Self;
     fn tick(&mut self) -> impl Future<Output = Option<()>>;
-    fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut StateLocker<'_>);
+    fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>);
 }
 
 macro_rules! impl_runtime {
@@ -24,7 +24,7 @@ macro_rules! impl_runtime {
                 }
             }
 
-            fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut StateLocker<'_>) {
+            fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>) {
                 #[allow(non_snake_case)]
                 let ($($ty),*) = self;
                 $($ty.act(async_executor, state));*
@@ -43,6 +43,6 @@ impl RuntimeAddon for () {
         None
     }
 
-    fn act(&mut self, _async_executor: &impl AsyncExecutor, _state: &mut StateLocker<'_>) {}
+    fn act(&mut self, _async_executor: &impl AsyncExecutor, _state: &mut RemoteWorldMut<'_>) {}
     fn create(_state: &mut WorldState) -> Self {}
 }

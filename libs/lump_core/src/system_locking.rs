@@ -43,7 +43,7 @@ mod remote {
     }
 
     pub struct RemoteWorldMut<'w> {
-        pub(crate) world_mut: &'w mut WorldMut<'w>,
+        pub(crate) world_mut: WorldMut<'w>,
         pub(crate) releaser: &'w SystemReleaser,
     }
 
@@ -117,7 +117,7 @@ mod local {
             Some(unsafe { P::get_ref(self.state) })
         }
 
-        pub fn remote(&'w mut self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
+        pub fn remote(self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
             RemoteWorldMut {
                 world_mut: self,
                 releaser,

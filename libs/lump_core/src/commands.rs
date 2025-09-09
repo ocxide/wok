@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use crate::{
     param::Param,
     prelude::Resource,
-    world::{UnsafeWorldState, WorldMut, WorldState},
+    world::{UnsafeWorldState, WorldMut},
 };
 
 pub type DynCommand = Box<dyn Command>;

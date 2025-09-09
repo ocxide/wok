@@ -5,7 +5,7 @@ use lump_core::{
     async_executor::AsyncExecutor,
     error::LumpUnknownError,
     runtime::RuntimeAddon,
-    world::{ConfigureWorld, World},
+    world::{ConfigureWorld, UnsafeWorldState, World},
 };
 
 use crate::{
@@ -45,10 +45,12 @@ impl App {
             .invoke()
             .await?;
 
+        let state = UnsafeWorldState::new(state);
+
         let system = system.into_runner_system();
         let systemid = center.register_system(&system);
 
-        let (runtime, locking) = Runtime::new(&mut center, &state, addon);
+        let (runtime, locking) = Runtime::new(&state, &mut center.system_locks, addon);
 
         let sys_fut = async {
             let permit = locking.clone().with_state(&state).lock(systemid).await;

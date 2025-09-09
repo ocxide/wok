@@ -10,7 +10,7 @@ use lump_core::{
     async_executor::AsyncExecutor,
     prelude::{Param, Resource},
     runtime::RuntimeAddon,
-    system_locking::StateLocker,
+    system_locking::RemoteWorldMut,
     world::{SystemLock, SystemLocks, WorldState},
 };
 
@@ -149,7 +149,7 @@ impl RuntimeAddon for LumpParamsClientRuntime {
         Some(())
     }
 
-    fn act(&mut self, _: &impl AsyncExecutor, state: &mut StateLocker<'_>) {
+    fn act(&mut self, _: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>) {
         self.try_lend(state);
 
         if let Some(key) = self.pending_close.take() {
@@ -184,7 +184,7 @@ impl LumpParamsClientRuntime {
         }
     }
 
-    fn try_lend(&mut self, state: &mut StateLocker<'_>) {
+    fn try_lend(&mut self, state: &mut RemoteWorldMut<'_>) {
         while let Some(locking) = self.buf.iter().next() {
             if state.locks.try_lock_rw(&locking.system_rw).is_err() {
                 let lock = self.buf.pop_front().unwrap();

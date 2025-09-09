@@ -116,7 +116,8 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 Err(WorldSystemLockError::InvalidAccess) => return false,
             };
 
-            let fut = system.run(state, ());
+            // Already checked with locks; TODO: Come up with better api
+            let fut = unsafe { system.run(state, ()) };
             let fut = rt.spawn(async move {
                 let result = fut.await;
                 (id, result)
