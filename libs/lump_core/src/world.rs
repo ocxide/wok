@@ -3,7 +3,8 @@ use crate::param::Param;
 use crate::prelude::Resource;
 use crate::resources::{LocalResource, LocalResources, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
-use crate::system::System;
+use crate::system::{System, TaskSystem};
+use crate::system_locking::TaskSystemEntry;
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -32,6 +33,11 @@ impl WorldState {
     pub fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
         // Safety: by being the olny owner `&mut self`, this is allowed
         unsafe { &*(self as *const WorldState as *const UnsafeWorldState) }
+    }
+
+    #[inline]
+    pub fn take_resource<R: Resource>(&mut self) -> Option<R> {
+        self.resources.try_take()
     }
 }
 
@@ -209,8 +215,13 @@ impl Default for World {
 
 impl World {
     #[inline]
-    pub fn register_system(&mut self, system: &impl System) -> SystemId {
+    pub fn register_system_ref(&mut self, system: &impl System) -> SystemId {
         self.center.register_system(system)
+    }
+
+    pub fn register_system<S: TaskSystem>(&mut self, system: S) -> TaskSystemEntry<S::In, S::Out> {
+        let id = self.center.register_system(&system);
+        TaskSystemEntry::new(id, Box::new(system))
     }
 
     pub fn into_parts(self) -> (WorldState, WorldCenter) {

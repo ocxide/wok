@@ -32,7 +32,7 @@ where
 {
     fn add(self, world: &mut lump_core::world::World, system: S) {
         let system = system.into_system();
-        let systemid = world.register_system(&system);
+        let systemid = world.register_system_ref(&system);
 
         let systems = world
             .center

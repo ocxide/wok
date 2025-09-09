@@ -56,8 +56,12 @@ mod remote {
     }
 
     impl<'w> RemoteWorldMut<'w> {
-        pub fn world_mut(&'w mut self) -> WorldMut<'w> {
+        pub fn create_world_mut(&'w mut self) -> WorldMut<'w> {
             self.world_mut.duplicate()
+        }
+
+        pub fn world_mut(&mut self) -> &mut WorldMut<'w> {
+            &mut self.world_mut
         }
 
         pub fn try_run<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
@@ -77,6 +81,13 @@ mod remote {
                 drop(release);
                 out
             }))
+        }
+
+        pub fn duplicate(&'w mut self) -> Self {
+            Self {
+                world_mut: self.world_mut.duplicate(),
+                releaser: self.releaser,
+            }
         }
     }
 }
@@ -146,11 +157,37 @@ mod local {
                 releaser,
             }
         }
+
+        pub fn get_dyn(&self, getter: &ParamGetter) -> Option<Box<dyn std::any::Any + Send>> {
+            if !self.locks.can_lock_rw(&getter.lock) {
+                return None;
+            }
+
+            // Safety: Already checked with locks
+            Some(unsafe { (getter.getter)(self.state) })
+        }
     }
 
     impl WorldMut<'_> {
         pub fn release(&mut self, system_id: SystemId) {
             self.locks.release(system_id);
+        }
+    }
+
+    pub struct ParamGetter {
+        pub lock: SystemLock,
+        getter: unsafe fn(&UnsafeWorldState) -> Box<dyn std::any::Any + Send>,
+    }
+
+    impl ParamGetter {
+        pub fn new<P: Param>() -> Self {
+            let mut lock = SystemLock::default();
+            P::init(&mut lock);
+
+            Self {
+                lock,
+                getter: |state| Box::new(unsafe { P::get(state) }),
+            }
         }
     }
 }
@@ -167,6 +204,10 @@ mod system_entry {
     }
 
     impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystemEntry<In, Out> {
+        pub(crate) const fn new(id: SystemId, system: DynSystem<In, Out>) -> Self {
+            Self { system, id }
+        }
+
         pub fn entry_ref(&self) -> SystemEntryRef<DynSystem<In, Out>> {
             SystemEntryRef {
                 system: &self.system,

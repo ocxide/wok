@@ -32,7 +32,7 @@ where
     fn add(self, world: &mut lump_core::world::World, system: S) {
         let system = make_route_handler(system);
 
-        let id = world.register_system(&system);
+        let id = world.register_system_ref(&system);
         world.insert_resource(MainHandler(id, Box::new(system)));
     }
 }

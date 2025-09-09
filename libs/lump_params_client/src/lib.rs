@@ -10,8 +10,8 @@ use lump_core::{
     async_executor::AsyncExecutor,
     prelude::{Param, Resource},
     runtime::RuntimeAddon,
-    system_locking::RemoteWorldMut,
-    world::{SystemLock, SystemLocks, WorldState},
+    system_locking::{ParamGetter, RemoteWorldMut, WorldMut},
+    world::{SystemLock, WorldState},
 };
 
 struct ParamsResponse {
@@ -20,8 +20,7 @@ struct ParamsResponse {
 }
 
 struct LockParamsRequest {
-    param_getter: fn(&WorldState) -> Box<dyn Any + Send>,
-    system_rw: SystemLock,
+    getter: ParamGetter,
     respond_to: oneshot::Sender<ParamsResponse>,
 }
 
@@ -48,8 +47,8 @@ impl<P: Param> Drop for ParamGuard<P> {
 }
 
 impl<P: Param> ParamGuard<P> {
-    pub fn get(&self) -> P::AsRef<'_> {
-        P::from_owned(&self.params)
+    pub fn get(&mut self) -> P::AsRef<'_> {
+        P::from_owned(&mut self.params)
     }
 }
 
@@ -61,8 +60,7 @@ impl ParamsClient {
         let (sx, rx) = oneshot::channel();
 
         let locker = LockParamsRequest {
-            param_getter: |state| Box::new(P::get(state)),
-            system_rw: lock,
+            getter: ParamGetter::new::<P>(),
             respond_to: sx,
         };
 
@@ -149,11 +147,11 @@ impl RuntimeAddon for LumpParamsClientRuntime {
         Some(())
     }
 
-    fn act(&mut self, _: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>) {
+    fn act(&mut self, _async_executor: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>) {
         self.try_lend(state);
 
         if let Some(key) = self.pending_close.take() {
-            self.release(key, state.locks);
+            self.release(key, state.world_mut());
         }
     }
 }
@@ -178,31 +176,33 @@ impl LumpParamsClientRuntime {
         )
     }
 
-    fn release(&mut self, key: ForeignParamsKey, locks: &mut SystemLocks) {
+    fn release(&mut self, key: ForeignParamsKey, state: &mut WorldMut<'_>) {
         if let Some(lock) = self.foreign_locks.remove_at(key.0) {
-            locks.release_rw(&lock);
+            state.locks.release_rw(&lock);
         }
     }
 
     fn try_lend(&mut self, state: &mut RemoteWorldMut<'_>) {
-        while let Some(locking) = self.buf.iter().next() {
-            if state.locks.try_lock_rw(&locking.system_rw).is_err() {
-                let lock = self.buf.pop_front().unwrap();
-                self.buf.push_back(lock);
+        while let Some(locking) = self.buf.pop_front() {
+            let params = state.world_mut().get_dyn(&locking.getter);
 
-                continue;
-            }
+            let params = match params {
+                Some(params) => params,
+                None => {
+                    self.buf.push_back(locking);
 
-            let locking = self.buf.pop_front().unwrap();
-            let params = (locking.param_getter)(state.state);
+                    continue;
+                }
+            };
 
-            let key = self.foreign_locks.add(locking.system_rw);
+
+            let key = self.foreign_locks.add(locking.getter.lock);
             if let Err(response) = locking.respond_to.send(ParamsResponse {
                 params,
                 key: ForeignParamsKey(key),
             }) {
                 eprintln!("WARNING: failed to respond to foreign param request");
-                self.release(response.key, state.locks);
+                self.release(response.key, state.world_mut());
             }
         }
     }

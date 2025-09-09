@@ -6,7 +6,11 @@ use crate::{async_executor::AsyncExecutor, system_locking::RemoteWorldMut, world
 pub trait RuntimeAddon {
     fn create(state: &mut WorldState) -> Self;
     fn tick(&mut self) -> impl Future<Output = Option<()>>;
-    fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>);
+    fn act(
+        &mut self,
+        async_executor: &impl AsyncExecutor,
+        state: &mut RemoteWorldMut<'_>,
+    );
 }
 
 macro_rules! impl_runtime {

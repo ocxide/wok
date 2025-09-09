@@ -16,7 +16,7 @@ pub mod prelude {
     pub use crate::param::*;
     pub use crate::resources::Resource;
     pub use crate::system::*;
-    pub use crate::world::{ConfigureWorld, World, WorldState};
+    pub use crate::world::{ConfigureWorld, World, WorldState, UnsafeWorldState};
     pub use lump_derive::Param;
 }
 

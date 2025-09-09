@@ -1,9 +1,10 @@
 use futures::{StreamExt, channel::mpsc};
 use lump_core::{
-    prelude::{DynSystem, In, IntoSystem, Resource, System},
+    prelude::{In, IntoSystem, Resource, System},
     runtime::RuntimeAddon,
     schedule::{ScheduleConfigure, ScheduleLabel},
-    world::{ConfigureWorld, SystemId},
+    system_locking::TaskSystemEntry,
+    world::ConfigureWorld,
 };
 
 pub trait Event: Send + Sync + 'static {}
@@ -20,7 +21,7 @@ impl<T: Event> EventTrigger<T> {
 
 impl<E: Event> Resource for EventTrigger<E> {}
 
-struct EventHandler<E: Event>(SystemId, DynSystem<In<E>, ()>);
+struct EventHandler<E: Event>(TaskSystemEntry<In<E>, ()>);
 impl<E: Event> Resource for EventHandler<E> {}
 
 pub struct Events;
@@ -31,9 +32,8 @@ where
     S::System: System<In = In<E>, Out = ()>,
 {
     fn add(self, world: &mut lump_core::world::World, system: S) {
-        let system = system.into_system();
-        let id = world.register_system(&system);
-        world.insert_resource(EventHandler(id, Box::new(system)));
+        let system = world.register_system(system.into_system());
+        world.insert_resource(EventHandler(system));
     }
 }
 
@@ -48,7 +48,7 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
 
         state.resources.insert(EventTrigger { sender: sx });
 
-        let Some(handler) = state.try_take_resource::<EventHandler<T>>() else {
+        let Some(handler) = state.take_resource::<EventHandler<T>>() else {
             panic!(
                 "Event handler of type `{}` was not registered",
                 std::any::type_name::<T>()
@@ -82,7 +82,7 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
             return;
         };
 
-        let result = state.try_run(self.handler.0, &self.handler.1, event);
+        let result = state.try_run(self.handler.0.entry_ref(), event);
         match result {
             Ok(fut) => {
                 std::mem::drop(async_executor.spawn(fut));
