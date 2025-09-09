@@ -26,7 +26,5 @@ mod async_executor;
 pub mod plugin;
 mod runtime;
 
-pub mod assets;
-
 mod run;
 mod startup;

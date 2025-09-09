@@ -192,13 +192,13 @@ mod impls {
         fn run_owned<'i>(
             self,
             input: <Self::Input as SystemInput>::Inner<'i>,
-            params: ParamOwned<Self::Params>,
+            mut params: ParamOwned<Self::Params>,
         ) -> impl Future<Output = Self::Output> + Send + 'i
         where
             Self::Input: Send + 'static,
         {
             async move {
-                let params = Self::Params::from_owned(&params);
+                let params = Self::Params::from_owned(&mut params);
                 self.run(input, params).await
             }
         }
@@ -232,13 +232,13 @@ mod impls {
         fn run_owned<'i>(
             self,
             input: <Self::Input as SystemInput>::Inner<'i>,
-            params: ParamOwned<Self::Params>,
+            mut params: ParamOwned<Self::Params>,
         ) -> impl Future<Output = Self::Output> + Send + 'i
         where
             Self::Input: Send + SystemInput<Inner<'i>: 'i>,
         {
             async move {
-                let params = Self::Params::from_owned(&params);
+                let params = Self::Params::from_owned(&mut params);
                 self.run(input, params).await
             }
         }

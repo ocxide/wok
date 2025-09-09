@@ -3,7 +3,7 @@ use futures::{FutureExt, SinkExt, channel::mpsc};
 use crate::{
     param::Param,
     system::{DynSystem, SystemInput},
-    world::{SystemId, SystemLock, SystemLocks, WorldState},
+    world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldState},
 };
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl ReleaseSystem {
 }
 
 pub struct StateLocker<'w> {
-    pub state: &'w WorldState,
+    pub state: &'w UnsafeWorldState,
     pub locks: &'w mut SystemLocks,
     releaser: &'w SystemReleaser,
 }
@@ -52,7 +52,7 @@ impl Drop for ReleaseSystem {
 
 impl<'w> StateLocker<'w> {
     pub fn new(
-        state: &'w WorldState,
+        state: &'w UnsafeWorldState,
         locks: &'w mut SystemLocks,
         releaser: &'w SystemReleaser,
     ) -> Self {
@@ -75,8 +75,8 @@ impl<'w> StateLocker<'w> {
         }
 
         let release = ReleaseSystem::new(systemid, SystemReleaser(self.releaser.0.clone()));
-
-        let fut = system.run(self.state, input);
+        // Safety: Already checked with locks
+        let fut = unsafe { system.run(self.state, input) };
         Ok(fut.map(|out| {
             drop(release);
             out
@@ -90,6 +90,7 @@ impl<'w> StateLocker<'w> {
         if !self.locks.can_lock_rw(&system_locks) {
             return None;
         }
-        Some(P::get_ref(self.state))
+        // Safety: Already checked with locks
+        Some(unsafe { P::get_ref(self.state) })
     }
 }

@@ -28,12 +28,16 @@ mod unsafe_world_state {
     use std::cell::UnsafeCell;
 
     use crate::{
-        any_handle::{Handle, HandleMut}, commands::CommandSender, prelude::Resource
+        any_handle::{Handle, HandleMut},
+        commands::CommandSender,
+        prelude::Resource,
     };
 
     use super::WorldState;
 
     pub struct UnsafeWorldState(UnsafeCell<WorldState>);
+    unsafe impl Sync for UnsafeWorldState {}
+    unsafe impl Send for UnsafeWorldState {}
 
     impl UnsafeWorldState {
         /// # Safety

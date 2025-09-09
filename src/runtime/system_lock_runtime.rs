@@ -7,7 +7,7 @@ use futures::{
 use lump_core::{
     prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
     system_locking::{ReleaseSystem, SystemReleaser},
-    world::{SystemId, SystemLocks, WorldState},
+    world::{SystemId, SystemLocks, UnsafeWorldState},
 };
 
 #[derive(Clone)]
@@ -17,10 +17,10 @@ pub struct LockingGateway {
 }
 
 impl LockingGateway {
-    pub fn with_state(self, world: &WorldState) -> SystemReserver<'_> {
+    pub fn with_state(self, state: &UnsafeWorldState) -> SystemReserver<'_> {
         SystemReserver {
             locking: self,
-            world,
+            state,
         }
     }
 }
@@ -28,7 +28,7 @@ impl LockingGateway {
 #[derive(Clone)]
 pub struct SystemReserver<'w> {
     locking: LockingGateway,
-    world: &'w WorldState,
+    state: &'w UnsafeWorldState,
 }
 
 impl<'w> SystemInput for SystemReserver<'w> {
@@ -65,14 +65,14 @@ impl<'w> SystemReserver<'w> {
         let releaser = ReleaseSystem::new(system_id, self.locking.releaser);
 
         SystemPermit {
-            world: self.world,
+            state: self.state,
             releaser,
         }
     }
 }
 
 pub struct SystemPermit<'w> {
-    world: &'w WorldState,
+    state: &'w UnsafeWorldState,
     releaser: ReleaseSystem,
 }
 
@@ -82,7 +82,8 @@ impl SystemPermit<'_> {
         system: &S,
         input: SystemIn<'i, S>,
     ) -> impl Future<Output = S::Out> + Send + 'i {
-        system.run(self.world, input).map(move |out| {
+        // Safety: Already checked with locks
+        unsafe { system.run(self.state, input) }.map(move |out| {
             drop(self.releaser);
             out
         })
@@ -93,7 +94,8 @@ impl SystemPermit<'_> {
         system: &DynSystem<In, Out>,
         input: In::Inner<'i>,
     ) -> impl Future<Output = Out> + Send + 'i {
-        let fut = system.run(self.world, input);
+        // Safety: Already checked with locks
+        let fut = unsafe { system.run(self.state, input) };
 
         async move {
             let result = fut.await;

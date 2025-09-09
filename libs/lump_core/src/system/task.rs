@@ -1,8 +1,8 @@
 use std::pin::Pin;
 
-use crate::{param::Param, world::WorldState};
+use crate::{param::Param, world::UnsafeWorldState};
 
-use super::{combinators::IntoMapSystem, IntoBlockingSystem, System, SystemIn, SystemInput};
+use super::{IntoBlockingSystem, System, SystemIn, SystemInput, combinators::IntoMapSystem};
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
@@ -10,12 +10,19 @@ pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sy
 
 // Dyn compatible
 pub trait TaskSystem: System {
-    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self>;
+    unsafe fn run_owned<'i>(
+        self,
+        state: &UnsafeWorldState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self>;
 
-    fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out>;
+    unsafe fn run<'i>(
+        &self,
+        state: &UnsafeWorldState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self>;
 
-    fn run_owned<'i>(self, world: &WorldState, input: SystemIn<'i, Self>)
-    -> SystemFuture<'i, Self>;
+    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out>;
 }
 
 pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
@@ -68,22 +75,27 @@ pub trait IntoSystem<Marker> {
 }
 
 impl<S: ProtoSystem> TaskSystem for S {
-    fn run<'i>(&self, world: &WorldState, input: SystemIn<'i, Self>) -> SystemFuture<'i, Self> {
-        self.clone().run_owned(world, input)
-    }
-
-    fn run_owned<'i>(
+    unsafe fn run_owned<'i>(
         self,
-        world: &WorldState,
+        state: &UnsafeWorldState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self> {
-        let param = S::Param::get(world);
+        let param = unsafe { S::Param::get(state) };
         Box::pin(self.run(param, input))
     }
 
-    fn create_task(&self, world: &WorldState) -> SystemTask<Self::In, Self::Out> {
+    unsafe fn run<'i>(
+        &self,
+        state: &UnsafeWorldState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self> {
         let system = self.clone();
-        let param = S::Param::get(world);
+        unsafe { system.run_owned(state, input) }
+    }
+
+    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out> {
+        let system = self.clone();
+        let param = unsafe { S::Param::get(state) };
         SystemTask::new(|input, _| Box::pin(system.run(param, input)))
     }
 }
