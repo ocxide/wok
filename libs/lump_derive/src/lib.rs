@@ -80,19 +80,9 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
     };
 
     let world = match usage {
-        Usage::Core => quote! { crate::prelude::WorldState },
-        Usage::Lib => quote! { lump_core::prelude::WorldState },
-        Usage::Crate => quote! { lump::prelude::WorldState },
-    };
-
-    let fields_tyes = match &struct_data.fields {
-        syn::Fields::Named(named) => named.named.iter().map(|field| field.ty.clone()).collect(),
-        syn::Fields::Unnamed(unnamed) => unnamed
-            .unnamed
-            .iter()
-            .map(|field| field.ty.clone())
-            .collect(),
-        syn::Fields::Unit => vec![],
+        Usage::Core => quote! { crate::prelude::UnsafeWorldState },
+        Usage::Lib => quote! { lump_core::prelude::UnsafeWorldState },
+        Usage::Crate => quote! { lump::prelude::UnsafeWorldState },
     };
 
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
@@ -111,7 +101,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 if has_default_attr(field) {
                     quote! { #name: Default::default() }
                 } else {
-                    quote! { #name: <#ty as #trait_path>::from_owned(&owned.#index) }
+                    quote! { #name: <#ty as #trait_path>::from_owned(&mut owned.#index) }
                 }
             });
 
@@ -130,7 +120,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                     span: field.span(),
                 };
 
-                quote! { <#ty as #trait_path>::from_owned(&owned.#index) }
+                quote! { <#ty as #trait_path>::from_owned(&mut owned.#index) }
             });
 
             quote! {
@@ -162,7 +152,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 if has_default_attr(field) {
                     quote! { #name: Default::default() }
                 } else {
-                    quote! { #name: <#ty as #trait_path>::get_ref(world) }
+                    quote! { #name: <#ty as #trait_path>::get_ref(state) }
                 }
             });
 
@@ -177,7 +167,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
             let fields_map = fields.unnamed.iter().map(|field| {
                 let ty = &field.ty;
 
-                quote! { <#ty as #trait_path>::get_ref(world) }
+                quote! { <#ty as #trait_path>::get_ref(state) }
             });
 
             quote! {
@@ -259,7 +249,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 if has_default_attr(field) {
                     quote! { Default::default() }
                 } else {
-                    quote! { <#ty as #trait_path>::get(world) }
+                    quote! { <#ty as #trait_path>::get(state) }
                 }
             });
 
@@ -274,7 +264,7 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
             let fields_map = fields.unnamed.iter().map(|field| {
                 let ty = &field.ty;
 
-                quote! { <#ty as #trait_path>::get(world) }
+                quote! { <#ty as #trait_path>::get(state) }
             });
 
             quote! {
@@ -310,16 +300,16 @@ fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, Co
                 #init_impls
             }
 
-            fn get(world: &#world) -> Self::Owned {
-                #get_owned_impl
+            unsafe fn get(state: &#world) -> Self::Owned {
+                unsafe { #get_owned_impl }
             }
 
-            fn from_owned<#altern_lifetime>(owned: &#altern_lifetime Self::Owned) -> Self::AsRef<#altern_lifetime> {
+           unsafe fn get_ref(state: &#world) -> Self::AsRef<'_> {
+                unsafe { #get_ref_impl }
+            }
+
+            fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
                 #from_owned_impl
-            }
-
-           fn get_ref(world: &#world) -> Self::AsRef<'_> {
-                #get_ref_impl
             }
         }
     };
@@ -377,16 +367,16 @@ fn single() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &lump::prelude::WorldState) -> Self::Owned {
-                    ( <Bar<'w> as Param>::get(world), )
+                unsafe fn get(state: &lump::prelude::UnsafeWorldState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get(state), ) }
                 }
 
-                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
-                    Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
+                unsafe fn get_ref(state: &lump::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                    unsafe { Foo( <Bar<'w> as Param>::get_ref(state), ) }
                 }
 
-                fn get_ref(world: &lump::prelude::WorldState) -> Self::AsRef<'_> {
-                    Foo( <Bar<'w> as Param>::get_ref(world), )
+                fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+                    Foo( <Bar<'w> as Param>::from_owned(&mut owned.0), )
                 }
             }
         }
@@ -414,17 +404,18 @@ fn single_for_core() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &crate::prelude::WorldState) -> Self::Owned {
-                    ( <Bar<'w> as Param>::get(world), )
+                unsafe fn get(state: &crate::prelude::UnsafeWorldState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get(state), ) }
                 }
 
-                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
-                    Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
+                unsafe fn get_ref(state: &crate::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                    unsafe { Foo( <Bar<'w> as Param>::get_ref(state), ) }
                 }
 
-                fn get_ref(world: &crate::prelude::WorldState) -> Self::AsRef<'_> {
-                    Foo( <Bar<'w> as Param>::get_ref(world), )
+                fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+                    Foo( <Bar<'w> as Param>::from_owned(&mut owned.0), )
                 }
+
             }
         }
         .to_string()
@@ -451,17 +442,18 @@ fn single_for_lib() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &lump_core::prelude::WorldState) -> Self::Owned {
-                    ( <Bar<'w> as Param>::get(world), )
+                unsafe fn get(state: &lump_core::prelude::UnsafeWorldState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get(state), ) }
                 }
 
-                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
-                    Foo( <Bar<'w> as Param>::from_owned(&owned.0), )
+                unsafe fn get_ref(state: &lump_core::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                    unsafe { Foo( <Bar<'w> as Param>::get_ref(state), ) }
                 }
 
-                fn get_ref(world: &lump_core::prelude::WorldState) -> Self::AsRef<'_> {
-                    Foo( <Bar<'w> as Param>::get_ref(world), )
+                fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+                    Foo( <Bar<'w> as Param>::from_owned(&mut owned.0), )
                 }
+
             }
         }
         .to_string()
@@ -493,19 +485,19 @@ fn with_default() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                fn get(world: &crate::prelude::WorldState) -> Self::Owned {
-                    ( <Bar<'w> as Param>::get(world), Default::default(), )
+                unsafe fn get(state: &crate::prelude::UnsafeWorldState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get(state), Default::default(), ) }
                 }
 
-                fn from_owned<'p>(owned: &'p Self::Owned) -> Self::AsRef<'p> {
+                unsafe fn get_ref(state: &crate::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                    unsafe { Foo { bar: <Bar<'w> as Param>::get_ref(state), _marker: Default::default(), } }
+                }
+
+                fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
                     Foo {
-                        bar: <Bar<'w> as Param>::from_owned(&owned.0),
+                        bar: <Bar<'w> as Param>::from_owned(&mut owned.0),
                         _marker: Default::default(),
                     }
-                }
-
-                fn get_ref(world: &crate::prelude::WorldState) -> Self::AsRef<'_> {
-                    Foo { bar: <Bar<'w> as Param>::get_ref(world), _marker: Default::default(), }
                 }
             }
         }
