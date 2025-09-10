@@ -1935,7 +1935,6 @@ dependencies = [
  "async_fn_traits",
  "futures",
  "lump_derive",
- "parking_lot",
 ]
 
 [[package]]
