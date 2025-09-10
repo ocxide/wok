@@ -1,10 +1,8 @@
 use lump::{
     app::{App, ConfigureApp},
     prelude::*,
-    setup::{RuntimeCfg, TokioRt},
 };
 use lump_clap::{ClapPlugin, Main, Route, SubRoutes};
-use lump_params_client::LumpParamsClientRuntime;
 
 #[derive(clap::Parser)]
 struct AppArgs {}
@@ -24,15 +22,7 @@ pub async fn main() {
         .add_system(
             Route("person"),
             SubRoutes::default().add(Route("a"), for_person),
-        )
-        .run(
-            RuntimeCfg::default()
-                .with_async(TokioRt)
-                .with_addons::<LumpParamsClientRuntime>(),
-            lump_clap::clap_runtime,
-        )
-        .await
-        .unwrap();
+        );
 }
 
 async fn connect_to_db() {

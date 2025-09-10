@@ -29,6 +29,8 @@ pub mod blocking {
     };
 
     pub trait BlockingSystem: System {
+        /// # Safety
+        /// The caller must ensure no duplicated mutable access is happening
         unsafe fn run(&self, state: &UnsafeWorldState, input: SystemIn<'_, Self>) -> Self::Out;
     }
 

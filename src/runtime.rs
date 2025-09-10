@@ -121,7 +121,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 // Check for new requests of system locking
                 next = foreign_fut.fuse() => {
                     if let Some(()) = next {
-                        self.foreign_rt.try_respond(&mut WorldMut::new(&self.state, &mut self.locks));
+                        self.foreign_rt.try_respond(&mut WorldMut::new(self.state, self.locks));
                     }
                     else {
                         foreign_rt_open = false;
@@ -131,7 +131,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 addon_tick = addon_tick.fuse() => {
                     if let Some(()) = addon_tick {
                         if let Some(releaser) = self.releaser.as_ref() {
-                            let mut remote = WorldMut::new(&self.state, &mut self.locks).remote(releaser);
+                            let mut remote = WorldMut::new(self.state, self.locks).remote(releaser);
                             self.addon.act(async_executor, &mut remote);
                         }
                     }

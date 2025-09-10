@@ -12,7 +12,11 @@ pub trait Param: Send {
 
     fn init(rw: &mut SystemLock);
 
+    /// # Safety
+    /// Caller must ensure the access is valid
     unsafe fn get(state: &UnsafeWorldState) -> Self::Owned;
+    /// # Safety
+    /// Caller must ensure the access is valid
     unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_>;
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_>;
 }
@@ -109,7 +113,7 @@ impl<R: Resource> Param for Res<'_, R> {
     }
 
     fn from_owned(handle: &mut Self::Owned) -> Self::AsRef<'_> {
-        Res((&*handle).as_ref())
+        Res((*handle).as_ref())
     }
 }
 
@@ -117,13 +121,13 @@ pub struct ResMut<'r, R: Resource>(&'r mut R);
 
 impl<'r, R: Resource> AsRef<R> for ResMut<'r, R> {
     fn as_ref(&self) -> &R {
-        &self.0
+        self.0
     }
 }
 
 impl<'r, R: Resource> AsMut<R> for ResMut<'r, R> {
     fn as_mut(&mut self) -> &mut R {
-        &mut self.0
+        self.0
     }
 }
 
@@ -132,14 +136,14 @@ impl<R: Resource> Deref for ResMut<'_, R> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
 impl<R: Resource> DerefMut for ResMut<'_, R> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        self.0
     }
 }
 
