@@ -1,42 +1,41 @@
-use std::collections::VecDeque;
+use crate::prelude::Param;
+use std::{collections::VecDeque, sync::Arc};
 
-use futures::{
-    FutureExt, SinkExt, StreamExt,
-    channel::{mpsc, oneshot},
-};
+use futures::channel::oneshot;
 use lump_core::{
-    prelude::{DynSystem, SystemIn, SystemInput, TaskSystem},
-    system_locking::{ReleaseSystem, SystemReleaser, WorldMut},
-    world::{SystemId, UnsafeWorldState},
+    prelude::{Res, Resource, SystemIn, TaskSystem},
+    system_locking::{ReleaseSystem, SystemEntryRef, SystemReleaser, WeakSystemReleaser, WorldMut},
+    world::{SystemId, UnsafeWorldState, WeakState},
 };
 
 #[derive(Clone)]
 pub struct LockingGateway {
-    locker: mpsc::Sender<LockRequest>,
+    locker: async_channel::Sender<LockRequest>,
     releaser: SystemReleaser,
 }
 
 impl LockingGateway {
-    pub fn with_state(self, state: &UnsafeWorldState) -> SystemReserver<'_> {
-        SystemReserver {
-            locking: self,
-            state,
+    pub fn downgrade(&self) -> WeakLockingGateway {
+        WeakLockingGateway {
+            locker: self.locker.downgrade(),
+            releaser: self.releaser.downgrade(),
         }
     }
 }
 
 #[derive(Clone)]
-pub struct SystemReserver<'w> {
-    locking: LockingGateway,
-    state: &'w UnsafeWorldState,
+pub struct WeakLockingGateway {
+    locker: async_channel::WeakSender<LockRequest>,
+    releaser: WeakSystemReleaser,
 }
+impl Resource for WeakLockingGateway {}
 
-impl<'w> SystemInput for SystemReserver<'w> {
-    type Inner<'i> = SystemReserver<'i>;
-    type Wrapped<'i> = SystemReserver<'i>;
+impl WeakLockingGateway {
+    pub fn upgrade(&self) -> Option<LockingGateway> {
+        let locker = self.locker.upgrade()?;
+        let releaser = self.releaser.upgrade()?;
 
-    fn wrap(this: Self::Inner<'_>) -> Self::Wrapped<'_> {
-        this
+        Some(LockingGateway { locker, releaser })
     }
 }
 
@@ -45,75 +44,108 @@ pub struct LockRequest {
     system_id: SystemId,
 }
 
-impl<'w> SystemReserver<'w> {
-    pub async fn lock(mut self, system_id: SystemId) -> SystemPermit<'w> {
-        let (sx, rx) = oneshot::channel();
+pub struct RemoteWorldPorts {
+    state: Arc<UnsafeWorldState>,
+    locking: LockingGateway,
+}
 
-        let req = LockRequest {
-            respond_to: sx,
-            system_id,
-        };
-
-        self.locking
-            .locker
-            .send(req)
-            .await
-            .expect("to be connected to the main world");
-
-        rx.await.expect("to be connected to the main world");
-
-        let releaser = ReleaseSystem::new(system_id, self.locking.releaser);
-
-        SystemPermit {
-            state: self.state,
-            releaser,
+impl RemoteWorldPorts {
+    pub fn reserver(&self) -> RemoteSystemReserver<'_> {
+        RemoteSystemReserver {
+            state: &self.state,
+            gateway: &self.locking,
         }
     }
 }
 
-pub struct SystemPermit<'w> {
+#[derive(Param)]
+#[param(usage = lib)]
+pub struct RemoteWorldRef<'w> {
+    state: Res<'w, WeakState>,
+    gateway: Res<'w, WeakLockingGateway>,
+}
+
+impl<'w> RemoteWorldRef<'w> {
+    pub fn upgrade(self) -> Option<RemoteWorldPorts> {
+        let state = self.state.upgrade()?;
+        let gateway = self.gateway.upgrade()?;
+
+        Some(RemoteWorldPorts {
+            state,
+            locking: gateway,
+        })
+    }
+}
+
+pub struct RemoteSystemReserver<'w> {
     state: &'w UnsafeWorldState,
+    gateway: &'w LockingGateway,
+}
+
+impl<'w> RemoteSystemReserver<'w> {
+    pub async fn reserve<S>(&self, system: SystemEntryRef<'w, S>) -> SystemPermit<'w, S> {
+        let (tx, rx) = oneshot::channel();
+
+        let request = LockRequest {
+            respond_to: tx,
+            system_id: system.id,
+        };
+        self.gateway
+            .locker
+            .send(request)
+            .await
+            .expect("to be connected");
+
+        rx.await.expect("to receive confirmation");
+
+        SystemPermit {
+            state: self.state,
+            system: system.system,
+            releaser: ReleaseSystem::new(system.id, self.gateway.releaser.clone()),
+        }
+    }
+}
+
+pub struct SystemPermit<'w, S> {
+    state: &'w UnsafeWorldState,
+    system: &'w S,
     releaser: ReleaseSystem,
 }
 
-impl SystemPermit<'_> {
-    pub fn run<'i, S: TaskSystem>(
-        self,
-        system: &S,
-        input: SystemIn<'i, S>,
-    ) -> impl Future<Output = S::Out> + Send + 'i {
-        // Safety: Already checked with locks
-        unsafe { system.run(self.state, input) }.map(move |out| {
-            drop(self.releaser);
-            out
-        })
+impl<'w, S> SystemPermit<'w, S> {
+    pub const fn task(self) -> SystemTaskPermit<'w, S> {
+        SystemTaskPermit(self)
     }
+}
 
-    pub fn run_task<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
-        self,
-        system: &DynSystem<In, Out>,
-        input: In::Inner<'i>,
-    ) -> impl Future<Output = Out> + Send + 'i {
+pub struct SystemTaskPermit<'w, S>(SystemPermit<'w, S>);
+
+impl<'w, S> SystemTaskPermit<'w, S> {
+    pub fn run_dyn<'i>(self, input: SystemIn<'i, S>) -> impl Future<Output = S::Out> + Send + 'i
+    where
+        S: TaskSystem,
+    {
         // Safety: Already checked with locks
-        let fut = unsafe { system.run(self.state, input) };
+        let fut = unsafe { self.0.system.run(self.0.state, input) };
+        let releaser = self.0.releaser;
 
         async move {
-            let result = fut.await;
-            self.releaser.release().await;
+            let out = fut.await;
+            releaser.release().await;
 
-            result
+            out
         }
     }
 }
 
 pub struct LockingQueue {
-    rx: mpsc::Receiver<LockRequest>,
+    rx: async_channel::Receiver<LockRequest>,
     buf: VecDeque<LockRequest>,
 }
 
 impl LockingQueue {
     pub fn new(releaser: SystemReleaser) -> (Self, LockingGateway) {
-        let (tx, rx) = mpsc::channel(5);
+        let (tx, rx) = async_channel::bounded(5);
 
         (
             LockingQueue {
@@ -128,7 +160,7 @@ impl LockingQueue {
     }
 
     pub async fn poll(&mut self) -> Option<()> {
-        let req = self.rx.next().await?;
+        let req = self.rx.recv().await.ok()?;
 
         self.buf.push_back(req);
         Some(())

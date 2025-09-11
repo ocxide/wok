@@ -32,7 +32,7 @@ where
     S::System: System<In = In<E>, Out = ()>,
 {
     fn add(self, world: &mut lump_core::world::World, system: S) {
-        let system = world.register_system(system.into_system());
+        let system = world.register_system(system.into_system()).into_taskbox();
         world.insert_resource(EventHandler(system));
     }
 }

@@ -110,7 +110,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
             };
 
             let mut world = WorldMut::new(state.as_unsafe_world_state(), &mut center.system_locks);
-            let fut = match world.run_task(SystemEntryRef::new(id, system), ()) {
+            let fut = match world.local_tasks().run_dyn(SystemEntryRef::new(id, system), ()) {
                 Ok(fut) => fut,
                 _ => return false,
             };

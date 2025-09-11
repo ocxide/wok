@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::param::Param;
 use crate::prelude::Resource;
 use crate::resources::{LocalResource, LocalResources, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
-use crate::system::{System, TaskSystem};
-use crate::system_locking::TaskSystemEntry;
+use crate::system::System;
+use crate::system_locking::SystemEntry;
 
 pub use access::SystemLock;
 pub use meta::SystemId;
@@ -38,6 +40,28 @@ impl WorldState {
     #[inline]
     pub fn take_resource<R: Resource>(&mut self) -> Option<R> {
         self.resources.try_take()
+    }
+
+    pub fn wrap(self) -> Arc<UnsafeWorldState> {
+        let state = Arc::new(UnsafeWorldState::new(self));
+        {
+            let weak = WeakState(Arc::downgrade(&state));
+            // Safety: we are the only owner
+            unsafe {
+                state.insert_resource(weak);
+            }
+        }
+
+        state
+    }
+}
+
+pub struct WeakState(std::sync::Weak<UnsafeWorldState>);
+impl Resource for WeakState {}
+
+impl WeakState {
+    pub fn upgrade(&self) -> Option<Arc<UnsafeWorldState>> {
+        self.0.upgrade()
     }
 }
 
@@ -105,6 +129,16 @@ mod unsafe_world_state {
 
         pub fn commands(&self) -> CommandSender {
             unsafe { &*self.0.get() }.commands_sx.clone()
+        }
+
+        pub const fn as_world_state(&mut self) -> &mut WorldState {
+            self.0.get_mut()
+        }
+
+        /// # Safety
+        /// Caller must ensure the access is valid
+        pub unsafe fn insert_resource<R: Resource>(&self, resource: R) {
+            unsafe { &mut *self.0.get() }.resources.insert(resource);
         }
     }
 }
@@ -177,11 +211,16 @@ impl WorldCenter {
         }
     }
 
-    pub fn register_system(&mut self, system: &impl System) -> SystemId {
+    pub fn register_system_rw(&mut self, system: &impl System) -> SystemId {
         let mut rw = SystemLock::default();
         system.init(&mut rw);
 
         self.system_locks.systems_rw.add(rw)
+    }
+
+    pub fn register_system<S: System>(&mut self, system: S) -> SystemEntry<S> {
+        let id = self.register_system_rw(&system);
+        SystemEntry::new(id, system)
     }
 }
 
@@ -216,12 +255,12 @@ impl Default for World {
 impl World {
     #[inline]
     pub fn register_system_ref(&mut self, system: &impl System) -> SystemId {
-        self.center.register_system(system)
+        self.center.register_system_rw(system)
     }
 
-    pub fn register_system<S: TaskSystem>(&mut self, system: S) -> TaskSystemEntry<S::In, S::Out> {
-        let id = self.center.register_system(&system);
-        TaskSystemEntry::new(id, Box::new(system))
+    pub fn register_system<S: System>(&mut self, system: S) -> SystemEntry<S> {
+        let id = self.center.register_system_rw(&system);
+        SystemEntry::new(id, system)
     }
 
     pub fn into_parts(self) -> (WorldState, WorldCenter) {

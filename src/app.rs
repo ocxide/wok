@@ -1,15 +1,15 @@
-mod app_runner;
-
-use app_runner::IntoAppRunnerSystem;
+use futures::FutureExt;
 use lump_core::{
     async_executor::AsyncExecutor,
     error::LumpUnknownError,
+    prelude::{IntoSystem, System},
     runtime::RuntimeAddon,
-    world::{ConfigureWorld, UnsafeWorldState, World},
+    system_locking::WorldMut,
+    world::{ConfigureWorld, World},
 };
 
 use crate::{
-    runtime::{Runtime, RuntimeCfg},
+    runtime::{RuntimeBuilder, RuntimeCfg},
     startup::Startup,
 };
 
@@ -27,37 +27,41 @@ impl Default for App {
 }
 
 impl App {
-    pub async fn run<Marker, S, AsyncRt: AsyncExecutor, RtAddon: RuntimeAddon>(
+    pub async fn run<Marker, AsyncRt: AsyncExecutor, RtAddon: RuntimeAddon>(
         self,
         cfg: RuntimeCfg<AsyncRt, RtAddon>,
-        system: S,
-    ) -> Result<(), LumpUnknownError>
-    where
-        S: IntoAppRunnerSystem<Marker, Out = Result<(), LumpUnknownError>>,
-    {
+        system: impl IntoSystem<Marker, System: System<In = (), Out = Result<(), LumpUnknownError>>>,
+    ) -> Result<(), LumpUnknownError> {
         let mut state = self.world.state;
         let mut center = self.world.center;
 
         // Run addon build before startup to allow the use of ParamsClient
         let addon = RtAddon::create(&mut state);
+        let (runtime, gateway) = RuntimeBuilder::new(addon);
+
+        state.resources.insert(gateway.downgrade());
 
         Startup::create_invoker(&mut center, &mut state, &cfg.async_runtime)
             .invoke()
             .await?;
 
-        let state = UnsafeWorldState::new(state);
+        let state = state.wrap();
+        let system = system.into_system();
+        let system = center.register_system(system);
 
-        let system = system.into_runner_system();
-        let systemid = center.register_system(&system);
-
-        let (runtime, locking) = Runtime::new(&state, &mut center.system_locks, addon);
-
-        let sys_fut = async {
-            let permit = locking.clone().with_state(&state).lock(systemid).await;
-
-            let reserver = locking.with_state(&state);
-            permit.run(&system, reserver).await
+        let mut world_mut = WorldMut::new(&state, &mut center.system_locks);
+        let sys_fut = match world_mut.local_tasks().run(system.entry_ref(), ()) {
+            Ok(fut) => fut.map(|(id, out)| out.map(|ok| (id, ok))),
+            Err(_) => return Ok(()),
         };
+
+        let sys_fut = sys_fut.map(move |out| {
+            // Keep alive the gateway until the main system is done
+            let _ = gateway;
+            out
+        });
+
+        let mut runtime = runtime.build(&state, &mut center.system_locks);
 
         let bg_fut = async {
             runtime.run(&cfg.async_runtime).await;
@@ -65,6 +69,7 @@ impl App {
         };
 
         futures::future::try_join(sys_fut, bg_fut).await?;
+
         Ok(())
     }
 }

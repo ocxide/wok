@@ -2,7 +2,7 @@ mod system_lock_runtime;
 
 use std::marker::PhantomData;
 
-use futures::{FutureExt, StreamExt, channel::mpsc, future::Either};
+use futures::{FutureExt, future::Either};
 use lump_core::{
     async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
@@ -11,7 +11,10 @@ use lump_core::{
 };
 use system_lock_runtime::LockingQueue;
 
-pub use system_lock_runtime::{LockingGateway, SystemPermit, SystemReserver};
+pub use system_lock_runtime::{
+    LockingGateway, RemoteSystemReserver, RemoteWorldPorts, RemoteWorldRef, SystemPermit,
+    SystemTaskPermit, WeakLockingGateway,
+};
 
 use crate::setup::AsyncExecutorabel;
 
@@ -57,6 +60,46 @@ impl Default for RuntimeCfg {
     }
 }
 
+pub struct RuntimeBuilder<Addon: RuntimeAddon> {
+    addon: Addon,
+    foreign_rt: LockingQueue,
+    release_recv: ReleaseRecv,
+    releaser: SystemReleaser,
+}
+
+impl<Addon: RuntimeAddon> RuntimeBuilder<Addon> {
+    pub fn new(addon: Addon) -> (Self, LockingGateway) {
+        let (tx, rx) = SystemReleaser::new();
+        let release_recv = ReleaseRecv(rx);
+
+        let (foreign_rt, locking) = LockingQueue::new(tx.clone());
+
+        let this = Self {
+            foreign_rt,
+            addon,
+            release_recv,
+            releaser: tx,
+        };
+
+        (this, locking)
+    }
+
+    pub fn build<'a>(
+        self,
+        state: &'a UnsafeWorldState,
+        locks: &'a mut SystemLocks,
+    ) -> Runtime<'a, Addon> {
+        Runtime {
+            state,
+            locks,
+            addon: self.addon,
+            foreign_rt: self.foreign_rt,
+            release_recv: self.release_recv,
+            releaser: Some(self.releaser),
+        }
+    }
+}
+
 pub struct Runtime<'w, Addon: RuntimeAddon> {
     state: &'w UnsafeWorldState,
     locks: &'w mut SystemLocks,
@@ -67,29 +110,7 @@ pub struct Runtime<'w, Addon: RuntimeAddon> {
 }
 
 impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
-    pub fn new(
-        state: &'w UnsafeWorldState,
-        locks: &'w mut SystemLocks,
-        addon: Addon,
-    ) -> (Self, LockingGateway) {
-        let (tx, rx) = SystemReleaser::new();
-        let release_recv = ReleaseRecv(rx);
-
-        let (foreign_rt, locking) = LockingQueue::new(tx.clone());
-
-        let this = Self {
-            foreign_rt,
-            state,
-            locks,
-            addon,
-            release_recv,
-            releaser: Some(tx),
-        };
-
-        (this, locking)
-    }
-
-    pub async fn run(mut self, async_executor: &impl AsyncExecutor) {
+    pub async fn run(&mut self, async_executor: &impl AsyncExecutor) {
         let mut foreign_rt_open = true;
         let mut release_recv_open = true;
         let mut addon_open = true;
@@ -106,7 +127,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
             };
 
             let release_fut = if release_recv_open {
-                Either::Left(self.release_recv.0.next())
+                Either::Left(self.release_recv.0.recv().map(|out| out.ok()))
             } else {
                 Either::Right(futures::future::pending::<Option<SystemId>>())
             };
@@ -131,7 +152,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 addon_tick = addon_tick.fuse() => {
                     if let Some(()) = addon_tick {
                         if let Some(releaser) = self.releaser.as_ref() {
-                            let mut remote = WorldMut::new(self.state, self.locks).remote(releaser);
+                            let mut remote = WorldMut::new(self.state, self.locks).with_remote(releaser);
                             self.addon.act(async_executor, &mut remote);
                         }
                     }
@@ -155,4 +176,4 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
     }
 }
 
-struct ReleaseRecv(mpsc::Receiver<SystemId>);
+struct ReleaseRecv(async_channel::Receiver<SystemId>);

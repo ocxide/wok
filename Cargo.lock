@@ -212,9 +212,9 @@ dependencies = [
 
 [[package]]
 name = "async-channel"
-version = "2.3.1"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89b47800b0be77592da0afd425cc03468052844aff33b84e33cc696f64e77b6a"
+checksum = "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
 dependencies = [
  "concurrent-queue",
  "event-listener-strategy",
@@ -1901,6 +1901,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 name = "lump"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "futures",
  "lump_core",
  "tokio",
@@ -1932,6 +1933,7 @@ dependencies = [
 name = "lump_core"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "async_fn_traits",
  "futures",
  "lump_derive",

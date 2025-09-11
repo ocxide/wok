@@ -1,9 +1,9 @@
-use clap::CommandFactory;
-use lump::{app::ConfigureApp, plugin::Plugin, prelude::SystemReserver};
-use lump_core::prelude::*;
+use clap::{ArgMatches, CommandFactory};
+use lump::{app::ConfigureApp, integrations::RemoteWorldRef, plugin::Plugin};
+use lump_core::{prelude::*, system_locking::SystemEntryRef};
 
 use crate::{
-    router::Router,
+    router::{ClapHandler, Router},
     schedule::{CommandRoot, MainHandler},
 };
 
@@ -27,7 +27,7 @@ impl Plugin for ClapPlugin {
 }
 
 pub async fn clap_runtime(
-    reserver: SystemReserver<'_>,
+    world: RemoteWorldRef<'_>,
     main: Option<Res<'_, MainHandler>>,
     mut command: ResMut<'_, CommandRoot>,
     router: Res<'_, Router>,
@@ -38,33 +38,43 @@ pub async fn clap_runtime(
         command = command.subcommand_required(true);
     }
 
-    command.build();
-
     let args = match command.try_get_matches() {
         Ok(args) => args,
-        Err(err) => {
-            println!("{}", err);
+        Err(e) => {
+            eprintln!("{}", e);
             return Ok(());
         }
     };
 
-    if let Some(MainHandler(id, main)) = main.as_deref() {
-        let res = match reserver.lock(*id).await.run_task(main, &args).await {
-            Ok(res) => res,
-            Err(err) => {
-                println!("{}", err);
-                return Ok(());
-            }
-        };
+    let Some((route, args)) = select_route(main.as_deref(), &args, router.as_ref()) else {
+        return Ok(());
+    };
 
-        return res;
+    let world = world.upgrade().expect("to have a world");
+
+    let result = world.reserver().reserve(route).await.task().run_dyn(args).await;
+    match result {
+        Ok(out) => out,
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(())
+        }
+    }
+}
+
+fn select_route<'a>(
+    main: Option<&'a MainHandler>,
+    args: &'a ArgMatches,
+    router: &'a Router,
+) -> Option<(SystemEntryRef<'a, ClapHandler>, &'a ArgMatches)> {
+    if let Some(MainHandler(id, main)) = main {
+        let out = (SystemEntryRef::new(*id, main), args);
+        return Some(out);
     }
 
     let (name, mut sub_args) = match args.subcommand() {
         Some((name, args)) => (name, args),
-        None => {
-            return Ok(());
-        }
+        None => return None,
     };
 
     let mut rotue = vec![name];
@@ -75,18 +85,9 @@ pub async fn clap_runtime(
     }
 
     if let Some((id, system)) = router.routes.get(rotue.as_slice()) {
-        let permit = reserver.lock(*id).await;
-        let result = match permit.run_task(system, sub_args).await {
-            Ok(res) => res,
-            Err(err) => {
-                println!("{}", err);
-                return Ok(());
-            }
-        };
-
-        return result;
+        let out = (SystemEntryRef::new(*id, system), sub_args);
+        return Some(out);
     }
 
-    Ok(())
+    None
 }
-

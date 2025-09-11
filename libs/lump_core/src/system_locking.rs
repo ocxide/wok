@@ -3,10 +3,12 @@ pub use remote::*;
 pub use system_entry::*;
 
 mod remote {
-    use futures::{FutureExt, SinkExt, channel::mpsc};
+    use async_channel as mpsc;
+    use futures::FutureExt;
 
     use crate::{
-        system::{DynSystem, SystemInput},
+        prelude::Resource,
+        system::{DynSystem, SystemIn, SystemInput, TaskSystem},
         world::SystemId,
     };
 
@@ -19,7 +21,7 @@ mod remote {
     }
 
     impl ReleaseSystem {
-        pub async fn release(mut self) {
+        pub async fn release(self) {
             if self.sx.0.send(self.system_id).await.is_err() {
                 println!("WARNING: failed to release system {:?}", self.system_id);
             };
@@ -30,8 +32,24 @@ mod remote {
     pub struct SystemReleaser(mpsc::Sender<SystemId>);
 
     impl SystemReleaser {
+        pub fn downgrade(&self) -> WeakSystemReleaser {
+            WeakSystemReleaser(self.0.downgrade())
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct WeakSystemReleaser(mpsc::WeakSender<SystemId>);
+    impl Resource for WeakSystemReleaser {}
+
+    impl WeakSystemReleaser {
+        pub fn upgrade(&self) -> Option<SystemReleaser> {
+            self.0.upgrade().map(SystemReleaser)
+        }
+    }
+
+    impl SystemReleaser {
         pub fn new() -> (Self, mpsc::Receiver<SystemId>) {
-            let (sx, rx) = mpsc::channel(0);
+            let (sx, rx) = mpsc::bounded(10);
             (Self(sx), rx)
         }
     }
@@ -64,11 +82,11 @@ mod remote {
             &mut self.world_mut
         }
 
-        pub fn try_run<'i, In: SystemInput + 'static, Out: Send + Sync + 'static>(
+        pub fn try_run<'i, S: TaskSystem>(
             &mut self,
-            system: SystemEntryRef<'_, DynSystem<In, Out>>,
-            input: In::Inner<'i>,
-        ) -> Result<impl Future<Output = Out> + 'i + Send, In::Inner<'i>> {
+            system: SystemEntryRef<'_, S>,
+            input: SystemIn<'i, S>,
+        ) -> Result<impl Future<Output = S::Out> + 'i + Send, SystemIn<'i, S>> {
             let result = self.world_mut.locks.try_lock(system.id);
             if result.is_err() {
                 return Err(input);
@@ -93,10 +111,12 @@ mod remote {
 }
 
 mod local {
+    use futures::FutureExt;
+
     use crate::{
         param::Param,
-        system::{SystemIn, TaskSystem},
-        world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState},
+        system::{ProtoSystem, SystemIn, SystemTask, TaskSystem},
+        world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldSystemLockError},
     };
 
     use super::{RemoteWorldMut, SystemEntryRef, SystemReleaser};
@@ -129,29 +149,7 @@ mod local {
             Some(unsafe { P::get_ref(self.state) })
         }
 
-        pub fn run_task<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
-            input: SystemIn<'i, S>,
-        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
-        where
-            S: TaskSystem,
-        {
-            let result = self.locks.try_lock(system.id);
-            if result.is_err() {
-                return Err(input);
-            }
-
-            // Safety: Already checked with locks
-            let fut = unsafe { system.system.run(self.state, input) };
-            let id = system.id;
-            Ok(async move {
-                let out = fut.await;
-                (id, out)
-            })
-        }
-
-        pub fn remote(self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
+        pub fn with_remote(self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
             RemoteWorldMut {
                 world_mut: self,
                 releaser,
@@ -165,6 +163,13 @@ mod local {
 
             // Safety: Already checked with locks
             Some(unsafe { (getter.getter)(self.state) })
+        }
+
+        pub fn local_tasks(&'w mut self) -> LocalTasks<'w> {
+            LocalTasks(WorldMut {
+                state: self.state,
+                locks: self.locks,
+            })
         }
     }
 
@@ -190,11 +195,70 @@ mod local {
             }
         }
     }
+
+    pub struct LocalTasks<'w>(pub WorldMut<'w>);
+
+    impl<'w> LocalTasks<'w> {
+        pub fn run_dyn<'i, S>(
+            &mut self,
+            system: SystemEntryRef<'_, S>,
+            input: SystemIn<'i, S>,
+        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
+        where
+            S: TaskSystem,
+        {
+            let result = self.0.locks.try_lock(system.id);
+            if result.is_err() {
+                return Err(input);
+            }
+
+            // Safety: Already checked with locks
+            let fut = unsafe { system.system.run(self.0.state, input) };
+            let id = system.id;
+            Ok(async move {
+                let out = fut.await;
+                (id, out)
+            })
+        }
+
+        pub fn create_task<S>(
+            &mut self,
+            system: SystemEntryRef<'_, S>,
+        ) -> Result<SystemTask<S::In, S::Out>, WorldSystemLockError>
+        where
+            S: TaskSystem,
+        {
+            self.0.locks.try_lock(system.id)?;
+
+            // Safety: Already checked with locks
+            Ok(unsafe { system.system.create_task(self.0.state) })
+        }
+
+        pub fn run<'i, S>(
+            &mut self,
+            system: SystemEntryRef<'_, S>,
+            input: SystemIn<'i, S>,
+        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
+        where
+            S: ProtoSystem,
+        {
+            if self.0.locks.try_lock(system.id).is_err() {
+                return Err(input);
+            }
+
+            // Safety: Already checked with locks
+            let param = unsafe { S::Param::get(self.0.state) };
+
+            let fut = <S as ProtoSystem>::run(system.system.clone(), param, input);
+            let id = system.id;
+            Ok(fut.map(move |out| (id, out)))
+        }
+    }
 }
 
 mod system_entry {
     use crate::{
-        system::{DynSystem, SystemInput},
+        system::{DynSystem, SystemInput, TaskSystem},
         world::SystemId,
     };
 
@@ -224,6 +288,31 @@ mod system_entry {
     impl<'s, S> SystemEntryRef<'s, S> {
         pub fn new(id: SystemId, system: &'s S) -> Self {
             Self { system, id }
+        }
+    }
+
+    pub struct SystemEntry<S> {
+        pub system: S,
+        pub id: SystemId,
+    }
+
+    impl<S> SystemEntry<S> {
+        pub fn new(id: SystemId, system: S) -> Self {
+            Self { system, id }
+        }
+
+        pub fn into_taskbox(self) -> TaskSystemEntry<S::In, S::Out>
+        where
+            S: TaskSystem,
+        {
+            TaskSystemEntry::new(self.id, Box::new(self.system))
+        }
+
+        pub fn entry_ref(&self) -> SystemEntryRef<S> {
+            SystemEntryRef {
+                system: &self.system,
+                id: self.id,
+            }
         }
     }
 }

@@ -335,7 +335,7 @@ mod one_route {
             router: &mut crate::router::Router,
         ) {
             let system = make_route_handler(self.system);
-            let id = center.register_system(&system);
+            let id = center.register_system_rw(&system);
 
             command.mutate(|c| Arg::augment_args(c));
             router.add(route, id, Box::new(system));

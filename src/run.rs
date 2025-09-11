@@ -2,9 +2,10 @@ use lump_core::{
     error::LumpUnknownError,
     prelude::{IntoSystem, Res, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
+    system_locking::SystemEntryRef,
 };
 
-use crate::{plugin::Plugin, prelude::SystemReserver};
+use crate::{plugin::Plugin, runtime::RemoteWorldRef};
 
 #[derive(Copy, Clone)]
 pub struct Run;
@@ -44,16 +45,19 @@ where
 }
 
 pub async fn runtime(
-    reserver: SystemReserver<'_>,
     systems: Res<'_, RunSystems>,
+    world: RemoteWorldRef<'_>,
 ) -> Result<(), LumpUnknownError> {
-    let locks = systems.0.iter().map(|(id, _, _)| reserver.clone().lock(id));
+    let world = world.upgrade().expect("to have a world");
+    let reserver = world.reserver();
+
+    let locks = systems.0.iter().map(|(id, system, _)| {
+        let entry = SystemEntryRef::new(id, system);
+        reserver.reserve(entry)
+    });
 
     let permits = futures::future::join_all(locks).await;
-    let runs = permits
-        .into_iter()
-        .zip(systems.0.iter())
-        .map(|(permit, (_, system, _))| permit.run_task(system, ()));
+    let runs = permits.into_iter().map(|permit| permit.task().run_dyn(()));
 
     futures::future::try_join_all(runs).await?;
     Ok(())
