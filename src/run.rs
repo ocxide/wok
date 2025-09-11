@@ -2,9 +2,10 @@ use lump_core::{
     error::LumpUnknownError,
     prelude::{IntoSystem, Res, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
+    world::ConfigureWorld,
 };
 
-use crate::{plugin::Plugin, runtime::RemoteWorldRef};
+use crate::{app::App, plugin::Plugin, remote_gateway::RemoteWorldRef};
 
 #[derive(Copy, Clone)]
 pub struct Run;
@@ -65,7 +66,7 @@ pub async fn runtime(
 pub struct DefaultPlugins;
 
 impl Plugin for DefaultPlugins {
-    fn setup(self, app: impl crate::prelude::ConfigureApp) {
+    fn setup(self, app: &mut App) {
         app.init_resource::<RunSystems>();
     }
 }

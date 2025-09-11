@@ -124,12 +124,13 @@ pub struct LumpParamsClientRuntime {
 }
 
 impl RuntimeAddon for LumpParamsClientRuntime {
-    fn create(state: &mut WorldState) -> Self {
-        let (this, client) = LumpParamsClientRuntime::new();
+    type Rests = ();
 
+    fn create(state: &mut WorldState) -> (Self, Self::Rests) {
+        let (this, client) = LumpParamsClientRuntime::new();
         state.resources.insert(client);
 
-        this
+        (this, ())
     }
 
     async fn tick(&mut self) -> Option<()> {

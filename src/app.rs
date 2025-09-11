@@ -36,10 +36,8 @@ impl App {
         let mut center = self.world.center;
 
         // Run addon build before startup to allow the use of ParamsClient
-        let addon = RtAddon::create(&mut state);
-        let (runtime, gateway) = RuntimeBuilder::new(addon);
-
-        state.resources.insert(gateway.downgrade());
+        let (addon, rests) = RtAddon::create(&mut state);
+        let (runtime, gateway) = RuntimeBuilder::new(&mut state, addon);
 
         Startup::create_invoker(&mut center, &mut state, &cfg.async_runtime)
             .invoke()
@@ -58,6 +56,7 @@ impl App {
         let sys_fut = sys_fut.map(move |out| {
             // Keep alive the gateway until the main system is done
             let _ = gateway;
+            let _ = rests;
             out
         });
 

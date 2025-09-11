@@ -1,5 +1,5 @@
 use clap::{ArgMatches, CommandFactory};
-use lump::{app::ConfigureApp, integrations::RemoteWorldRef, plugin::Plugin};
+use lump::{app::App, plugin::Plugin, remote_gateway::RemoteWorldRef};
 use lump_core::{prelude::*, world::gateway::SystemEntryRef};
 
 use crate::{
@@ -20,7 +20,7 @@ impl ClapPlugin {
 }
 
 impl Plugin for ClapPlugin {
-    fn setup(self, app: impl ConfigureApp) {
+    fn setup(self, app: &mut App) {
         app.insert_resource(CommandRoot(Some(self.command)))
             .init_resource::<Router>();
     }
@@ -52,7 +52,13 @@ pub async fn clap_runtime(
 
     let world = world.upgrade().expect("to have a world");
 
-    let result = world.reserver().reserve(route).await.task().run_dyn(args).await;
+    let result = world
+        .reserver()
+        .reserve(route)
+        .await
+        .task()
+        .run_dyn(args)
+        .await;
     match result {
         Ok(out) => out,
         Err(e) => {

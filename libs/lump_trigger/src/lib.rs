@@ -43,7 +43,8 @@ pub struct LumpTriggerRuntime<T: Event> {
     handler: EventHandler<T>,
 }
 impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
-    fn create(state: &mut lump_core::prelude::WorldState) -> Self {
+    type Rests = ();
+    fn create(state: &mut lump_core::prelude::WorldState) -> (Self, ()) {
         let (sx, rx) = mpsc::channel(4);
 
         state.resources.insert(EventTrigger { sender: sx });
@@ -55,11 +56,11 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
             );
         };
 
-        LumpTriggerRuntime {
+        (LumpTriggerRuntime {
             rx,
             handler,
             pending: None,
-        }
+        }, ())
     }
 
     async fn tick(&mut self) -> Option<()> {

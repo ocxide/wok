@@ -30,6 +30,13 @@ mod remote {
 
     #[derive(Debug, Clone)]
     pub struct SystemReleaser(mpsc::Sender<SystemId>);
+    pub struct SystemReleaseRx(mpsc::Receiver<SystemId>);
+
+    impl SystemReleaseRx {
+        pub async fn recv(&mut self) -> Option<SystemId> {
+            self.0.recv().await.ok()
+        }
+    }
 
     impl SystemReleaser {
         pub fn downgrade(&self) -> WeakSystemReleaser {
@@ -48,9 +55,9 @@ mod remote {
     }
 
     impl SystemReleaser {
-        pub fn new() -> (Self, mpsc::Receiver<SystemId>) {
+        pub fn new() -> (Self, SystemReleaseRx) {
             let (sx, rx) = mpsc::bounded(10);
-            (Self(sx), rx)
+            (Self(sx), SystemReleaseRx(rx))
         }
     }
 

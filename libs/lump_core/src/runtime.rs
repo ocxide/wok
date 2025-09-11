@@ -6,17 +6,23 @@ use crate::{
     world::{WorldState, gateway::RemoteWorldMut},
 };
 
-pub trait RuntimeAddon {
-    fn create(state: &mut WorldState) -> Self;
+pub trait RuntimeAddon: Sized {
+    /// A set of data to be kept alive until main loop ends
+    type Rests: Sized;
+
+    fn create(state: &mut WorldState) -> (Self, Self::Rests);
     fn tick(&mut self) -> impl Future<Output = Option<()>>;
     fn act(&mut self, async_executor: &impl AsyncExecutor, state: &mut RemoteWorldMut<'_>);
 }
 
 macro_rules! impl_runtime {
-    ( $( $ty:ident ),* ) => {
+    ( $( $ty:ident : $ty_rests:ident ),* ) => {
         impl<$($ty: RuntimeAddon),*> RuntimeAddon for ($($ty),*) {
-            fn create(state: &mut WorldState) -> Self {
-                ($($ty::create(state)),*)
+            type Rests = ($($ty::Rests),*);
+
+            fn create(state: &mut WorldState) -> (Self, Self::Rests) {
+                $( let ($ty,$ty_rests) = $ty::create(state); )*
+                (($($ty),*), ($($ty_rests),*))
             }
 
             async fn tick(&mut self) -> Option<()> {
@@ -36,16 +42,18 @@ macro_rules! impl_runtime {
     };
 }
 
-impl_runtime!(R1, R2);
-impl_runtime!(R1, R2, R3);
-impl_runtime!(R1, R2, R3, R4);
-impl_runtime!(R1, R2, R3, R4, R5);
+impl_runtime!(R1 : R1_rests, R2 : R2_rests);
+impl_runtime!(R1 : R1_rests, R2 : R2_rests, R3 : R3_rests);
+impl_runtime!(R1 : R1_rests, R2 : R2_rests, R3 : R3_rests, R4 : R4_rests);
 
 impl RuntimeAddon for () {
+    type Rests = ();
     async fn tick(&mut self) -> Option<()> {
         None
     }
 
     fn act(&mut self, _async_executor: &impl AsyncExecutor, _state: &mut RemoteWorldMut<'_>) {}
-    fn create(_state: &mut WorldState) -> Self {}
+    fn create(_state: &mut WorldState) -> (Self, Self::Rests) {
+        ((), ())
+    }
 }

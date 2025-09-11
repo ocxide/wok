@@ -19,10 +19,6 @@ pub mod setup {
     pub use lump_core::error::MainError;
 }
 
-pub mod integrations {
-    pub use crate::runtime::*;
-}
-
 pub mod app;
 mod async_executor;
 pub mod plugin;
@@ -30,3 +26,5 @@ mod runtime;
 
 mod run;
 mod startup;
+
+pub mod remote_gateway;

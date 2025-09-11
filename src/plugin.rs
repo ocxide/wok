@@ -1,5 +1,5 @@
-use crate::app::ConfigureApp;
+use crate::app::App;
 
 pub trait Plugin {
-    fn setup(self, app: impl ConfigureApp);
+    fn setup(self, app: &mut App);
 }

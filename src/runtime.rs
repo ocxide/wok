@@ -6,17 +6,16 @@ use futures::{FutureExt, future::Either};
 use lump_core::{
     async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
-    world::gateway::{SystemReleaser, WorldMut},
-    world::{SystemId, SystemLocks, UnsafeWorldState},
-};
-use system_lock_runtime::LockingQueue;
-
-pub use system_lock_runtime::{
-    LockingGateway, RemoteSystemReserver, RemoteWorldPorts, RemoteWorldRef, SystemPermit,
-    SystemTaskPermit, WeakLockingGateway,
+    world::{
+        SystemId, SystemLocks, UnsafeWorldState, WorldState,
+        gateway::{SystemReleaseRx, SystemReleaser, WorldMut},
+    },
 };
 
-use crate::setup::AsyncExecutorabel;
+use crate::{
+    remote_gateway::{LockingGateway, RemoteGatewayRuntime},
+    setup::AsyncExecutorabel,
+};
 
 pub struct RuntimeCfg<AR = (), Addon = ()> {
     pub async_runtime: AR,
@@ -62,26 +61,24 @@ impl Default for RuntimeCfg {
 
 pub struct RuntimeBuilder<Addon: RuntimeAddon> {
     addon: Addon,
-    foreign_rt: LockingQueue,
-    release_recv: ReleaseRecv,
+    foreign_rt: RemoteGatewayRuntime,
+    release_recv: SystemReleaseRx,
     releaser: SystemReleaser,
 }
 
 impl<Addon: RuntimeAddon> RuntimeBuilder<Addon> {
-    pub fn new(addon: Addon) -> (Self, LockingGateway) {
-        let (tx, rx) = SystemReleaser::new();
-        let release_recv = ReleaseRecv(rx);
-
-        let (foreign_rt, locking) = LockingQueue::new(tx.clone());
+    pub fn new(state: &mut WorldState, addon: Addon) -> (Self, LockingGateway) {
+        let (remote_gateway_rt, (remote_gateway, release_recv)) =
+            RemoteGatewayRuntime::create(state);
 
         let this = Self {
-            foreign_rt,
+            foreign_rt: remote_gateway_rt,
             addon,
             release_recv,
-            releaser: tx,
+            releaser: remote_gateway.releaser.clone(),
         };
 
-        (this, locking)
+        (this, remote_gateway)
     }
 
     pub fn build<'a>(
@@ -104,8 +101,8 @@ pub struct Runtime<'w, Addon: RuntimeAddon> {
     state: &'w UnsafeWorldState,
     locks: &'w mut SystemLocks,
     addon: Addon,
-    foreign_rt: LockingQueue,
-    release_recv: ReleaseRecv,
+    foreign_rt: RemoteGatewayRuntime,
+    release_recv: SystemReleaseRx,
     releaser: Option<SystemReleaser>,
 }
 
@@ -121,13 +118,13 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
             }
 
             let foreign_fut = if foreign_rt_open {
-                Either::Left(self.foreign_rt.poll())
+                Either::Left(self.foreign_rt.tick())
             } else {
                 Either::Right(futures::future::pending::<Option<()>>())
             };
 
             let release_fut = if release_recv_open {
-                Either::Left(self.release_recv.0.recv().map(|out| out.ok()))
+                Either::Left(self.release_recv.recv())
             } else {
                 Either::Right(futures::future::pending::<Option<SystemId>>())
             };
@@ -142,7 +139,10 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 // Check for new requests of system locking
                 next = foreign_fut.fuse() => {
                     if let Some(()) = next {
-                        self.foreign_rt.try_respond(&mut WorldMut::new(self.state, self.locks));
+                        if let Some(releaser) = self.releaser.as_ref() {
+                            let mut remote = WorldMut::new(self.state, self.locks).with_remote(releaser);
+                            self.foreign_rt.act(async_executor, &mut remote);
+                        }
                     }
                     else {
                         foreign_rt_open = false;
@@ -175,5 +175,3 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
         }
     }
 }
-
-struct ReleaseRecv(async_channel::Receiver<SystemId>);
