@@ -1,6 +1,6 @@
 use clap::{ArgMatches, CommandFactory};
 use lump::{app::ConfigureApp, integrations::RemoteWorldRef, plugin::Plugin};
-use lump_core::{prelude::*, system_locking::SystemEntryRef};
+use lump_core::{prelude::*, world::gateway::SystemEntryRef};
 
 use crate::{
     router::{ClapHandler, Router},

@@ -3,7 +3,7 @@ use lump_core::{
     error::LumpUnknownError,
     prelude::{IntoSystem, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
-    system_locking::{SystemEntryRef, WorldMut},
+    world::gateway::{SystemEntryRef, WorldMut},
     world::{ConfigureWorld, SystemId, World, WorldCenter, WorldState},
 };
 

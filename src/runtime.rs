@@ -6,7 +6,7 @@ use futures::{FutureExt, future::Either};
 use lump_core::{
     async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
-    system_locking::{SystemReleaser, WorldMut},
+    world::gateway::{SystemReleaser, WorldMut},
     world::{SystemId, SystemLocks, UnsafeWorldState},
 };
 use system_lock_runtime::LockingQueue;

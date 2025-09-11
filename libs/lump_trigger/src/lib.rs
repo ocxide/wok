@@ -3,7 +3,7 @@ use lump_core::{
     prelude::{In, IntoSystem, Resource, System},
     runtime::RuntimeAddon,
     schedule::{ScheduleConfigure, ScheduleLabel},
-    system_locking::TaskSystemEntry,
+    world::gateway::TaskSystemEntry,
     world::ConfigureWorld,
 };
 
@@ -76,7 +76,7 @@ impl<T: Event> RuntimeAddon for LumpTriggerRuntime<T> {
     fn act(
         &mut self,
         async_executor: &impl lump_core::async_executor::AsyncExecutor,
-        state: &mut lump_core::system_locking::RemoteWorldMut<'_>,
+        state: &mut lump_core::world::gateway::RemoteWorldMut<'_>,
     ) {
         let Some(event) = self.pending.take() else {
             return;

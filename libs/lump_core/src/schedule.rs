@@ -11,8 +11,7 @@ mod storages {
 
     use crate::{
         system::{DynSystem, SystemInput},
-        system_locking::TaskSystemEntry,
-        world::SystemId,
+        world::{gateway::TaskSystemEntry, SystemId},
     };
 
     pub struct SystemsMap<In: SystemInput + 'static, Out: 'static> {

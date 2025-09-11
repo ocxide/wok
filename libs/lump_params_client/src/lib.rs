@@ -10,7 +10,7 @@ use lump_core::{
     async_executor::AsyncExecutor,
     prelude::{Param, Resource},
     runtime::RuntimeAddon,
-    system_locking::{ParamGetter, RemoteWorldMut, WorldMut},
+    world::gateway::{ParamGetter, RemoteWorldMut, WorldMut},
     world::{SystemLock, WorldState},
 };
 

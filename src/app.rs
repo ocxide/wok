@@ -4,7 +4,7 @@ use lump_core::{
     error::LumpUnknownError,
     prelude::{IntoSystem, System},
     runtime::RuntimeAddon,
-    system_locking::WorldMut,
+    world::gateway::WorldMut,
     world::{ConfigureWorld, World},
 };
 

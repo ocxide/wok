@@ -1,3 +1,5 @@
+pub mod gateway;
+
 use std::sync::Arc;
 
 use crate::commands::{self, CommandSender, CommandsReceiver};
@@ -6,9 +8,9 @@ use crate::prelude::Resource;
 use crate::resources::Resources;
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
 use crate::system::System;
-use crate::system_locking::SystemEntry;
 
 pub use access::SystemLock;
+use gateway::SystemEntry;
 pub use meta::SystemId;
 
 pub(crate) mod access;
