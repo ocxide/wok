@@ -8,7 +8,7 @@ mod remote {
 
     use crate::{
         prelude::Resource,
-        system::{DynSystem, SystemIn, SystemInput, TaskSystem},
+        system::{SystemIn, TaskSystem},
         world::SystemId,
     };
 
@@ -258,27 +258,11 @@ mod local {
 
 mod system_entry {
     use crate::{
-        system::{DynSystem, SystemInput, TaskSystem},
+        system::{DynSystem, TaskSystem},
         world::SystemId,
     };
 
-    pub struct TaskSystemEntry<In: SystemInput + 'static, Out: Send + Sync + 'static> {
-        system: DynSystem<In, Out>,
-        id: SystemId,
-    }
-
-    impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystemEntry<In, Out> {
-        pub(crate) const fn new(id: SystemId, system: DynSystem<In, Out>) -> Self {
-            Self { system, id }
-        }
-
-        pub fn entry_ref(&self) -> SystemEntryRef<DynSystem<In, Out>> {
-            SystemEntryRef {
-                system: &self.system,
-                id: self.id,
-            }
-        }
-    }
+    pub type TaskSystemEntry<In, Out> = SystemEntry<DynSystem<In, Out>>;
 
     pub struct SystemEntryRef<'s, S> {
         pub system: &'s S,

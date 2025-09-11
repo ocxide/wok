@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use futures::channel::oneshot;
 use lump_core::{
-    prelude::{Res, Resource, SystemIn, TaskSystem},
+    prelude::{DynSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
     system_locking::{ReleaseSystem, SystemEntryRef, SystemReleaser, WeakSystemReleaser, WorldMut},
     world::{SystemId, UnsafeWorldState, WeakState},
 };
@@ -120,11 +120,11 @@ impl<'w, S> SystemPermit<'w, S> {
 
 pub struct SystemTaskPermit<'w, S>(SystemPermit<'w, S>);
 
-impl<'w, S> SystemTaskPermit<'w, S> {
-    pub fn run_dyn<'i>(self, input: SystemIn<'i, S>) -> impl Future<Output = S::Out> + Send + 'i
-    where
-        S: TaskSystem,
-    {
+// Use DynSystem instead of impl TaskSystem to prevent weird compile errors
+impl<'w, In: SystemInput + 'static, Out: Send + Sync + 'static>
+    SystemTaskPermit<'w, DynSystem<In, Out>>
+{
+    pub fn run_dyn<'i>(self, input: In::Inner<'i>) -> impl Future<Output = Out> + Send + 'i {
         // Safety: Already checked with locks
         let fut = unsafe { self.0.system.run(self.0.state, input) };
         let releaser = self.0.releaser;

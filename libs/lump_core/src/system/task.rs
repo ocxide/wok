@@ -6,7 +6,7 @@ use super::{IntoBlockingSystem, System, SystemIn, SystemInput, combinators::Into
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
-pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync + 'static>;
+pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>;
 
 // Dyn compatible
 pub trait TaskSystem: System {

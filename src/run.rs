@@ -2,7 +2,6 @@ use lump_core::{
     error::LumpUnknownError,
     prelude::{IntoSystem, Res, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
-    system_locking::SystemEntryRef,
 };
 
 use crate::{plugin::Plugin, runtime::RemoteWorldRef};
@@ -25,10 +24,10 @@ where
 {
     fn add(self, world: &mut lump_core::world::World, system: S) {
         let system = system.into_system();
-        let id = world.register_system_ref(&system);
+        let entry = world.register_system(system);
 
         let mut systems = world.state.get::<ResMut<RunSystems>>();
-        systems.0.add(id, Box::new(system), ());
+        systems.0.add(entry.into_taskbox(), ());
     }
 }
 
@@ -51,10 +50,10 @@ pub async fn runtime(
     let world = world.upgrade().expect("to have a world");
     let reserver = world.reserver();
 
-    let locks = systems.0.iter().map(|(id, system, _)| {
-        let entry = SystemEntryRef::new(id, system);
-        reserver.reserve(entry)
-    });
+    let locks = systems
+        .0
+        .iter()
+        .map(|(entry, _)| reserver.reserve(entry.entry_ref()));
 
     let permits = futures::future::join_all(locks).await;
     let runs = permits.into_iter().map(|permit| permit.task().run_dyn(()));
