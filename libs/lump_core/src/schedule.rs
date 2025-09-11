@@ -10,8 +10,6 @@ mod storages {
     use std::collections::HashMap;
 
     use crate::{
-        prelude::Resource,
-        resources::LocalResource,
         system::{DynSystem, SystemInput},
         system_locking::TaskSystemEntry,
         world::SystemId,
@@ -28,9 +26,6 @@ mod storages {
             }
         }
     }
-
-    impl<In: SystemInput + 'static, Out: 'static> Resource for SystemsMap<In, Out> {}
-    impl<In: SystemInput + 'static, Out: 'static> LocalResource for SystemsMap<In, Out> {}
 
     impl<In: SystemInput + 'static, Out: 'static> SystemsMap<In, Out> {
         pub fn add_system(&mut self, systemid: SystemId, system: DynSystem<In, Out>) {

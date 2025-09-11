@@ -1,9 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    any_handle::{Handle, HandleMut},
-    prelude::Resource,
-    world::{UnsafeWorldState, access::SystemLock},
+    any_handle::{Handle, HandleMut}, prelude::Resource, resources::ResourceId, world::{access::SystemLock, UnsafeWorldState}
 };
 
 pub trait Param: Send {
@@ -96,7 +94,7 @@ impl<R: Resource> Param for Res<'_, R> {
     type AsRef<'r> = Res<'r, R>;
 
     fn init(rw: &mut SystemLock) {
-        if rw.register_resource_read(R::id()).is_err() {
+        if rw.register_resource_read(ResourceId::new::<R>()).is_err() {
             panic!(
                 "Resource of type `{}` was already registered with access mode `Write`",
                 std::any::type_name::<R>()
@@ -152,7 +150,7 @@ impl<R: Resource> Param for ResMut<'_, R> {
     type AsRef<'r> = ResMut<'r, R>;
 
     fn init(rw: &mut SystemLock) {
-        if rw.register_resource_write(R::id()).is_err() {
+        if rw.register_resource_write(ResourceId::new::<R>()).is_err() {
             panic!(
                 "Resource of type `{}` was already registered",
                 std::any::type_name::<R>()

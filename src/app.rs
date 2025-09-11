@@ -20,7 +20,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let mut world = World::default();
-        Startup::init(&mut world.center);
+        Startup::init(&mut world);
 
         Self { world }
     }

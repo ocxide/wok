@@ -1,11 +1,10 @@
 use futures::{StreamExt, stream::FuturesUnordered};
 use lump_core::{
     error::LumpUnknownError,
-    prelude::{IntoSystem, System},
-    resources::LocalResource,
+    prelude::{IntoSystem, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
     system_locking::{SystemEntryRef, WorldMut},
-    world::{SystemId, WorldCenter, WorldState},
+    world::{ConfigureWorld, SystemId, World, WorldCenter, WorldState},
 };
 
 use lump_core::async_executor::AsyncExecutor;
@@ -16,7 +15,7 @@ struct StartupSystems {
     pendings: Vec<SystemId>,
 }
 
-impl LocalResource for StartupSystems {}
+impl Resource for StartupSystems {}
 
 #[derive(Copy, Clone)]
 pub struct Startup;
@@ -34,11 +33,7 @@ where
         let system = system.into_system();
         let systemid = world.register_system_ref(&system);
 
-        let systems = world
-            .center
-            .resources
-            .get_mut::<StartupSystems>()
-            .expect("Startup schedule was not initialized");
+        let mut systems = world.state.get::<ResMut<StartupSystems>>();
 
         systems.systems.add_system(systemid, Box::new(system));
         systems.pendings.push(systemid);
@@ -59,8 +54,8 @@ where
 }
 
 impl Startup {
-    pub fn init(world: &mut WorldCenter) {
-        world.resources.init::<StartupSystems>();
+    pub fn init(world: &mut World) {
+        world.init_resource::<StartupSystems>();
     }
 
     pub fn create_invoker<'w, C: AsyncExecutor>(
@@ -68,9 +63,8 @@ impl Startup {
         state: &'w mut WorldState,
         rt: &'w C,
     ) -> StartupInvoke<'w, C> {
-        let systems = center
-            .resources
-            .try_take::<StartupSystems>()
+        let systems = state
+            .take_resource::<StartupSystems>()
             .expect("Startup schedule was not initialized");
 
         StartupInvoke {
@@ -110,7 +104,10 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
             };
 
             let mut world = WorldMut::new(state.as_unsafe_world_state(), &mut center.system_locks);
-            let fut = match world.local_tasks().run_dyn(SystemEntryRef::new(id, system), ()) {
+            let fut = match world
+                .local_tasks()
+                .run_dyn(SystemEntryRef::new(id, system), ())
+            {
                 Ok(fut) => fut,
                 _ => return false,
             };

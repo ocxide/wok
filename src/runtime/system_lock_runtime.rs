@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use futures::channel::oneshot;
 use lump_core::{
-    prelude::{DynSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
+    prelude::{DynSystem, Res, Resource, SystemInput, TaskSystem},
     system_locking::{ReleaseSystem, SystemEntryRef, SystemReleaser, WeakSystemReleaser, WorldMut},
     world::{SystemId, UnsafeWorldState, WeakState},
 };

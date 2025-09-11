@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::param::Param;
 use crate::prelude::Resource;
-use crate::resources::{LocalResource, LocalResources, Resources};
+use crate::resources::Resources;
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
 use crate::system::System;
 use crate::system_locking::SystemEntry;
@@ -26,6 +26,8 @@ pub struct WorldState {
 }
 
 impl WorldState {
+    /// # Panics
+    /// Panics if the params are not available
     pub fn get<P: Param>(&mut self) -> P::AsRef<'_> {
         // Safety: by being the olny owner `&mut self`, this is allowed
 
@@ -197,17 +199,13 @@ impl SystemLocks {
 
 pub struct WorldCenter {
     pub(crate) commands_rx: CommandsReceiver,
-    pub resources: LocalResources,
     pub system_locks: SystemLocks,
 }
 
 impl WorldCenter {
     pub fn tick_commands(&mut self, state: &mut WorldState) {
         for command in self.commands_rx.recv() {
-            command.apply(WorldMut {
-                state,
-                center: &mut self.resources,
-            });
+            command.apply(state);
         }
     }
 
@@ -224,11 +222,6 @@ impl WorldCenter {
     }
 }
 
-pub struct WorldMut<'w> {
-    pub state: &'w mut WorldState,
-    pub center: &'w mut LocalResources,
-}
-
 pub struct World {
     pub state: WorldState,
     pub center: WorldCenter,
@@ -242,7 +235,6 @@ impl Default for World {
             center: WorldCenter {
                 system_locks: SystemLocks::default(),
                 commands_rx: receiver,
-                resources: LocalResources::default(),
             },
             state: WorldState {
                 resources: Resources::default(),
@@ -285,11 +277,6 @@ pub trait ConfigureWorld: Sized {
 
     fn insert_resource<R: Resource>(mut self, resource: R) -> Self {
         self.world_mut().state.resources.insert(resource);
-        self
-    }
-
-    fn insert_local_resource<R: LocalResource>(mut self, resource: R) -> Self {
-        self.world_mut().center.resources.insert(resource);
         self
     }
 
