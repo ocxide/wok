@@ -9,7 +9,7 @@ lump = { path = "../../" }
 lump_db = { path = "../lump_db", optional = true }
 lump_core = { path = "../lump_core" }
 futures = { workspace = true }
-take_mut = "0.2.2"
+take_mut = { workspace = true }
 
 [features]
 db = ["dep:lump_db"]

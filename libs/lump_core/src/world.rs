@@ -10,7 +10,7 @@ use crate::schedule::{ScheduleConfigure, ScheduleLabel};
 use crate::system::System;
 
 pub use access::SystemLock;
-use gateway::SystemEntry;
+use gateway::{SystemDraft, SystemEntry};
 pub use meta::SystemId;
 
 pub(crate) mod access;
@@ -221,6 +221,11 @@ impl WorldCenter {
     pub fn register_system<S: System>(&mut self, system: S) -> SystemEntry<S> {
         let id = self.register_system_rw(&system);
         SystemEntry::new(id, system)
+    }
+    
+    pub fn register_draft<S: System>(&mut self, draft: SystemDraft<S>) -> SystemEntry<S> {
+        let id = self.system_locks.systems_rw.add(draft.locks);
+        SystemEntry::new(id, draft.system)
     }
 }
 

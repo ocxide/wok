@@ -1,0 +1,11 @@
+[package]
+name = "lump_axum"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lump = { path = "../../" }
+lump_core = { path = "../lump_core" }
+axum = "0.8.0"
+tokio = { workspace = true }
+take_mut = { workspace = true }

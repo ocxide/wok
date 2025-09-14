@@ -265,8 +265,8 @@ mod local {
 
 mod system_entry {
     use crate::{
-        system::{DynSystem, TaskSystem},
-        world::SystemId,
+        system::{DynSystem, System, TaskSystem},
+        world::{SystemId, SystemLock},
     };
 
     pub type TaskSystemEntry<In, Out> = SystemEntry<DynSystem<In, Out>>;
@@ -282,6 +282,7 @@ mod system_entry {
         }
     }
 
+    #[derive(Clone)]
     pub struct SystemEntry<S> {
         pub system: S,
         pub id: SystemId,
@@ -303,6 +304,31 @@ mod system_entry {
             SystemEntryRef {
                 system: &self.system,
                 id: self.id,
+            }
+        }
+    }
+
+    pub type TaskSystemDraft<In, Out> = SystemDraft<DynSystem<In, Out>>;
+
+    pub struct SystemDraft<S> {
+        pub(crate) system: S,
+        pub(crate) locks: SystemLock,
+    }
+
+    impl<S: System> SystemDraft<S> {
+        pub fn new(system: S) -> Self {
+            let mut locks = SystemLock::default();
+            system.init(&mut locks);
+            Self { system, locks }
+        }
+
+        pub fn into_taskbox(self) -> TaskSystemDraft<S::In, S::Out>
+        where
+            S: TaskSystem,
+        {
+            TaskSystemDraft {
+                system: Box::new(self.system),
+                locks: self.locks,
             }
         }
     }

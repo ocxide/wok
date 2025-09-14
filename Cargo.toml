@@ -14,7 +14,7 @@ members = [
 	"libs/lump_params_client",
 	"libs/lump_trigger",
 	"libs/lump_assets"
-]
+, "libs/lump_axum"]
 
 [workspace.dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
@@ -22,6 +22,7 @@ serde = { version = "1.0" }
 toml = { version = "0.8" }
 tokio = { version = ">=1.2", default-features = false, features = ["rt"] }
 async-channel = "2.5.0"
+take_mut = "0.2.2"
 
 [dependencies]
 lump_core = { path = "libs/lump_core" }

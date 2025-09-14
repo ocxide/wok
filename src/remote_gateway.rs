@@ -1,9 +1,9 @@
 use crate::prelude::Param;
 use std::{collections::VecDeque, sync::Arc};
 
-use futures::channel::oneshot;
+use futures::{channel::oneshot, FutureExt};
 use lump_core::{
-    prelude::{DynSystem, Res, Resource, SystemInput, TaskSystem},
+    prelude::{DynSystem, ProtoSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
     runtime::RuntimeAddon,
     world::{
         SystemId, UnsafeWorldState, WeakState,
@@ -49,6 +49,7 @@ pub struct LockRequest {
     system_id: SystemId,
 }
 
+#[derive(Clone)]
 pub struct RemoteWorldPorts {
     state: Arc<UnsafeWorldState>,
     locking: LockingGateway,
@@ -124,6 +125,23 @@ impl<'w, S> SystemPermit<'w, S> {
 }
 
 pub struct SystemTaskPermit<'w, S>(SystemPermit<'w, S>);
+
+impl<'w, S> SystemTaskPermit<'w, S> {
+    pub fn run<'i>(self, input: SystemIn<'i, S>) -> impl Future<Output = S::Out> + Send + 'i
+    where
+        S: ProtoSystem,
+    {
+        // Safety: Already checked with locks
+        let param = unsafe { S::Param::get(self.0.state) };
+        let fut = <S as ProtoSystem>::run(self.0.system.clone(), param, input);
+        let releaser = self.0.releaser;
+
+        fut.then(move |out| async move {
+            releaser.release().await;
+            out
+        })
+    }
+}
 
 // Use DynSystem instead of impl TaskSystem to prevent weird compile errors
 impl<'w, In: SystemInput + 'static, Out: Send + Sync + 'static>
