@@ -2,7 +2,7 @@ use crate::prelude::Param;
 use std::{collections::VecDeque, sync::Arc};
 
 use futures::{channel::oneshot, FutureExt};
-use lump_core::{
+use wok_core::{
     prelude::{DynSystem, ProtoSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
     runtime::RuntimeAddon,
     world::{
@@ -168,7 +168,7 @@ pub(crate) struct RemoteGatewayRuntime {
 
 impl RuntimeAddon for RemoteGatewayRuntime {
     type Rests = (LockingGateway, SystemReleaseRx);
-    fn create(state: &mut lump_core::prelude::WorldState) -> (Self, Self::Rests) {
+    fn create(state: &mut wok_core::prelude::WorldState) -> (Self, Self::Rests) {
         let (releaser, release_rx) = SystemReleaser::new();
         let (tx, rx) = async_channel::bounded(5);
 
@@ -195,8 +195,8 @@ impl RuntimeAddon for RemoteGatewayRuntime {
 
     fn act(
         &mut self,
-        _async_executor: &impl lump_core::async_executor::AsyncExecutor,
-        state: &mut lump_core::world::gateway::RemoteWorldMut<'_>,
+        _async_executor: &impl wok_core::async_executor::AsyncExecutor,
+        state: &mut wok_core::world::gateway::RemoteWorldMut<'_>,
     ) {
         while let Some(req) = self.buf.iter().next() {
             let result = state.world_mut().locks.try_lock(req.system_id);

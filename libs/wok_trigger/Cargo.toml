@@ -1,0 +1,8 @@
+[package]
+name = "wok_trigger"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wok_core = { path = "../wok_core" }
+futures = { workspace = true }

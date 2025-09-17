@@ -1,5 +1,5 @@
 #![allow(unused)]
-use lump::prelude::*;
+use wok::prelude::*;
 
 #[derive(Clone)]
 struct State {}

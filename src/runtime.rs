@@ -3,7 +3,7 @@ mod system_lock_runtime;
 use std::marker::PhantomData;
 
 use futures::{FutureExt, future::Either};
-use lump_core::{
+use wok_core::{
     async_executor::AsyncExecutor,
     runtime::RuntimeAddon,
     world::{

@@ -1,17 +1,17 @@
 use futures::{StreamExt, stream::FuturesUnordered};
-use lump_core::{
-    error::LumpUnknownError,
+use wok_core::{
+    error::WokUnknownError,
     prelude::{IntoSystem, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, SystemsMap},
     world::gateway::{SystemEntryRef, WorldMut},
     world::{ConfigureWorld, SystemId, World, WorldCenter, WorldState},
 };
 
-use lump_core::async_executor::AsyncExecutor;
+use wok_core::async_executor::AsyncExecutor;
 
 #[derive(Default)]
 struct StartupSystems {
-    systems: SystemsMap<(), Result<(), LumpUnknownError>>,
+    systems: SystemsMap<(), Result<(), WokUnknownError>>,
     pendings: Vec<SystemId>,
 }
 
@@ -27,9 +27,9 @@ pub struct FallibleStartup;
 impl<Marker, S> ScheduleConfigure<S, (FallibleStartup, Marker)> for Startup
 where
     S: IntoSystem<Marker> + 'static,
-    S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
+    S::System: System<In = (), Out = Result<(), WokUnknownError>>,
 {
-    fn add(self, world: &mut lump_core::world::World, system: S) {
+    fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.into_system();
         let systemid = world.register_system_ref(&system);
 
@@ -47,7 +47,7 @@ where
     S: IntoSystem<Marker> + 'static,
     S::System: System<In = (), Out = ()>,
 {
-    fn add(self, world: &mut lump_core::world::World, system: S) {
+    fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.map(|| Ok(()));
         self.add(world, system);
     }
@@ -77,7 +77,7 @@ impl Startup {
     }
 }
 
-type FutJoinHandle<C> = <C as AsyncExecutor>::JoinHandle<(SystemId, Result<(), LumpUnknownError>)>;
+type FutJoinHandle<C> = <C as AsyncExecutor>::JoinHandle<(SystemId, Result<(), WokUnknownError>)>;
 pub struct StartupInvoke<'w, C: AsyncExecutor> {
     center: &'w mut WorldCenter,
     rt: &'w C,
@@ -119,7 +119,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
         }) {}
     }
 
-    pub async fn invoke(mut self) -> Result<(), LumpUnknownError> {
+    pub async fn invoke(mut self) -> Result<(), WokUnknownError> {
         self.collect_pending_systems();
 
         while let Some(Ok((systemid, result))) = self.futures.next().await {

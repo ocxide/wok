@@ -7,7 +7,7 @@ pub mod tokio {
 
     use futures::FutureExt;
 
-    use lump_core::async_executor::{AsyncExecutor, AsyncExecutorabel, FutSpawnError, JoinHandle};
+    use wok_core::async_executor::{AsyncExecutor, AsyncExecutorabel, FutSpawnError, JoinHandle};
 
     pub struct TokioRt;
 

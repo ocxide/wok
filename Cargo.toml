@@ -1,20 +1,20 @@
 [package]
-name = "lump"
+name = "wok"
 version = "0.1.0"
 edition = "2024"
 
 [workspace]
 members = [ 
-	"bin_examples/clappy_by_lump", "libs/lump_assets", 
-	"libs/lump_clap", 
-	"libs/lump_core",
-	"libs/lump_db",
-	"libs/lump_db_derive",
-	"libs/lump_derive",
-	"libs/lump_params_client",
-	"libs/lump_trigger",
-	"libs/lump_assets"
-, "libs/lump_axum"]
+	"bin_examples/clappy_by_wok", "libs/wok_assets", 
+	"libs/wok_clap", 
+	"libs/wok_core",
+	"libs/wok_db",
+	"libs/wok_db_derive",
+	"libs/wok_derive",
+	"libs/wok_params_client",
+	"libs/wok_trigger",
+	"libs/wok_assets"
+, "libs/wok_axum"]
 
 [workspace.dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
@@ -25,7 +25,7 @@ async-channel = "2.5.0"
 take_mut = "0.2.2"
 
 [dependencies]
-lump_core = { path = "libs/lump_core" }
+wok_core = { path = "libs/wok_core" }
 futures = { workspace = true }
 tokio = { workspace = true, optional = true }
 async-channel = { workspace = true }

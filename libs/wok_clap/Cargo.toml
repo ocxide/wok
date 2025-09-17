@@ -1,0 +1,15 @@
+[package]
+name = "wok_clap"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.39", features = ["derive"] }
+wok = { path = "../../" }
+wok_db = { path = "../wok_db", optional = true }
+wok_core = { path = "../wok_core" }
+futures = { workspace = true }
+take_mut = { workspace = true }
+
+[features]
+db = ["dep:wok_db"]

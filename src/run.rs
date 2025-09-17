@@ -1,5 +1,5 @@
-use lump_core::{
-    error::LumpUnknownError,
+use wok_core::{
+    error::WokUnknownError,
     prelude::{IntoSystem, Res, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
     world::ConfigureWorld,
@@ -12,7 +12,7 @@ pub struct Run;
 impl ScheduleLabel for Run {}
 
 #[derive(Default)]
-pub struct RunSystems(Systems<(), Result<(), LumpUnknownError>>);
+pub struct RunSystems(Systems<(), Result<(), WokUnknownError>>);
 impl Resource for RunSystems {}
 
 #[doc(hidden)]
@@ -21,9 +21,9 @@ pub struct FallibleRun;
 impl<Marker, S> ScheduleConfigure<S, (FallibleRun, Marker)> for Run
 where
     S: IntoSystem<Marker>,
-    S::System: System<In = (), Out = Result<(), LumpUnknownError>>,
+    S::System: System<In = (), Out = Result<(), WokUnknownError>>,
 {
-    fn add(self, world: &mut lump_core::world::World, system: S) {
+    fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.into_system();
         let entry = world.register_system(system);
 
@@ -39,7 +39,7 @@ where
     S: IntoSystem<Marker>,
     S::System: System<In = (), Out = ()>,
 {
-    fn add(self, world: &mut lump_core::world::World, system: S) {
+    fn add(self, world: &mut wok_core::world::World, system: S) {
         self.add(world, system.map(|| Ok(())));
     }
 }
@@ -47,7 +47,7 @@ where
 pub async fn runtime(
     systems: Res<'_, RunSystems>,
     world: RemoteWorldRef<'_>,
-) -> Result<(), LumpUnknownError> {
+) -> Result<(), WokUnknownError> {
     let world = world.upgrade().expect("to have a world");
     let reserver = world.reserver();
 

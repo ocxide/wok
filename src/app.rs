@@ -1,7 +1,7 @@
 use futures::FutureExt;
-use lump_core::{
+use wok_core::{
     async_executor::AsyncExecutor,
-    error::LumpUnknownError,
+    error::WokUnknownError,
     prelude::{IntoSystem, System},
     runtime::RuntimeAddon,
     world::gateway::WorldMut,
@@ -30,8 +30,8 @@ impl App {
     pub async fn run<Marker, AsyncRt: AsyncExecutor, RtAddon: RuntimeAddon>(
         self,
         cfg: RuntimeCfg<AsyncRt, RtAddon>,
-        system: impl IntoSystem<Marker, System: System<In = (), Out = Result<(), LumpUnknownError>>>,
-    ) -> Result<(), LumpUnknownError> {
+        system: impl IntoSystem<Marker, System: System<In = (), Out = Result<(), WokUnknownError>>>,
+    ) -> Result<(), WokUnknownError> {
         let mut state = self.world.state;
         let mut center = self.world.center;
 

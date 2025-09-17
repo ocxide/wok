@@ -1,8 +1,0 @@
-[package]
-name = "lump_params_client"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-lump_core = { path = "../lump_core" }
-futures = { workspace = true }
