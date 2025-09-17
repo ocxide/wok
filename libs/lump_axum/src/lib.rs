@@ -12,6 +12,19 @@ type Router = axum::Router<RemoteWorldPorts>;
 pub struct RouterRoot(Option<Router>);
 impl Resource for RouterRoot {}
 
+/// Axum integration plugin
+/// Setups basics resources for Axum integration, use before any other Axum plugins & Route
+/// .add_system
+/// ```rust
+/// use lump::prelude::*;
+/// use lump_axum::{AxumPlugin, Route, get};
+///
+/// App::default()
+///     .add_plugin(AxumPlugin)
+///     .add_system(Route("/"), get(my_handler));
+///
+/// async fn my_handler() {}
+/// ```
 pub struct AxumPlugin;
 
 impl Plugin for AxumPlugin {
@@ -233,7 +246,10 @@ mod nest_route {
 }
 
 mod handler {
-    use axum::{extract::{FromRequest, FromRequestParts}, response::IntoResponse};
+    use axum::{
+        extract::{FromRequest, FromRequestParts},
+        response::IntoResponse,
+    };
     use lump::{
         prelude::{In, ProtoSystem, ScopedFut, System},
         remote_gateway::RemoteWorldPorts,
@@ -327,18 +343,33 @@ mod handler {
     }
 }
 
+pub struct SocketAddrs(Vec<std::net::SocketAddr>);
+
+impl Resource for SocketAddrs {}
+
+impl SocketAddrs {
+    pub async fn new(addr: impl tokio::net::ToSocketAddrs) -> std::io::Result<Self> {
+        let addrs = tokio::net::lookup_host(addr).await?;
+        Ok(SocketAddrs(addrs.collect()))
+    }
+}
+
+/// Main runtime for lump_axum
+/// Requires tthe he `AxumPlugin` & a `SocketAddrs` resource
 pub async fn serve(
     world: RemoteWorldRef<'_>,
+    addrs: Res<'_, SocketAddrs>,
     mut router: ResMut<'_, RouterRoot>,
 ) -> Result<(), LumpUnknownError> {
     let world = world.upgrade().expect("the app to be active");
+
     let router = router
         .0
         .take()
         .expect("to have `AxumPlugin`")
         .with_state(world);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    let listener = tokio::net::TcpListener::bind(addrs.0.as_slice()).await?;
     axum::serve(listener, router).await?;
 
     Ok(())
