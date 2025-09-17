@@ -108,7 +108,7 @@ mod single_route {
 
     pub struct OnRoute<S, Marker> {
         system: S,
-        _marker: std::marker::PhantomData<Marker>,
+        _marker: std::marker::PhantomData<fn(Marker)>,
         method: MethodFilter,
     }
 
@@ -233,7 +233,7 @@ mod nest_route {
 }
 
 mod handler {
-    use axum::{extract::FromRequest, response::IntoResponse};
+    use axum::{extract::{FromRequest, FromRequestParts}, response::IntoResponse};
     use lump::{
         prelude::{In, ProtoSystem, ScopedFut, System},
         remote_gateway::RemoteWorldPorts,
@@ -244,13 +244,43 @@ mod handler {
     pub(crate) struct AxumRouteSystem<S>(pub(crate) SystemEntry<S>);
 
     #[doc(hidden)]
-    pub struct WithInput;
-    impl<Input, RouteSystem> axum::handler::Handler<(WithInput, Input), RemoteWorldPorts>
+    pub struct WithReqInput;
+    impl<Input, RouteSystem> axum::handler::Handler<(WithReqInput, Input), RemoteWorldPorts>
         for AxumRouteSystem<RouteSystem>
     where
         RouteSystem: ProtoSystem,
         RouteSystem: System<In = In<Input>, Out: IntoResponse>,
         Input: FromRequest<RemoteWorldPorts> + Send + Sync + 'static,
+    {
+        type Future = ScopedFut<'static, axum::response::Response>;
+
+        fn call(self, req: axum::extract::Request, state: RemoteWorldPorts) -> Self::Future {
+            Box::pin(async move {
+                let input = match Input::from_request(req, &state).await {
+                    Ok(value) => value,
+                    Err(rejection) => return rejection.into_response(),
+                };
+
+                state
+                    .reserver()
+                    .reserve(self.0.entry_ref())
+                    .await
+                    .task()
+                    .run(input)
+                    .await
+                    .into_response()
+            })
+        }
+    }
+
+    #[doc(hidden)]
+    pub struct WithReqPartsInput;
+    impl<Input, RouteSystem> axum::handler::Handler<(WithReqPartsInput, Input), RemoteWorldPorts>
+        for AxumRouteSystem<RouteSystem>
+    where
+        RouteSystem: ProtoSystem,
+        RouteSystem: System<In = In<Input>, Out: IntoResponse>,
+        Input: FromRequestParts<RemoteWorldPorts> + Send + Sync + 'static,
     {
         type Future = ScopedFut<'static, axum::response::Response>;
 
@@ -312,4 +342,26 @@ pub async fn serve(
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(dead_code)]
+    use super::*;
+
+    struct TestPlugin;
+    impl Plugin for TestPlugin {
+        fn setup(self, app: &mut lump::prelude::App) {
+            app.add_system(Route("/hello"), get(simple_route).post(parse_req))
+                .add_system(Route("/hello/{data}"), get(parse_req_part));
+        }
+    }
+
+    async fn simple_route() -> &'static str {
+        "hello"
+    }
+
+    async fn parse_req(_: In<String>) {}
+
+    async fn parse_req_part(_: In<axum::extract::Path<String>>) {}
 }
