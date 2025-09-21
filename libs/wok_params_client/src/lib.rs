@@ -24,13 +24,12 @@ struct LockParamsRequest {
     respond_to: oneshot::Sender<ParamsResponse>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
+#[resource(usage = lib)]
 pub struct ParamsClient {
     requester: mpsc::Sender<LockParamsRequest>,
     close_sender: mpsc::Sender<ForeignParamsKey>,
 }
-
-impl Resource for ParamsClient {}
 
 pub struct ParamGuard<P: Param> {
     params: P::Owned,

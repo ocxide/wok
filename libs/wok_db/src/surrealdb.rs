@@ -15,6 +15,7 @@ mod crud;
 mod from_surreal_bind;
 mod record_serde;
 
+#[derive(wok::prelude::Resource)]
 pub struct SurrealDb<C: Connection>(Surreal<C>);
 
 impl<C: Connection> SurrealDb<C> {
@@ -23,8 +24,6 @@ impl<C: Connection> SurrealDb<C> {
         SurrealDb(db)
     }
 }
-
-impl<C: Connection> wok::prelude::Resource for SurrealDb<C> {}
 
 pub struct KeyValue<R: SurrealRecord, B> {
     pub id: R,

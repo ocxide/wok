@@ -1,5 +1,6 @@
 use crate::any_handle::{AnyHandle, Handle, HandleMut};
 use std::{any::TypeId, collections::HashMap};
+pub use wok_derive::Resource;
 
 #[derive(Default)]
 pub struct Resources(HashMap<TypeId, AnyHandle>);
@@ -47,8 +48,6 @@ impl Resources {
     }
 }
 
-pub trait Resource: Sized + Send + 'static + Sync {}
-
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct ResourceId(TypeId);
 
@@ -57,3 +56,15 @@ impl ResourceId {
         Self(TypeId::of::<T>())
     }
 }
+
+pub trait Resource: Sized + Send + 'static + Sync {
+    type Mutability: ResourceMutability;
+}
+
+pub trait ResourceMutability {}
+
+pub struct Immutable;
+impl ResourceMutability for Immutable {}
+
+pub struct Mutable;
+impl ResourceMutability for Mutable {}

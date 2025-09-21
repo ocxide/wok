@@ -2,10 +2,11 @@ use crate::{CompileError, derime, span_compile_error};
 use quote::quote;
 use syn::{Index, Lifetime, spanned::Spanned};
 
-#[derive(Debug, PartialEq, Eq)]
-enum Usage {
+#[derive(Debug, PartialEq, Eq, Default)]
+pub enum Usage {
     Core,
     Lib,
+    #[default]
     Crate,
 }
 
@@ -15,7 +16,7 @@ impl derime::ReprValue for Usage {
     }
 }
 
-struct StaticErr(&'static str);
+pub struct StaticErr(&'static str);
 
 impl std::fmt::Display for StaticErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,10 +43,10 @@ fn get_usage(attrs: &[syn::Attribute]) -> Result<Usage, CompileError> {
         attrs,
         derime::OptionalAttr((
             derime::KeyIdent("usage"),
-            derime::IdentValue::<Usage>::new(),
+            derime::IdentValueParser::<Usage>::new(),
         )),
     )?
-    .unwrap_or(Usage::Crate);
+    .unwrap_or_default();
 
     Ok(usage)
 }

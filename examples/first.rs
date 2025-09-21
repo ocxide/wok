@@ -1,13 +1,11 @@
 #![allow(unused)]
 use wok::prelude::*;
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 struct State {}
-impl Resource for State {}
 
-#[derive(Clone)]
+#[derive(Resource)]
 struct State2 {}
-impl Resource for State2 {}
 
 async fn single() {}
 async fn single_in(_input: In<u32>) {}

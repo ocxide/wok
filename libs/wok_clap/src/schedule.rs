@@ -14,11 +14,12 @@ use crate::router::{ClapHandler, HandlerIn, HandlerOut, Router};
 
 pub use sub_routes::SubRoutes;
 
+#[derive(Resource)]
+#[resource(mutable = true)]
 pub struct CommandRoot(pub Option<clap::Command>);
-impl Resource for CommandRoot {}
 
+#[derive(Resource)]
 pub struct MainHandler(pub SystemId, pub ClapHandler);
-impl Resource for MainHandler {}
 
 pub struct Main;
 impl ScheduleLabel for Main {}

@@ -28,12 +28,12 @@ impl LockingGateway {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
+#[resource(usage = lib)]
 pub struct WeakLockingGateway {
     locker: async_channel::WeakSender<LockRequest>,
     releaser: WeakSystemReleaser,
 }
-impl Resource for WeakLockingGateway {}
 
 impl WeakLockingGateway {
     pub fn upgrade(&self) -> Option<LockingGateway> {

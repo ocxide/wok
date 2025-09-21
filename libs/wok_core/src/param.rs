@@ -1,7 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
 use crate::{
-    any_handle::{Handle, HandleMut}, prelude::Resource, resources::ResourceId, world::{access::SystemLock, UnsafeWorldState}
+    any_handle::{Handle, HandleMut},
+    prelude::Resource,
+    resources::{Mutable, ResourceId},
+    world::{UnsafeWorldState, access::SystemLock},
 };
 
 pub trait Param: Send {
@@ -115,21 +118,21 @@ impl<R: Resource> Param for Res<'_, R> {
     }
 }
 
-pub struct ResMut<'r, R: Resource>(&'r mut R);
+pub struct ResMut<'r, R: Resource<Mutability = Mutable>>(&'r mut R);
 
-impl<'r, R: Resource> AsRef<R> for ResMut<'r, R> {
+impl<'r, R: Resource<Mutability = Mutable>> AsRef<R> for ResMut<'r, R> {
     fn as_ref(&self) -> &R {
         self.0
     }
 }
 
-impl<'r, R: Resource> AsMut<R> for ResMut<'r, R> {
+impl<'r, R: Resource<Mutability = Mutable>> AsMut<R> for ResMut<'r, R> {
     fn as_mut(&mut self) -> &mut R {
         self.0
     }
 }
 
-impl<R: Resource> Deref for ResMut<'_, R> {
+impl<R: Resource<Mutability = Mutable>> Deref for ResMut<'_, R> {
     type Target = R;
 
     #[inline]
@@ -138,14 +141,14 @@ impl<R: Resource> Deref for ResMut<'_, R> {
     }
 }
 
-impl<R: Resource> DerefMut for ResMut<'_, R> {
+impl<R: Resource<Mutability = Mutable>> DerefMut for ResMut<'_, R> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0
     }
 }
 
-impl<R: Resource> Param for ResMut<'_, R> {
+impl<R: Resource<Mutability = Mutable>> Param for ResMut<'_, R> {
     type Owned = HandleMut<R>;
     type AsRef<'r> = ResMut<'r, R>;
 
@@ -193,7 +196,7 @@ impl<R: Resource> Param for Option<Res<'_, R>> {
     }
 }
 
-impl<R: Resource> Param for Option<ResMut<'_, R>> {
+impl<R: Resource<Mutability = Mutable>> Param for Option<ResMut<'_, R>> {
     type Owned = Option<<ResMut<'static, R> as Param>::Owned>;
     type AsRef<'r> = Option<ResMut<'r, R>>;
 

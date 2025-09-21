@@ -9,13 +9,12 @@ use wok_core::{
 
 use wok_core::async_executor::AsyncExecutor;
 
-#[derive(Default)]
+#[derive(Default, Resource)]
+#[resource(usage = lib, mutable = true)]
 struct StartupSystems {
     systems: SystemsMap<(), Result<(), WokUnknownError>>,
     pendings: Vec<SystemId>,
 }
-
-impl Resource for StartupSystems {}
 
 #[derive(Copy, Clone)]
 pub struct Startup;

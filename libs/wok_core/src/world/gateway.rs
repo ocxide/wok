@@ -44,9 +44,9 @@ mod remote {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Resource)]
+    #[resource(usage = core)]
     pub struct WeakSystemReleaser(mpsc::WeakSender<SystemId>);
-    impl Resource for WeakSystemReleaser {}
 
     impl WeakSystemReleaser {
         pub fn upgrade(&self) -> Option<SystemReleaser> {

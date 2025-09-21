@@ -11,9 +11,9 @@ use crate::{app::App, plugin::Plugin, remote_gateway::RemoteWorldRef};
 pub struct Run;
 impl ScheduleLabel for Run {}
 
-#[derive(Default)]
+#[derive(Default, Resource)]
+#[resource(usage = lib, mutable = true)]
 pub struct RunSystems(Systems<(), Result<(), WokUnknownError>>);
-impl Resource for RunSystems {}
 
 #[doc(hidden)]
 pub struct FallibleRun;

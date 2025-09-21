@@ -13,7 +13,7 @@ pub mod prelude {
     pub use crate::commands::{Command, Commands};
     pub use crate::error::WokUnknownError;
     pub use crate::param::*;
-    pub use crate::resources::Resource;
+    pub use crate::resources::{Resource, Immutable, Mutable};
     pub use crate::system::*;
     pub use crate::world::{ConfigureWorld, World, WorldState, UnsafeWorldState};
     pub use wok_derive::Param;

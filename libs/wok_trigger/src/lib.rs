@@ -9,6 +9,8 @@ use wok_core::{
 
 pub trait Event: Send + Sync + 'static {}
 
+#[derive(Resource)]
+#[resource(usage = lib)]
 pub struct EventTrigger<T: Event> {
     sender: mpsc::Sender<T>,
 }
@@ -19,10 +21,9 @@ impl<T: Event> EventTrigger<T> {
     }
 }
 
-impl<E: Event> Resource for EventTrigger<E> {}
-
+#[derive(Resource)]
+#[resource(usage = lib)]
 struct EventHandler<E: Event>(TaskSystemEntry<In<E>, ()>);
-impl<E: Event> Resource for EventHandler<E> {}
 
 pub struct Events;
 impl ScheduleLabel for Events {}

@@ -9,8 +9,9 @@ pub use single_route::*;
 
 type Router = axum::Router<RemoteWorldPorts>;
 
+#[derive(Resource)]
+#[resource(mutable = true)]
 pub struct RouterRoot(Option<Router>);
-impl Resource for RouterRoot {}
 
 /// Axum integration plugin
 /// Setups basics resources for Axum integration, use before any other Axum plugins & Route
@@ -343,9 +344,8 @@ mod handler {
     }
 }
 
+#[derive(Resource)]
 pub struct SocketAddrs(Vec<std::net::SocketAddr>);
-
-impl Resource for SocketAddrs {}
 
 impl SocketAddrs {
     pub async fn new(addr: impl tokio::net::ToSocketAddrs) -> std::io::Result<Self> {

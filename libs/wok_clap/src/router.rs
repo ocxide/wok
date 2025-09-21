@@ -10,12 +10,12 @@ pub type ClapHandler = DynSystem<HandlerIn, HandlerOut>;
 pub type HandlerIn = InRef<'static, ArgMatches>;
 pub type HandlerOut = Result<Result<(), WokUnknownError>, clap::error::Error>;
 
-#[derive(Default)]
+#[derive(Default, Resource)]
+#[resource(mutable = true)]
 pub struct Router {
     pub routes: HashMap<Box<[&'static str]>, (SystemId, ClapHandler)>,
 }
 
-impl Resource for Router {}
 impl Router {
     pub fn add(
         &mut self,

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::param::Param;
 use crate::prelude::Resource;
-use crate::resources::Resources;
+use crate::resources::{Resources, Immutable};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
 use crate::system::System;
 
@@ -61,7 +61,9 @@ impl WorldState {
 }
 
 pub struct WeakState(std::sync::Weak<UnsafeWorldState>);
-impl Resource for WeakState {}
+impl Resource for WeakState {
+    type Mutability = Immutable;
+}
 
 impl WeakState {
     pub fn upgrade(&self) -> Option<Arc<UnsafeWorldState>> {
