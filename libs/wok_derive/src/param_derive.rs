@@ -61,9 +61,16 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
     };
 
     let thing_name = &ast.ident;
-    let trait_path = quote! { Param };
 
     let usage = get_usage(&ast.attrs)?;
+
+    let param_path = match usage {
+        Usage::Core => quote! { crate::param },
+        Usage::Lib => quote! { wok_core::prelude },
+        Usage::Crate => quote! { wok::prelude },
+    };
+
+    let trait_path = quote! { #param_path::Param };
 
     let rw = match usage {
         Usage::Core => quote! { crate::world::SystemLock },
@@ -75,6 +82,12 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
         Usage::Core => quote! { crate::prelude::UnsafeWorldState },
         Usage::Lib => quote! { wok_core::prelude::UnsafeWorldState },
         Usage::Crate => quote! { wok::prelude::UnsafeWorldState },
+    };
+
+    let field_types = match &struct_data.fields {
+        syn::Fields::Unit => vec![],
+        syn::Fields::Named(fields) => fields.named.iter().map(|field| &field.ty).collect(),
+        syn::Fields::Unnamed(fields) => fields.unnamed.iter().map(|field| &field.ty).collect(),
     };
 
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
@@ -269,6 +282,14 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
 
     let mut reborrow_generics = ast.generics.clone();
 
+    let mut readonly_generics = ast.generics.clone();
+    let readonly_where_clause = readonly_generics.make_where_clause();
+    for ty in field_types {
+        readonly_where_clause
+            .predicates
+            .push(syn::parse_quote! { #ty: #param_path::ReadonlyParam });
+    }
+
     let altern_lifetime = {
         let ident = match &ast.generics.lifetimes().next() {
             Some(lifetime) if lifetime.lifetime.ident == "p" => "'w",
@@ -282,6 +303,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
         lifetime.lifetime = altern_lifetime.clone();
     }
     let (_, reborrow_ty_generics, _) = reborrow_generics.split_for_impl();
+
 
     let output = quote! {
         impl #impl_generics #trait_path for #thing_name #ty_generics #where_clause {
@@ -304,6 +326,8 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
                 #from_owned_impl
             }
         }
+
+        impl #impl_generics #param_path::ReadonlyParam for #thing_name #ty_generics #readonly_where_clause {}
     };
 
     Ok(output)

@@ -2,10 +2,14 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{
     any_handle::{Handle, HandleMut},
-    prelude::Resource,
+    prelude::{Immutable, Resource},
     resources::{Mutable, ResourceId},
-    world::{UnsafeWorldState, access::SystemLock},
+    world::{access::SystemLock, UnsafeWorldState},
 };
+
+/// # Safety
+/// Caller must ensure the access is indeed read-only
+pub trait ReadonlyParam: Param {}
 
 pub trait Param: Send {
     type Owned: Sync + Send + 'static;
@@ -117,6 +121,10 @@ impl<R: Resource> Param for Res<'_, R> {
         Res((*handle).as_ref())
     }
 }
+
+// # Safety
+// We know the param is read-only since resource is immutable
+impl<R: Resource<Mutability = Immutable>> ReadonlyParam for Res<'_, R> {}
 
 pub struct ResMut<'r, R: Resource<Mutability = Mutable>>(&'r mut R);
 

@@ -1,7 +1,7 @@
 use crate::prelude::Param;
 use std::{collections::VecDeque, sync::Arc};
 
-use futures::{channel::oneshot, FutureExt};
+use futures::{FutureExt, channel::oneshot};
 use wok_core::{
     prelude::{DynSystem, ProtoSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
     runtime::RuntimeAddon,
