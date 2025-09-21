@@ -13,6 +13,12 @@ type Router = axum::Router<RemoteWorldPorts>;
 #[resource(mutable = true)]
 pub struct RouterRoot(Option<Router>);
 
+impl Default for RouterRoot {
+    fn default() -> Self {
+        Self(Some(Router::default()))
+    }
+}
+
 /// Axum integration plugin
 /// Setups basics resources for Axum integration, use before any other Axum plugins & Route
 /// .add_system
@@ -30,7 +36,55 @@ pub struct AxumPlugin;
 
 impl Plugin for AxumPlugin {
     fn setup(self, app: &mut wok::prelude::App) {
-        app.insert_resource(RouterRoot(Some(Router::new())));
+        app.init_resource::<RouterRoot>();
+    }
+}
+
+/// Axum scope plugin
+/// Nest routes within a route scope
+/// ```rust
+/// use wok::prelude::*;
+/// use wok_axum::{AxumPlugin, AxumNestPlugin, Route, get};
+/// 
+/// App::default()
+///     .add_plugin(AxumPlugin)
+///     .add_plugin(MyRoutes)
+///     .add_plugin(AxumNestPlugin("/api", MyRoutes));
+///
+/// struct MyRoutes;
+/// impl Plugin for MyRoutes {
+///     fn setup(self, app: &mut wok::prelude::App) {
+///         app.add_system(Route("/"), get(my_handler));
+///     }
+/// }
+///
+/// async fn my_handler() {}
+pub struct AxumNestPlugin<P: Plugin>(pub &'static str, pub P);
+
+impl<P: Plugin> Plugin for AxumNestPlugin<P> {
+    fn setup(self, app: &mut wok::prelude::App) {
+        let parent = app
+            .world_mut()
+            .state
+            .take_resource::<RouterRoot>()
+            .expect("missing previous `AxumPlugin`");
+
+        app.init_resource::<RouterRoot>();
+        app.add_plugin(self.1);
+
+        let child = app
+            .world_mut()
+            .state
+            .take_resource::<RouterRoot>()
+            .expect("Unexpected state, not recovering `RouterRoot` is not allowed");
+
+        let (Some(parent_router), Some(child_router)) = (parent.0, child.0) else {
+            panic!("Unexpected state, `RouterRoot` is not defined");
+        };
+
+        let new_router = parent_router.nest(self.0, child_router);
+
+        app.insert_resource(RouterRoot(Some(new_router)));
     }
 }
 
