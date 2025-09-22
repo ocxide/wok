@@ -9,7 +9,7 @@ use wok_core::{
 
 pub trait Event: Send + Sync + 'static {}
 
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 #[resource(usage = lib)]
 pub struct EventTrigger<T: Event> {
     sender: mpsc::Sender<T>,

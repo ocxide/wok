@@ -2,6 +2,10 @@
 name = "wok"
 version = "0.1.0"
 edition = "2024"
+description = "A framework for building async composable applications"
+repository = "https://github.com/ocxide/wok"
+readme = "README.md"
+keywords = ["wok", "async", "framework"]
 
 [workspace]
 members = [ 
