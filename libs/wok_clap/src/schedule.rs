@@ -2,7 +2,7 @@ use clap::{ArgMatches, Args, FromArgMatches};
 use wok::prelude::{ConfigureWorld, ResMut};
 use wok_core::{
     prelude::{
-        In, InRef, IntoBlockingSystem, IntoSystem, WokUnknownError, ProtoSystem, Resource, System,
+        In, InRef, IntoBlockingSystem, IntoSystem, WokUnknownError, ProtoTaskSystem, Resource, System,
         TaskSystem,
     },
     schedule::{ScheduleConfigure, ScheduleLabel},
@@ -40,7 +40,7 @@ where
 
 fn make_route_handler<Arg: FromArgMatches + Send + Sync + 'static, Marker>(
     system: impl IntoSystem<Marker, System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>>,
-) -> impl TaskSystem<In = HandlerIn, Out = HandlerOut> + ProtoSystem {
+) -> impl TaskSystem<In = HandlerIn, Out = HandlerOut> + ProtoTaskSystem {
     (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
         .try_then(system)
         .into_system()

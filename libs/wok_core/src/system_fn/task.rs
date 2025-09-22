@@ -4,7 +4,7 @@ use impls::{ParamBorrow, ParamOwned};
 
 use crate::{
     param::Param,
-    system::{IntoSystem, ProtoSystem, System, SystemIn, SystemInput},
+    system::{IntoSystem, ProtoTaskSystem, System, SystemIn, SystemInput},
 };
 
 pub struct FunctionSystem<Marker, F> {
@@ -60,7 +60,7 @@ where
     }
 }
 
-impl<Marker, Func> ProtoSystem for FunctionSystem<Marker, Func>
+impl<Marker, Func> ProtoTaskSystem for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
     Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,

@@ -6,7 +6,7 @@ use super::{IntoBlockingSystem, System, SystemIn, SystemInput, combinators::Into
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
-pub type DynSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>;
+pub type DynTaskSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>;
 
 // Dyn compatible
 pub trait TaskSystem: System {
@@ -53,7 +53,7 @@ impl<In: SystemInput + 'static, Out: Send + Sync + 'static> SystemTask<In, Out> 
 }
 
 // Allow zero-cost abstraction
-pub trait ProtoSystem: System + Clone {
+pub trait ProtoTaskSystem: System + Clone {
     type Param: Param;
 
     fn run<'i>(
@@ -64,7 +64,7 @@ pub trait ProtoSystem: System + Clone {
 }
 
 pub trait IntoSystem<Marker> {
-    type System: System + TaskSystem + ProtoSystem;
+    type System: System + TaskSystem + ProtoTaskSystem;
 
     fn into_system(self) -> Self::System;
     fn map<S2, Marker2>(self, system: S2) -> IntoMapSystem<Self, S2>
@@ -80,7 +80,7 @@ pub trait IntoSystem<Marker> {
     }
 }
 
-impl<S: ProtoSystem> TaskSystem for S {
+impl<S: ProtoTaskSystem> TaskSystem for S {
     unsafe fn run_owned<'i>(
         self,
         state: &UnsafeWorldState,
@@ -106,7 +106,7 @@ impl<S: ProtoSystem> TaskSystem for S {
     }
 }
 
-impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System for DynSystem<In, Out> {
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System for DynTaskSystem<In, Out> {
     type In = In;
     type Out = Out;
 
@@ -115,7 +115,7 @@ impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System for DynSystem
     }
 }
 
-impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystem for DynSystem<In, Out> {
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystem for DynTaskSystem<In, Out> {
     unsafe fn run<'i>(
         &self,
         state: &UnsafeWorldState,

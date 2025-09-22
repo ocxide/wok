@@ -82,7 +82,7 @@ mod remote {
 
     impl<'w> RemoteWorldMut<'w> {
         pub fn create_world_mut(&'w mut self) -> WorldMut<'w> {
-            self.world_mut.duplicate()
+            self.world_mut.reborrow()
         }
 
         pub fn world_mut(&mut self) -> &mut WorldMut<'w> {
@@ -110,7 +110,7 @@ mod remote {
 
         pub fn duplicate(&'w mut self) -> Self {
             Self {
-                world_mut: self.world_mut.duplicate(),
+                world_mut: self.world_mut.reborrow(),
                 releaser: self.releaser,
             }
         }
@@ -122,7 +122,9 @@ mod local {
 
     use crate::{
         param::Param,
-        system::{ProtoSystem, SystemIn, SystemTask, TaskSystem},
+        system::{
+            BlockingCaller, BlockingSystem, ProtoTaskSystem, SystemIn, SystemTask, TaskSystem,
+        },
         world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldSystemLockError},
     };
 
@@ -134,7 +136,7 @@ mod local {
     }
 
     impl<'w> WorldMut<'w> {
-        pub fn duplicate(&'w mut self) -> Self {
+        pub fn reborrow(&'w mut self) -> Self {
             Self {
                 state: self.state,
                 locks: self.locks,
@@ -174,6 +176,13 @@ mod local {
 
         pub fn local_tasks(&'w mut self) -> LocalTasks<'w> {
             LocalTasks(WorldMut {
+                state: self.state,
+                locks: self.locks,
+            })
+        }
+
+        pub fn local_inline(&'w mut self) -> LocalInline<'w> {
+            LocalInline(WorldMut {
                 state: self.state,
                 locks: self.locks,
             })
@@ -247,7 +256,7 @@ mod local {
             input: SystemIn<'i, S>,
         ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
         where
-            S: ProtoSystem,
+            S: ProtoTaskSystem,
         {
             if self.0.locks.try_lock(system.id).is_err() {
                 return Err(input);
@@ -256,20 +265,52 @@ mod local {
             // Safety: Already checked with locks
             let param = unsafe { S::Param::get(self.0.state) };
 
-            let fut = <S as ProtoSystem>::run(system.system.clone(), param, input);
+            let fut = <S as ProtoTaskSystem>::run(system.system.clone(), param, input);
             let id = system.id;
             Ok(fut.map(move |out| (id, out)))
+        }
+    }
+
+    pub struct LocalInline<'w>(pub WorldMut<'w>);
+    impl<'w> LocalInline<'w> {
+        pub fn create_caller<S>(
+            &mut self,
+            system: SystemEntryRef<'_, S>,
+        ) -> Result<BlockingCaller<S::In, S::Out>, WorldSystemLockError>
+        where
+            S: BlockingSystem,
+        {
+            self.0.locks.try_lock(system.id)?;
+
+            // Safety: Already checked with locks
+            Ok(unsafe { system.system.create_caller(self.0.state) })
+        }
+
+        pub fn run_dyn<'i, S>(
+            &mut self,
+            system: SystemEntryRef<'i, S>,
+            input: SystemIn<'i, S>,
+        ) -> Result<S::Out, SystemIn<'i, S>>
+        where
+            S: BlockingSystem,
+        {
+            if self.0.locks.try_lock(system.id).is_err() {
+                return Err(input);
+            };
+
+            // Safety: Already checked with locks
+            Ok(unsafe { system.system.run(self.0.state, input) })
         }
     }
 }
 
 mod system_entry {
     use crate::{
-        system::{DynSystem, System, TaskSystem},
+        system::{DynTaskSystem, System, TaskSystem},
         world::{SystemId, SystemLock},
     };
 
-    pub type TaskSystemEntry<In, Out> = SystemEntry<DynSystem<In, Out>>;
+    pub type TaskSystemEntry<In, Out> = SystemEntry<DynTaskSystem<In, Out>>;
 
     pub struct SystemEntryRef<'s, S> {
         pub system: &'s S,
@@ -308,7 +349,7 @@ mod system_entry {
         }
     }
 
-    pub type TaskSystemDraft<In, Out> = SystemDraft<DynSystem<In, Out>>;
+    pub type TaskSystemDraft<In, Out> = SystemDraft<DynTaskSystem<In, Out>>;
 
     pub struct SystemDraft<S> {
         pub(crate) system: S,

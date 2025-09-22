@@ -12,6 +12,11 @@ pub trait AsyncExecutor: Send + Sync + 'static {
     where
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static;
+
+    fn spawn_blocking<Func, Out>(&self, func: Func) -> Self::JoinHandle<Out>
+    where
+        Func: FnOnce() -> Out + Send + 'static,
+        Out: Send + 'static;
 }
 
 pub struct FutSpawnError;

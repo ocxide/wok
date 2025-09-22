@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use futures::{FutureExt, channel::oneshot};
 use wok_core::{
-    prelude::{DynSystem, ProtoSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
+    prelude::{DynTaskSystem, ProtoTaskSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
     runtime::RuntimeAddon,
     world::{
         SystemId, UnsafeWorldState, WeakState,
@@ -129,11 +129,11 @@ pub struct SystemTaskPermit<'w, S>(SystemPermit<'w, S>);
 impl<'w, S> SystemTaskPermit<'w, S> {
     pub fn run<'i>(self, input: SystemIn<'i, S>) -> impl Future<Output = S::Out> + Send + 'i
     where
-        S: ProtoSystem,
+        S: ProtoTaskSystem,
     {
         // Safety: Already checked with locks
         let param = unsafe { S::Param::get(self.0.state) };
-        let fut = <S as ProtoSystem>::run(self.0.system.clone(), param, input);
+        let fut = <S as ProtoTaskSystem>::run(self.0.system.clone(), param, input);
         let releaser = self.0.releaser;
 
         fut.then(move |out| async move {
@@ -145,7 +145,7 @@ impl<'w, S> SystemTaskPermit<'w, S> {
 
 // Use DynSystem instead of impl TaskSystem to prevent weird compile errors
 impl<'w, In: SystemInput + 'static, Out: Send + Sync + 'static>
-    SystemTaskPermit<'w, DynSystem<In, Out>>
+    SystemTaskPermit<'w, DynTaskSystem<In, Out>>
 {
     pub fn run_dyn<'i>(self, input: In::Inner<'i>) -> impl Future<Output = Out> + Send + 'i {
         // Safety: Already checked with locks

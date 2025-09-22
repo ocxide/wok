@@ -33,6 +33,14 @@ pub mod tokio {
         {
             TokioJoinHandle(self.0.spawn(fut))
         }
+
+        fn spawn_blocking<Func, Out>(&self, func: Func) -> Self::JoinHandle<Func::Output>
+        where
+            Func: FnOnce() -> Out + Send + 'static,
+            Out: Send + 'static,
+        {
+            TokioJoinHandle(self.0.spawn_blocking(func))
+        }
     }
 
     pub struct TokioJoinHandle<Out: Send + 'static>(tokio::task::JoinHandle<Out>);

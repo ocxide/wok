@@ -10,12 +10,12 @@ mod storages {
     use std::collections::HashMap;
 
     use crate::{
-        system::{DynSystem, SystemInput},
+        system::{DynTaskSystem, SystemInput},
         world::{gateway::TaskSystemEntry, SystemId},
     };
 
     pub struct SystemsMap<In: SystemInput + 'static, Out: 'static> {
-        systems: HashMap<SystemId, DynSystem<In, Out>>,
+        systems: HashMap<SystemId, DynTaskSystem<In, Out>>,
     }
 
     impl<In: SystemInput + 'static, Out: 'static> Default for SystemsMap<In, Out> {
@@ -27,7 +27,7 @@ mod storages {
     }
 
     impl<In: SystemInput + 'static, Out: 'static> SystemsMap<In, Out> {
-        pub fn add_system(&mut self, systemid: SystemId, system: DynSystem<In, Out>) {
+        pub fn add_system(&mut self, systemid: SystemId, system: DynTaskSystem<In, Out>) {
             self.systems.insert(systemid, system);
         }
 
@@ -42,7 +42,7 @@ mod storages {
         }
 
         #[inline]
-        pub fn get(&self, systemid: SystemId) -> Option<&DynSystem<In, Out>> {
+        pub fn get(&self, systemid: SystemId) -> Option<&DynTaskSystem<In, Out>> {
             self.systems.get(&systemid)
         }
     }
