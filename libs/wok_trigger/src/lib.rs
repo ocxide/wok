@@ -3,16 +3,25 @@ use wok_core::{
     prelude::{In, IntoSystem, Resource, System},
     runtime::RuntimeAddon,
     schedule::{ScheduleConfigure, ScheduleLabel},
-    world::gateway::TaskSystemEntry,
     world::ConfigureWorld,
+    world::gateway::TaskSystemEntry,
 };
 
 pub trait Event: Send + Sync + 'static {}
 
-#[derive(Resource, Clone)]
+#[derive(Resource)]
 #[resource(usage = lib)]
 pub struct EventTrigger<T: Event> {
     sender: mpsc::Sender<T>,
+}
+
+// impl Clone mannually to avoid Clone requirement on E
+impl<E: Event> Clone for EventTrigger<E> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
 }
 
 impl<T: Event> EventTrigger<T> {
@@ -57,11 +66,14 @@ impl<T: Event> RuntimeAddon for WokTriggerRuntime<T> {
             );
         };
 
-        (WokTriggerRuntime {
-            rx,
-            handler,
-            pending: None,
-        }, ())
+        (
+            WokTriggerRuntime {
+                rx,
+                handler,
+                pending: None,
+            },
+            (),
+        )
     }
 
     async fn tick(&mut self) -> Option<()> {
