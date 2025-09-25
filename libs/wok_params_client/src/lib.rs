@@ -10,7 +10,7 @@ use wok_core::{
     async_executor::AsyncExecutor,
     prelude::{BorrowMutParam, Resource},
     runtime::RuntimeAddon,
-    world::gateway::{ParamGetter, RemoteWorldMut, WorldMut},
+    world::gateway::{ParamGetter, RemoteWorldMut, WorldBorrowMut},
     world::{SystemLock, WorldState},
 };
 
@@ -176,7 +176,7 @@ impl WokParamsClientRuntime {
         )
     }
 
-    fn release(&mut self, key: ForeignParamsKey, state: &mut WorldMut<'_>) {
+    fn release(&mut self, key: ForeignParamsKey, state: &mut WorldBorrowMut<'_>) {
         if let Some(lock) = self.foreign_locks.remove_at(key.0) {
             state.locks.release_rw(&lock);
         }

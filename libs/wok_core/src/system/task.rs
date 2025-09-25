@@ -144,3 +144,30 @@ unsafe impl<In: SystemInput + 'static, Out: Send + Sync + 'static> BorrowTaskSys
     for DynTaskSystem<In, Out>
 {
 }
+
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System
+    for Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>
+{
+    type In = In;
+    type Out = Out;
+
+    fn init(&self, rw: &mut crate::world::SystemLock) {
+        self.as_ref().init(rw);
+    }
+}
+
+impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystem
+    for Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>
+{
+    unsafe fn owned_run<'i>(
+        &self,
+        state: &UnsafeMutState,
+        input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self> {
+        unsafe { TaskSystem::owned_run(self.as_ref(), state, input) }
+    }
+
+    unsafe fn owned_create_task(&self, state: &UnsafeMutState) -> SystemTask<Self::In, Self::Out> {
+        unsafe { TaskSystem::owned_create_task(self.as_ref(), state) }
+    }
+}

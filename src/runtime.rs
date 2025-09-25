@@ -8,7 +8,7 @@ use wok_core::{
     runtime::RuntimeAddon,
     world::{
         SystemId, SystemLocks, UnsafeWorldState, WorldState,
-        gateway::{SystemReleaseRx, SystemReleaser, WorldMut},
+        gateway::{SystemReleaseRx, SystemReleaser, WorldBorrowMut},
     },
 };
 
@@ -140,7 +140,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 next = foreign_fut.fuse() => {
                     if let Some(()) = next {
                         if let Some(releaser) = self.releaser.as_ref() {
-                            let mut remote = WorldMut::new(self.state, self.locks).with_remote(releaser);
+                            let mut remote = WorldBorrowMut::new(self.state, self.locks).with_remote(releaser);
                             self.foreign_rt.act(async_executor, &mut remote);
                         }
                     }
@@ -152,7 +152,7 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 addon_tick = addon_tick.fuse() => {
                     if let Some(()) = addon_tick {
                         if let Some(releaser) = self.releaser.as_ref() {
-                            let mut remote = WorldMut::new(self.state, self.locks).with_remote(releaser);
+                            let mut remote = WorldBorrowMut::new(self.state, self.locks).with_remote(releaser);
                             self.addon.act(async_executor, &mut remote);
                         }
                     }

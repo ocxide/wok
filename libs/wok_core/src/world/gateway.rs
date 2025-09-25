@@ -1,4 +1,5 @@
 pub use local::*;
+pub use owned_local::*;
 pub use remote::*;
 pub use system_entry::*;
 
@@ -8,11 +9,11 @@ mod remote {
 
     use crate::{
         prelude::Resource,
-        system::{SystemIn, BorrowTaskSystem},
+        system::{BorrowTaskSystem, SystemIn},
         world::SystemId,
     };
 
-    use super::{SystemEntryRef, WorldMut};
+    use super::{SystemEntryRef, WorldBorrowMut};
 
     #[derive(Debug, Clone)]
     pub struct ReleaseSystem {
@@ -68,7 +69,7 @@ mod remote {
     }
 
     pub struct RemoteWorldMut<'w> {
-        pub(crate) world_mut: WorldMut<'w>,
+        pub(crate) world_mut: WorldBorrowMut<'w>,
         pub(crate) releaser: &'w SystemReleaser,
     }
 
@@ -81,11 +82,11 @@ mod remote {
     }
 
     impl<'w> RemoteWorldMut<'w> {
-        pub fn create_world_mut(&'w mut self) -> WorldMut<'w> {
+        pub fn create_world_mut(&'w mut self) -> WorldBorrowMut<'w> {
             self.world_mut.reborrow()
         }
 
-        pub fn world_mut(&mut self) -> &mut WorldMut<'w> {
+        pub fn world_mut(&mut self) -> &mut WorldBorrowMut<'w> {
             &mut self.world_mut
         }
 
@@ -123,19 +124,19 @@ mod local {
     use crate::{
         param::BorrowMutParam,
         system::{
-            BlockingCaller, BlockingSystem, ProtoTaskSystem, SystemIn, SystemTask, BorrowTaskSystem,
+            BlockingCaller, BlockingSystem, BorrowTaskSystem, ProtoTaskSystem, SystemIn, SystemTask,
         },
         world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldSystemLockError},
     };
 
     use super::{RemoteWorldMut, SystemEntryRef, SystemReleaser};
 
-    pub struct WorldMut<'w> {
+    pub struct WorldBorrowMut<'w> {
         pub(crate) state: &'w UnsafeWorldState,
         pub locks: &'w mut SystemLocks,
     }
 
-    impl<'w> WorldMut<'w> {
+    impl<'w> WorldBorrowMut<'w> {
         pub fn reborrow(&'w mut self) -> Self {
             Self {
                 state: self.state,
@@ -143,7 +144,7 @@ mod local {
             }
         }
 
-        pub fn new(state: &'w UnsafeWorldState, locks: &'w mut SystemLocks) -> Self {
+        pub const fn new(state: &'w UnsafeWorldState, locks: &'w mut SystemLocks) -> Self {
             Self { state, locks }
         }
 
@@ -175,21 +176,21 @@ mod local {
         }
 
         pub fn local_tasks(&'w mut self) -> LocalTasks<'w> {
-            LocalTasks(WorldMut {
+            LocalTasks(WorldBorrowMut {
                 state: self.state,
                 locks: self.locks,
             })
         }
 
         pub fn local_inline(&'w mut self) -> LocalInline<'w> {
-            LocalInline(WorldMut {
+            LocalInline(WorldBorrowMut {
                 state: self.state,
                 locks: self.locks,
             })
         }
     }
 
-    impl WorldMut<'_> {
+    impl WorldBorrowMut<'_> {
         pub fn release(&mut self, system_id: SystemId) {
             self.locks.release(system_id);
         }
@@ -212,7 +213,7 @@ mod local {
         }
     }
 
-    pub struct LocalTasks<'w>(pub WorldMut<'w>);
+    pub struct LocalTasks<'w>(pub WorldBorrowMut<'w>);
 
     impl<'w> LocalTasks<'w> {
         pub fn run_dyn<'i, S>(
@@ -272,7 +273,7 @@ mod local {
         }
     }
 
-    pub struct LocalInline<'w>(pub WorldMut<'w>);
+    pub struct LocalInline<'w>(pub WorldBorrowMut<'w>);
     impl<'w> LocalInline<'w> {
         pub fn create_caller<S>(
             &mut self,
@@ -305,9 +306,68 @@ mod local {
     }
 }
 
+mod owned_local {
+    use futures::FutureExt;
+
+    use crate::{
+        system::{SystemIn, TaskSystem},
+        world::SystemId,
+    };
+
+    use super::{SystemEntryRef, WorldBorrowMut};
+
+    pub struct WorldMut<'w> {
+        pub(crate) state: &'w mut crate::world::WorldState,
+        pub locks: &'w mut crate::world::SystemLocks,
+    }
+
+    impl<'w> WorldMut<'w> {
+        pub const fn new(
+            state: &'w mut crate::world::WorldState,
+            locks: &'w mut crate::world::SystemLocks,
+        ) -> Self {
+            Self { state, locks }
+        }
+
+        pub const fn local_tasks(&'w mut self) -> OwnedLocalTasks<'w> {
+            OwnedLocalTasks(WorldMut {
+                state: self.state,
+                locks: self.locks,
+            })
+        }
+
+        pub const fn as_borrow(&'w mut self) -> WorldBorrowMut<'w> {
+            WorldBorrowMut::new(self.state.as_unsafe_world_state(), self.locks)
+        }
+    }
+
+    pub struct OwnedLocalTasks<'w>(pub WorldMut<'w>);
+
+    impl<'w> OwnedLocalTasks<'w> {
+        pub fn run_dyn<'i, S>(
+            &mut self,
+            system: SystemEntryRef<'_, S>,
+            input: SystemIn<'i, S>,
+        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
+        where
+            S: TaskSystem,
+        {
+            let result = self.0.locks.try_lock(system.id);
+            if result.is_err() {
+                return Err(input);
+            }
+
+            // Safety: Already checked with locks
+            let fut = unsafe { system.system.owned_run(self.0.state.as_unsafe_mut(), input) };
+            let id = system.id;
+            Ok(fut.map(move |out| (id, out)))
+        }
+    }
+}
+
 mod system_entry {
     use crate::{
-        system::{DynTaskSystem, System, BorrowTaskSystem},
+        system::{BorrowTaskSystem, DynTaskSystem, System},
         world::{SystemId, SystemLock},
     };
 

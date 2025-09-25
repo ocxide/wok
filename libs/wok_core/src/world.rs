@@ -36,9 +36,13 @@ impl WorldState {
         unsafe { P::borrow(self.as_unsafe_world_state()) }
     }
 
-    pub fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
+    pub const fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
         // Safety: by being the olny owner `&mut self`, this is allowed
         unsafe { &*(self as *const WorldState as *const UnsafeWorldState) }
+    }
+
+    pub fn as_unsafe_mut(&mut self) -> &UnsafeMutState {
+        unsafe { self.as_unsafe_world_state().as_mut() }
     }
 
     #[inline]

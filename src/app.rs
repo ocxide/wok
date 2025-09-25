@@ -4,7 +4,7 @@ use wok_core::{
     error::WokUnknownError,
     prelude::{BorrowMutParam, IntoSystem, ProtoTaskSystem, System},
     runtime::RuntimeAddon,
-    world::{ConfigureWorld, World, gateway::WorldMut},
+    world::{ConfigureWorld, World, gateway::WorldBorrowMut},
 };
 
 use crate::{
@@ -50,7 +50,7 @@ impl App {
         let system = system.into_system();
         let system = center.register_system(system);
 
-        let mut world_mut = WorldMut::new(&state, &mut center.system_locks);
+        let mut world_mut = WorldBorrowMut::new(&state, &mut center.system_locks);
         let sys_fut = match world_mut.local_tasks().run(system.entry_ref(), ()) {
             Ok(fut) => fut.map(|(id, out)| out.map(|ok| (id, ok))),
             Err(_) => return Ok(()),

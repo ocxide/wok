@@ -2,8 +2,7 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use wok_core::{
     error::WokUnknownError,
     prelude::{
-        BorrowMutParam, BorrowTaskSystem, DynBlockingSystem, DynTaskSystem, IntoBlockingSystem,
-        IntoSystem, ProtoTaskSystem, ResMut, Resource, System,
+        DynBlockingSystem, IntoBlockingSystem, IntoSystem, ResMut, Resource, System, TaskSystem,
     },
     schedule::{ScheduleConfigure, ScheduleLabel},
     world::{
@@ -20,6 +19,8 @@ struct StartupSystems {
     systems: std::collections::HashMap<SystemId, StartupSystem>,
     pendings: Vec<SystemId>,
 }
+
+type DynTaskSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>;
 
 enum StartupSystem {
     Async(DynTaskSystem<(), Result<(), WokUnknownError>>),
@@ -39,7 +40,7 @@ pub struct FallibleStartup;
 impl<Marker, S> ScheduleConfigure<S, (FallibleStartup, Marker)> for Startup
 where
     S: IntoSystem<Marker> + 'static,
-    S::System: System<In = (), Out = Result<(), WokUnknownError>> + BorrowTaskSystem,
+    S::System: System<In = (), Out = Result<(), WokUnknownError>>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.into_system();
@@ -59,7 +60,7 @@ pub struct InfallibleStartup;
 impl<Marker, S> ScheduleConfigure<S, (InfallibleStartup, Marker)> for Startup
 where
     S: IntoSystem<Marker> + 'static,
-    S::System: System<In = (), Out = ()> + ProtoTaskSystem<Param: BorrowMutParam>,
+    S::System: System<In = (), Out = ()>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.map(|| Ok(()));
@@ -180,7 +181,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 None => return false,
             };
 
-            let mut world = WorldMut::new(state.as_unsafe_world_state(), &mut center.system_locks);
+            let mut world = WorldMut::new(state, &mut center.system_locks);
 
             match system {
                 StartupSystem::Async(system) => {
@@ -198,6 +199,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
 
                 StartupSystem::Blocking(system) => {
                     let caller = match world
+                        .as_borrow()
                         .local_inline()
                         .create_caller(SystemEntryRef::new(*id, system))
                     {
@@ -216,6 +218,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 StartupSystem::Inline(system) => {
                     let id = *id;
                     let out = match world
+                        .as_borrow()
                         .local_inline()
                         .run_dyn(SystemEntryRef::new(id, system), ())
                     {
