@@ -25,7 +25,10 @@ pub async fn main() {
         );
 }
 
-async fn connect_to_db() {
+#[derive(Resource)]
+struct A;
+
+async fn connect_to_db(a: ResTake<A>) {
     // ...
 }
 

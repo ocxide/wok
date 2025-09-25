@@ -268,3 +268,51 @@ impl<R: Resource<Mutability = Mutable>> Param for Option<ResMut<'_, R>> {
 
 // We know ResMut does not modify the structure
 unsafe impl<R: Resource<Mutability = Mutable>> BorrowMutParam for Option<ResMut<'_, R>> {}
+
+pub struct ResTake<R: Resource>(R);
+
+impl<R: Resource> Deref for ResTake<R> {
+    type Target = R;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<R: Resource> DerefMut for ResTake<R> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<R: Resource> ResTake<R> {
+    pub fn into_inner(self) -> R {
+        self.0
+    }
+}
+
+impl<R: Resource> Param for ResTake<R> {
+    type Owned = Option<R>;
+    type AsRef<'r> = ResTake<R>;
+
+    fn init(rw: &mut SystemLock) {
+        if rw.register_resource_write(ResourceId::new::<R>()).is_err() {
+            panic!(
+                "Resource of type `{}` was already registered",
+                std::any::type_name::<R>()
+            );
+        }
+    }
+
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        unsafe { state.take_resource() }
+    }
+
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+        unsafe { state.take_resource() }.map(ResTake).expect("to have resource")
+    }
+
+    fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+        ResTake(owned.take().expect("to have resource"))
+    }
+}
