@@ -19,7 +19,7 @@ pub unsafe trait BorrowMutParam: Param {
     unsafe fn borrow_owned(state: &UnsafeWorldState) -> Self::Owned {
         // # Safety
         // We know this param does not remove / insert resources
-        unsafe { Self::get_owned(state.as_mut()) }
+        unsafe { Self::get_owned(state.as_unsafe_mut()) }
     }
 
     /// # Safety
@@ -27,7 +27,7 @@ pub unsafe trait BorrowMutParam: Param {
     unsafe fn borrow(state: &UnsafeWorldState) -> Self::AsRef<'_> {
         // # Safety
         // We know this param does not remove / insert resources
-        unsafe { Self::get_ref(state.as_mut()) }
+        unsafe { Self::get_ref(state.as_unsafe_mut()) }
     }
 }
 

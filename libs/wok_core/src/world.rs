@@ -42,7 +42,7 @@ impl WorldState {
     }
 
     pub fn as_unsafe_mut(&mut self) -> &UnsafeMutState {
-        unsafe { self.as_unsafe_world_state().as_mut() }
+        unsafe { self.as_unsafe_world_state().as_unsafe_mut() }
     }
 
     #[inline]
@@ -56,7 +56,7 @@ impl WorldState {
             let weak = WeakState(Arc::downgrade(&state));
             // Safety: we are the only owner
             unsafe {
-                state.as_mut().insert_resource(weak);
+                state.as_unsafe_mut().insert_resource(weak);
             }
         }
 
@@ -136,7 +136,7 @@ mod unsafe_world_state {
 
         /// # Safety
         /// The caller must ensure it is valid to take / insert resources
-        pub const unsafe fn as_mut(&self) -> &UnsafeMutState {
+        pub const unsafe fn as_unsafe_mut(&self) -> &UnsafeMutState {
             unsafe { &*(self as *const UnsafeWorldState as *const UnsafeMutState) }
         }
     }
@@ -163,6 +163,16 @@ mod unsafe_world_state {
         /// creating a UnsafeMutState already allows to insert resources
         pub unsafe fn insert_resource<R: Resource>(&self, resource: R) {
             unsafe { &mut *self.0.0.get() }.resources.insert(resource);
+        }
+
+        /// # Safety
+        /// Caller must ensure it is allowed to insert / remove resources
+        pub unsafe fn borrow_world_mut<'w>(
+            &'w self,
+            locks: &'w mut crate::world::SystemLocks,
+        ) -> crate::world::gateway::WorldMut<'w> {
+            let state = unsafe { &mut *self.0.0.get() };
+            crate::world::gateway::WorldMut::new(state, locks)
         }
     }
 }

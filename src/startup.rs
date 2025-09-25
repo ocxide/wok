@@ -199,8 +199,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
 
                 StartupSystem::Blocking(system) => {
                     let caller = match world
-                        .as_borrow()
-                        .local_inline()
+                        .local_blocking()
                         .create_caller(SystemEntryRef::new(*id, system))
                     {
                         Ok(caller) => caller,
@@ -218,8 +217,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 StartupSystem::Inline(system) => {
                     let id = *id;
                     let out = match world
-                        .as_borrow()
-                        .local_inline()
+                        .local_blocking()
                         .run_dyn(SystemEntryRef::new(id, system), ())
                     {
                         Ok(out) => out,

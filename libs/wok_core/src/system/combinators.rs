@@ -289,14 +289,21 @@ where
     }
 }
 
-impl<S1, S2> ProtoBlockingSystem for PipeBlockingSystem<S1, S2>
+impl<S1, S2> ProtoSystem for PipeBlockingSystem<S1, S2>
 where
     S1: ProtoBlockingSystem,
     S2: ProtoBlockingSystem,
     S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
 {
     type Param = (S1::Param, S2::Param);
+}
 
+impl<S1, S2> ProtoBlockingSystem for PipeBlockingSystem<S1, S2>
+where
+    S1: ProtoBlockingSystem,
+    S2: ProtoBlockingSystem,
+    S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
+{
     fn run(
         &self,
         param: <Self::Param as Param>::AsRef<'_>,

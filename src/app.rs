@@ -2,9 +2,9 @@ use futures::FutureExt;
 use wok_core::{
     async_executor::AsyncExecutor,
     error::WokUnknownError,
-    prelude::{BorrowMutParam, IntoSystem, ProtoTaskSystem, System},
+    prelude::{IntoBlockingSystem, IntoSystem, System, TaskSystem},
     runtime::RuntimeAddon,
-    world::{ConfigureWorld, World, gateway::WorldBorrowMut},
+    world::{ConfigureWorld, UnsafeMutState, World, WorldCenter, gateway::SystemEntry},
 };
 
 use crate::{
@@ -29,11 +29,7 @@ impl App {
     pub async fn run<Marker, AsyncRt: AsyncExecutor, RtAddon: RuntimeAddon>(
         self,
         cfg: RuntimeCfg<AsyncRt, RtAddon>,
-        system: impl IntoSystem<
-            Marker,
-            System: System<In = (), Out = Result<(), WokUnknownError>>
-                        + ProtoTaskSystem<Param: BorrowMutParam>,
-        >,
+        system: impl AppSystem<Marker>,
     ) -> Result<(), WokUnknownError> {
         let mut state = self.world.state;
         let mut center = self.world.center;
@@ -47,15 +43,9 @@ impl App {
             .await?;
 
         let state = state.wrap();
-        let system = system.into_system();
-        let system = center.register_system(system);
 
-        let mut world_mut = WorldBorrowMut::new(&state, &mut center.system_locks);
-        let sys_fut = match world_mut.local_tasks().run(system.entry_ref(), ()) {
-            Ok(fut) => fut.map(|(id, out)| out.map(|ok| (id, ok))),
-            Err(_) => return Ok(()),
-        };
-
+        // Safety: we are the only owner
+        let sys_fut = unsafe { system.app_run(state.as_unsafe_mut(), &mut center) };
         let sys_fut = sys_fut.map(move |out| {
             // Keep alive the gateway until the main system is done
             let _ = gateway;
@@ -73,6 +63,80 @@ impl App {
         futures::future::try_join(sys_fut, bg_fut).await?;
 
         Ok(())
+    }
+}
+
+pub trait AppSystem<Marker> {
+    /// # Safety
+    /// Caller must ensure it is the only owner
+    unsafe fn app_run(
+        self,
+        state: &UnsafeMutState,
+        center: &mut WorldCenter,
+    ) -> impl Future<Output = Result<(), WokUnknownError>> + 'static;
+}
+
+struct TaskAppSystem;
+
+impl<Marker, S> AppSystem<(Marker, TaskAppSystem)> for S
+where
+    S: IntoSystem<Marker>,
+    S::System: System<In = (), Out = Result<(), WokUnknownError>>,
+{
+    unsafe fn app_run(
+        self,
+        state: &UnsafeMutState,
+        center: &mut WorldCenter,
+    ) -> impl Future<Output = Result<(), WokUnknownError>> + 'static {
+        let system = center.register_system(self.into_system());
+        let mut world = unsafe { state.borrow_world_mut(&mut center.system_locks) };
+
+        let fut = world
+            .local_tasks()
+            .run(system.entry_ref(), ())
+            .expect("to run main app system");
+
+        fut.map(|(_, out)| out)
+    }
+}
+
+struct InlineAppSystem;
+
+impl<Marker, S, SChoice> AppSystem<(Marker, SChoice, InlineAppSystem)> for S
+where
+    SChoice: TaskSystem<In = (), Out = Result<(), WokUnknownError>> + 'static,
+    S: IntoBlockingSystem<Marker>,
+    S::System: System<In = (), Out = Result<SystemEntry<SChoice>, WokUnknownError>>,
+{
+    unsafe fn app_run(
+        self,
+        state: &UnsafeMutState,
+        center: &mut WorldCenter,
+    ) -> impl Future<Output = Result<(), WokUnknownError>> + 'static {
+        let system = center.register_system(self.into_system());
+
+        let choice_result = {
+            let mut world = unsafe { state.borrow_world_mut(&mut center.system_locks) };
+            world
+                .local_blocking()
+                .run(system.entry_ref(), ())
+                .expect("to run main app system")
+        };
+
+        let choice = match choice_result {
+            Ok(choice) => choice,
+            Err(err) => return futures::future::Either::Left(futures::future::ready(Err(err))),
+        };
+
+        let fut = {
+            let mut world = unsafe { state.borrow_world_mut(&mut center.system_locks) };
+            world
+                .local_tasks()
+                .run_dyn(choice.entry_ref(), ())
+                .expect("to run main app system")
+        };
+
+        futures::future::Either::Right(fut.map(|(_, out)| out))
     }
 }
 

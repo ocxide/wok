@@ -24,13 +24,13 @@ pub unsafe trait BorrowTaskSystem: TaskSystem {
         state: &UnsafeWorldState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self> {
-        unsafe { <Self as TaskSystem>::owned_run(self, state.as_mut(), input) }
+        unsafe { <Self as TaskSystem>::owned_run(self, state.as_unsafe_mut(), input) }
     }
 
     /// # Safety
     /// The caller must ensure no dupliated mutable access is happening
     unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out> {
-        unsafe { <Self as TaskSystem>::owned_create_task(self, state.as_mut()) }
+        unsafe { <Self as TaskSystem>::owned_create_task(self, state.as_unsafe_mut()) }
     }
 }
 

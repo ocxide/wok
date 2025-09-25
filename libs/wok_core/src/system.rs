@@ -27,15 +27,16 @@ pub use blocking::*;
 pub mod blocking {
     use crate::{
         param::{BorrowMutParam, Param},
-        world::UnsafeWorldState,
+        world::{UnsafeMutState, UnsafeWorldState},
     };
 
     use super::{
-        IntoSystem, System, SystemIn, SystemInput,
+        IntoSystem, ProtoSystem, System, SystemIn, SystemInput,
         combinators::{IntoPipeBlockingSystem, IntoPipeThenSystem, IntoTryThenSystem},
     };
 
-    pub type DynBlockingSystem<In, Out> = Box<dyn BlockingSystem<In = In, Out = Out> + Send + Sync>;
+    pub type DynBlockingSystem<In, Out> =
+        Box<dyn BlockingSystem<In = In, Out = Out> + Send + Sync>;
 
     pub struct BlockingCaller<In: SystemInput + 'static, Out>(
         #[allow(clippy::type_complexity)] Box<dyn for<'i> FnOnce(In::Inner<'i>) -> Out + Send>,
@@ -50,18 +51,36 @@ pub mod blocking {
     pub trait BlockingSystem: System {
         /// # Safety
         /// The caller must ensure no duplicated mutable access is happening
-        unsafe fn run(&self, state: &UnsafeWorldState, input: SystemIn<'_, Self>) -> Self::Out;
+        unsafe fn run(&self, state: &UnsafeMutState, input: SystemIn<'_, Self>) -> Self::Out;
 
         /// # Safety
         /// The caller must ensure no duplicated mutable access is happening
         unsafe fn create_caller(
             &self,
-            state: &UnsafeWorldState,
+            state: &UnsafeMutState,
         ) -> BlockingCaller<Self::In, Self::Out>;
     }
 
-    pub trait ProtoBlockingSystem: System + Clone {
-        type Param: BorrowMutParam;
+    /// # Safety
+    /// The caller must ensure no duplicated mutable access is happening
+    pub unsafe trait BlockingBorrowSystem: BlockingSystem {
+        /// # Safety
+        /// The caller must ensure no duplicated mutable access is happening
+        unsafe fn run_ref(&self, state: &UnsafeWorldState, input: SystemIn<'_, Self>) -> Self::Out {
+            unsafe { <Self as BlockingSystem>::run(self, state.as_unsafe_mut(), input) }
+        }
+
+        /// # Safety
+        /// The caller must ensure no duplicated mutable access is happening
+        unsafe fn create_caller_ref(
+            &self,
+            state: &UnsafeWorldState,
+        ) -> BlockingCaller<Self::In, Self::Out> {
+            unsafe { <Self as BlockingSystem>::create_caller(self, state.as_unsafe_mut()) }
+        }
+    }
+
+    pub trait ProtoBlockingSystem: ProtoSystem + Clone {
         fn run(
             &self,
             param: <Self::Param as Param>::AsRef<'_>,
@@ -70,22 +89,24 @@ pub mod blocking {
     }
 
     impl<S: ProtoBlockingSystem> BlockingSystem for S {
-        unsafe fn run(&self, state: &UnsafeWorldState, input: SystemIn<'_, Self>) -> Self::Out {
-            let param = unsafe { S::Param::borrow(state) };
+        unsafe fn run(&self, state: &UnsafeMutState, input: SystemIn<'_, Self>) -> Self::Out {
+            let param = unsafe { S::Param::get_ref(state) };
             self.run(param, input)
         }
 
         unsafe fn create_caller(
             &self,
-            state: &UnsafeWorldState,
+            state: &UnsafeMutState,
         ) -> BlockingCaller<Self::In, Self::Out> {
-            let mut param = unsafe { S::Param::borrow_owned(state) };
+            let mut param = unsafe { S::Param::get_owned(state) };
             let this = self.clone();
             BlockingCaller(Box::new(move |input| {
                 this.run(S::Param::from_owned(&mut param), input)
             }))
         }
     }
+
+    unsafe impl<S: ProtoBlockingSystem> BlockingBorrowSystem for S where S::Param: BorrowMutParam {}
 
     pub trait IntoBlockingSystem<Marker> {
         type System: ProtoBlockingSystem + BlockingSystem;
@@ -147,13 +168,13 @@ pub mod blocking {
     impl<In: SystemInput + 'static, Out: Send + Sync + 'static> BlockingSystem
         for DynBlockingSystem<In, Out>
     {
-        unsafe fn run(&self, state: &UnsafeWorldState, input: SystemIn<'_, Self>) -> Self::Out {
+        unsafe fn run(&self, state: &UnsafeMutState, input: SystemIn<'_, Self>) -> Self::Out {
             unsafe { self.as_ref().run(state, input) }
         }
 
         unsafe fn create_caller(
             &self,
-            state: &UnsafeWorldState,
+            state: &UnsafeMutState,
         ) -> BlockingCaller<Self::In, Self::Out> {
             unsafe { self.as_ref().create_caller(state) }
         }
