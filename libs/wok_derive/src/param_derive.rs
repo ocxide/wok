@@ -79,9 +79,9 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
     };
 
     let world = match usage {
-        Usage::Core => quote! { crate::prelude::UnsafeWorldState },
-        Usage::Lib => quote! { wok_core::prelude::UnsafeWorldState },
-        Usage::Crate => quote! { wok::prelude::UnsafeWorldState },
+        Usage::Core => quote! { crate::prelude::UnsafeMutState },
+        Usage::Lib => quote! { wok_core::prelude::UnsafeMutState },
+        Usage::Crate => quote! { wok::prelude::UnsafeMutState },
     };
 
     let field_types = match &struct_data.fields {
@@ -254,7 +254,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
                 if has_default_attr(field) {
                     quote! { Default::default() }
                 } else {
-                    quote! { <#ty as #trait_path>::get(state) }
+                    quote! { <#ty as #trait_path>::get_owned(state) }
                 }
             });
 
@@ -269,7 +269,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
             let fields_map = fields.unnamed.iter().map(|field| {
                 let ty = &field.ty;
 
-                quote! { <#ty as #trait_path>::get(state) }
+                quote! { <#ty as #trait_path>::get_owned(state) }
             });
 
             quote! {
@@ -284,10 +284,18 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
 
     let mut readonly_generics = ast.generics.clone();
     let readonly_where_clause = readonly_generics.make_where_clause();
-    for ty in field_types {
+    for ty in &field_types {
         readonly_where_clause
             .predicates
             .push(syn::parse_quote! { #ty: #param_path::ReadonlyParam });
+    }
+
+    let mut borrow_mut_generics = ast.generics.clone();
+    let borrow_mut_where_clause = borrow_mut_generics.make_where_clause();
+    for ty in &field_types {
+        borrow_mut_where_clause
+            .predicates
+            .push(syn::parse_quote! { #ty: #param_path::BorrowMutParam });
     }
 
     let altern_lifetime = {
@@ -314,7 +322,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
                 #init_impls
             }
 
-            unsafe fn get(state: &#world) -> Self::Owned {
+            unsafe fn get_owned(state: &#world) -> Self::Owned {
                 unsafe { #get_owned_impl }
             }
 
@@ -327,6 +335,8 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
             }
         }
 
+        // Only impl if all fields comply
+        unsafe impl #impl_generics #param_path::BorrowMutParam for #thing_name #ty_generics #borrow_mut_where_clause {}
         impl #impl_generics #param_path::ReadonlyParam for #thing_name #ty_generics #readonly_where_clause {}
     };
 
@@ -383,11 +393,11 @@ fn single() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                unsafe fn get(state: &wok::prelude::UnsafeWorldState) -> Self::Owned {
-                    unsafe { ( <Bar<'w> as Param>::get(state), ) }
+                unsafe fn get_owned(state: &wok::prelude::UnsafeMutState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get_owned(state), ) }
                 }
 
-                unsafe fn get_ref(state: &wok::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                unsafe fn get_ref(state: &wok::prelude::UnsafeMutState) -> Self::AsRef<'_> {
                     unsafe { Foo( <Bar<'w> as Param>::get_ref(state), ) }
                 }
 
@@ -420,11 +430,11 @@ fn single_for_core() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                unsafe fn get(state: &crate::prelude::UnsafeWorldState) -> Self::Owned {
-                    unsafe { ( <Bar<'w> as Param>::get(state), ) }
+                unsafe fn get_owned(state: &crate::prelude::UnsafeMutState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get_owned(state), ) }
                 }
 
-                unsafe fn get_ref(state: &crate::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                unsafe fn get_ref(state: &crate::prelude::UnsafeMutState) -> Self::AsRef<'_> {
                     unsafe { Foo( <Bar<'w> as Param>::get_ref(state), ) }
                 }
 
@@ -458,11 +468,11 @@ fn single_for_lib() {
                     <Bar<'w> as Param>::init(rw);
                 }
 
-                unsafe fn get(state: &wok_core::prelude::UnsafeWorldState) -> Self::Owned {
-                    unsafe { ( <Bar<'w> as Param>::get(state), ) }
+                unsafe fn get_owned(state: &wok_core::prelude::UnsafeMutState) -> Self::Owned {
+                    unsafe { ( <Bar<'w> as Param>::get_owned(state), ) }
                 }
 
-                unsafe fn get_ref(state: &wok_core::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+                unsafe fn get_ref(state: &wok_core::prelude::UnsafeMutState) -> Self::AsRef<'_> {
                     unsafe { Foo( <Bar<'w> as Param>::get_ref(state), ) }
                 }
 
@@ -501,11 +511,11 @@ fn with_default() {
                 <Bar<'w> as Param>::init(rw);
             }
 
-            unsafe fn get(state: &crate::prelude::UnsafeWorldState) -> Self::Owned {
-                unsafe { ( <Bar<'w> as Param>::get(state), Default::default(), ) }
+            unsafe fn get_owned(state: &crate::prelude::UnsafeMutState) -> Self::Owned {
+                unsafe { ( <Bar<'w> as Param>::get_owned(state), Default::default(), ) }
             }
 
-            unsafe fn get_ref(state: &crate::prelude::UnsafeWorldState) -> Self::AsRef<'_> {
+            unsafe fn get_ref(state: &crate::prelude::UnsafeMutState) -> Self::AsRef<'_> {
                 unsafe { Foo { bar: <Bar<'w> as Param>::get_ref(state), _marker: Default::default(), } }
             }
 

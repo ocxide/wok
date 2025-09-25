@@ -3,7 +3,7 @@ use futures::{FutureExt, future::Either};
 use crate::param::Param;
 
 use super::{
-    IntoSystem, ProtoTaskSystem, System, SystemIn, SystemInput,
+    IntoSystem, ProtoSystem, ProtoTaskSystem, System, SystemIn, SystemInput,
     blocking::{IntoBlockingSystem, ProtoBlockingSystem},
 };
 
@@ -70,7 +70,7 @@ where
     }
 }
 
-impl<S1, S2, Ok, Err> ProtoTaskSystem for TryThenSystem<S1, S2, Ok, Err>
+impl<S1, S2, Ok, Err> ProtoSystem for TryThenSystem<S1, S2, Ok, Err>
 where
     Ok: Send + Sync + 'static,
     Err: Send + Sync + 'static,
@@ -79,7 +79,16 @@ where
     S2::In: for<'i> SystemInput<Inner<'i> = Ok>,
 {
     type Param = (S1::Param, S2::Param);
+}
 
+impl<S1, S2, Ok, Err> ProtoTaskSystem for TryThenSystem<S1, S2, Ok, Err>
+where
+    Ok: Send + Sync + 'static,
+    Err: Send + Sync + 'static,
+    S1: ProtoBlockingSystem<Out = Result<Ok, Err>>,
+    S2: ProtoTaskSystem,
+    S2::In: for<'i> SystemInput<Inner<'i> = Ok>,
+{
     fn run<'i>(
         self,
         (mut param1, param2): <Self::Param as Param>::Owned,
@@ -117,14 +126,21 @@ where
     }
 }
 
-impl<S1, S2> ProtoTaskSystem for PipeThenSystem<S1, S2>
+impl<S1, S2> ProtoSystem for PipeThenSystem<S1, S2>
 where
     S1: ProtoBlockingSystem,
     S2: ProtoTaskSystem,
     S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
 {
     type Param = (S1::Param, S2::Param);
+}
 
+impl<S1, S2> ProtoTaskSystem for PipeThenSystem<S1, S2>
+where
+    S1: ProtoBlockingSystem,
+    S2: ProtoTaskSystem,
+    S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
+{
     fn run<'i>(
         self,
         (mut param1, param2): <Self::Param as Param>::Owned,
@@ -180,14 +196,21 @@ where
     }
 }
 
-impl<S1, S2> ProtoTaskSystem for MapSystem<S1, S2>
+impl<S1, S2> ProtoSystem for MapSystem<S1, S2>
 where
     S1: ProtoTaskSystem,
     S2: ProtoBlockingSystem,
     S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
 {
     type Param = (S1::Param, S2::Param);
+}
 
+impl<S1, S2> ProtoTaskSystem for MapSystem<S1, S2>
+where
+    S1: ProtoTaskSystem,
+    S2: ProtoBlockingSystem,
+    S2::In: for<'i> SystemInput<Inner<'i> = S1::Out>,
+{
     fn run<'i>(
         self,
         (param1, mut param2): <Self::Param as Param>::Owned,
@@ -228,7 +251,8 @@ pub struct IntoPipeBlockingSystem<S1, S2> {
     pub system2: S2,
 }
 
-impl<S1, Marker1, S2, Marker2> IntoBlockingSystem<(Marker1, Marker2, IsIntoMap)> for IntoPipeBlockingSystem<S1, S2>
+impl<S1, Marker1, S2, Marker2> IntoBlockingSystem<(Marker1, Marker2, IsIntoMap)>
+    for IntoPipeBlockingSystem<S1, S2>
 where
     S1: IntoBlockingSystem<Marker1>,
     S2: IntoBlockingSystem<Marker2>,

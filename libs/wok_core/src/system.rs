@@ -7,7 +7,7 @@ mod task;
 
 pub use task::*;
 
-use crate::world::SystemLock;
+use crate::{param::Param, world::SystemLock};
 
 pub type SystemIn<'i, S> = <<S as System>::In as SystemInput>::Inner<'i>;
 
@@ -18,14 +18,21 @@ pub trait System: Send + Sync + 'static {
     fn init(&self, rw: &mut SystemLock);
 }
 
+pub trait ProtoSystem: System {
+    type Param: Param;
+}
+
 pub use blocking::*;
 
 pub mod blocking {
-    use crate::{param::{BorrowMutParam, Param}, world::UnsafeWorldState};
+    use crate::{
+        param::{BorrowMutParam, Param},
+        world::UnsafeWorldState,
+    };
 
     use super::{
         IntoSystem, System, SystemIn, SystemInput,
-        combinators::{IntoPipeThenSystem, IntoTryThenSystem, IntoPipeBlockingSystem},
+        combinators::{IntoPipeBlockingSystem, IntoPipeThenSystem, IntoTryThenSystem},
     };
 
     pub type DynBlockingSystem<In, Out> = Box<dyn BlockingSystem<In = In, Out = Out> + Send + Sync>;

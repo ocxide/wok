@@ -45,7 +45,7 @@ impl Plugin for AxumPlugin {
 /// ```rust
 /// use wok::prelude::*;
 /// use wok_axum::{AxumPlugin, AxumNestPlugin, Route, get};
-/// 
+///
 /// App::default()
 ///     .add_plugin(AxumPlugin)
 ///     .add_plugin(MyRoutes)
@@ -306,7 +306,7 @@ mod handler {
         response::IntoResponse,
     };
     use wok::{
-        prelude::{In, ProtoTaskSystem, ScopedFut, System},
+        prelude::{BorrowMutParam, In, ProtoTaskSystem, ScopedFut, System},
         remote_gateway::RemoteWorldPorts,
     };
     use wok_core::world::gateway::SystemEntry;
@@ -319,7 +319,7 @@ mod handler {
     impl<Input, RouteSystem> axum::handler::Handler<(WithReqInput, Input), RemoteWorldPorts>
         for AxumRouteSystem<RouteSystem>
     where
-        RouteSystem: ProtoTaskSystem,
+        RouteSystem: ProtoTaskSystem<Param: BorrowMutParam>,
         RouteSystem: System<In = In<Input>, Out: IntoResponse>,
         Input: FromRequest<RemoteWorldPorts> + Send + Sync + 'static,
     {
@@ -349,7 +349,7 @@ mod handler {
     impl<Input, RouteSystem> axum::handler::Handler<(WithReqPartsInput, Input), RemoteWorldPorts>
         for AxumRouteSystem<RouteSystem>
     where
-        RouteSystem: ProtoTaskSystem,
+        RouteSystem: ProtoTaskSystem<Param: BorrowMutParam>,
         RouteSystem: System<In = In<Input>, Out: IntoResponse>,
         Input: FromRequestParts<RemoteWorldPorts> + Send + Sync + 'static,
     {
@@ -378,7 +378,7 @@ mod handler {
     pub struct NoInput;
     impl<RouteSystem> axum::handler::Handler<NoInput, RemoteWorldPorts> for AxumRouteSystem<RouteSystem>
     where
-        RouteSystem: ProtoTaskSystem,
+        RouteSystem: ProtoTaskSystem<Param: BorrowMutParam>,
         RouteSystem: System<In = (), Out: IntoResponse>,
     {
         type Future = ScopedFut<'static, axum::response::Response>;

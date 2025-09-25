@@ -1,6 +1,6 @@
 use wok_core::{
     error::WokUnknownError,
-    prelude::{IntoSystem, Res, ResMut, Resource, System},
+    prelude::{BorrowMutParam, IntoSystem, ProtoTaskSystem, Res, ResMut, Resource, System},
     schedule::{ScheduleConfigure, ScheduleLabel, Systems},
     world::ConfigureWorld,
 };
@@ -21,7 +21,8 @@ pub struct FallibleRun;
 impl<Marker, S> ScheduleConfigure<S, (FallibleRun, Marker)> for Run
 where
     S: IntoSystem<Marker>,
-    S::System: System<In = (), Out = Result<(), WokUnknownError>>,
+    S::System:
+        System<In = (), Out = Result<(), WokUnknownError>> + ProtoTaskSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.into_system();
@@ -37,7 +38,7 @@ pub struct InfallibleRun;
 impl<Marker, S> ScheduleConfigure<S, (InfallibleRun, Marker)> for Run
 where
     S: IntoSystem<Marker>,
-    S::System: System<In = (), Out = ()>,
+    S::System: System<In = (), Out = ()> + ProtoTaskSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         self.add(world, system.map(|| Ok(())));

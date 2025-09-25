@@ -1,14 +1,14 @@
 use clap::{ArgMatches, Args, FromArgMatches};
-use wok::prelude::{ConfigureWorld, ResMut};
+use one_route::OneRoute;
+use wok::prelude::{BorrowMutParam, ConfigureWorld, ProtoSystem, ResMut};
 use wok_core::{
     prelude::{
-        In, InRef, IntoBlockingSystem, IntoSystem, WokUnknownError, ProtoTaskSystem, Resource, System,
-        BorrowTaskSystem,
+        BorrowTaskSystem, In, InRef, IntoBlockingSystem, IntoSystem, ProtoTaskSystem, Resource,
+        System, WokUnknownError,
     },
     schedule::{ScheduleConfigure, ScheduleLabel},
     world::{SystemId, WorldCenter},
 };
-use one_route::OneRoute;
 
 use crate::router::{ClapHandler, HandlerIn, HandlerOut, Router};
 
@@ -28,7 +28,8 @@ impl<Arg: FromArgMatches + Send + Sync + 'static, S, Marker> ScheduleConfigure<S
 where
     S: IntoSystem<Marker>,
     S: 'static,
-    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>,
+    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>
+        + ProtoTaskSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = make_route_handler(system);
@@ -39,8 +40,12 @@ where
 }
 
 fn make_route_handler<Arg: FromArgMatches + Send + Sync + 'static, Marker>(
-    system: impl IntoSystem<Marker, System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>>,
-) -> impl BorrowTaskSystem<In = HandlerIn, Out = HandlerOut> + ProtoTaskSystem {
+    system: impl IntoSystem<
+        Marker,
+        System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>
+                    + ProtoSystem<Param: BorrowMutParam>,
+    >,
+) -> impl BorrowTaskSystem<In = HandlerIn, Out = HandlerOut> + ProtoSystem<Param: BorrowMutParam> {
     (|matches: InRef<'_, ArgMatches>| Arg::from_arg_matches(&matches))
         .try_then(system)
         .into_system()
@@ -72,7 +77,7 @@ impl<Arg, S, Marker> ScheduleConfigure<S, (Arg, Marker, SingleRoute)> for Route
 where
     Arg: FromArgMatches + Args + Send + Sync + 'static,
     S: IntoSystem<Marker>,
-    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>,
+    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>> + ProtoSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         self.command().add(world, system);
@@ -96,7 +101,7 @@ impl<Arg, S, Marker> ScheduleConfigure<S, (Arg, Marker, SingleRoute)> for RouteC
 where
     Arg: FromArgMatches + Args + Send + Sync + 'static,
     S: IntoSystem<Marker>,
-    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>,
+    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>> + ProtoSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let route = OneRoute::new(system);
@@ -222,7 +227,7 @@ impl<C: ConfigureRoute> SubRoute<C> {
 
 mod sub_routes {
     use clap::{Args, FromArgMatches};
-    use wok::prelude::{In, IntoSystem, WokUnknownError, System};
+    use wok::prelude::{BorrowMutParam, In, IntoSystem, ProtoSystem, System, WokUnknownError};
     use wok_core::world::WorldCenter;
 
     use crate::router::Router;
@@ -268,7 +273,11 @@ mod sub_routes {
         ) -> SubRoutes<impl ConfigureRoutesSet<Cardinality = cardinality::OneOrMore>>
         where
             Arg: FromArgMatches + Args + Send + Sync + 'static,
-            S: IntoSystem<Marker, System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>>,
+            S: IntoSystem<
+                    Marker,
+                    System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>
+                                + ProtoSystem<Param: BorrowMutParam>,
+                >,
         {
             let cfg = SubRoute::new(
                 CommandInfo {
@@ -299,7 +308,7 @@ mod sub_routes {
 
 mod one_route {
     use clap::{Args, FromArgMatches};
-    use wok::prelude::{In, IntoSystem, WokUnknownError, System};
+    use wok::prelude::{BorrowMutParam, In, IntoSystem, ProtoSystem, System, WokUnknownError};
 
     use super::{ConfigureRoute, make_route_handler};
 
@@ -326,7 +335,8 @@ mod one_route {
     where
         Arg: FromArgMatches + Args + Send + Sync + 'static,
         S: IntoSystem<Marker>,
-        S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>,
+        S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>
+            + ProtoSystem<Param: BorrowMutParam>,
     {
         fn one(
             self,

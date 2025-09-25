@@ -5,13 +5,17 @@ use crate::{
     world::{UnsafeMutState, UnsafeWorldState},
 };
 
-use super::{IntoBlockingSystem, System, SystemIn, SystemInput, combinators::IntoMapSystem};
+use super::{
+    IntoBlockingSystem, ProtoSystem, System, SystemIn, SystemInput, combinators::IntoMapSystem,
+};
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
 pub type DynTaskSystem<In, Out> = Box<dyn BorrowTaskSystem<In = In, Out = Out> + Send + Sync>;
 
 // Dyn compatible
+/// # Safety
+/// Only impl if the params are `BorrowMutParam`
 pub unsafe trait BorrowTaskSystem: TaskSystem {
     /// # Safety
     /// The caller must ensure no dupliated mutable access is happening
@@ -66,9 +70,7 @@ impl<In: SystemInput + 'static, Out: Send + Sync + 'static> SystemTask<In, Out> 
 }
 
 // Allow zero-cost abstraction
-pub trait ProtoTaskSystem: System + Clone {
-    type Param: Param;
-
+pub trait ProtoTaskSystem: ProtoSystem + Clone {
     fn run<'i>(
         self,
         param: <Self::Param as Param>::Owned,
@@ -77,7 +79,7 @@ pub trait ProtoTaskSystem: System + Clone {
 }
 
 pub trait IntoSystem<Marker> {
-    type System: System + TaskSystem + ProtoTaskSystem;
+    type System: System + ProtoSystem + TaskSystem + ProtoTaskSystem;
 
     fn into_system(self) -> Self::System;
     fn map<S2, Marker2>(self, system: S2) -> IntoMapSystem<Self, S2>
