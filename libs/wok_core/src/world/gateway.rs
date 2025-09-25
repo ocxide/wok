@@ -8,7 +8,7 @@ mod remote {
 
     use crate::{
         prelude::Resource,
-        system::{SystemIn, TaskSystem},
+        system::{SystemIn, BorrowTaskSystem},
         world::SystemId,
     };
 
@@ -89,7 +89,7 @@ mod remote {
             &mut self.world_mut
         }
 
-        pub fn try_run<'i, S: TaskSystem>(
+        pub fn try_run<'i, S: BorrowTaskSystem>(
             &mut self,
             system: SystemEntryRef<'_, S>,
             input: SystemIn<'i, S>,
@@ -121,9 +121,9 @@ mod local {
     use futures::FutureExt;
 
     use crate::{
-        param::Param,
+        param::BorrowMutParam,
         system::{
-            BlockingCaller, BlockingSystem, ProtoTaskSystem, SystemIn, SystemTask, TaskSystem,
+            BlockingCaller, BlockingSystem, ProtoTaskSystem, SystemIn, SystemTask, BorrowTaskSystem,
         },
         world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldSystemLockError},
     };
@@ -147,7 +147,7 @@ mod local {
             Self { state, locks }
         }
 
-        pub fn get<P: Param>(&self) -> Option<P::AsRef<'_>> {
+        pub fn get<P: BorrowMutParam>(&self) -> Option<P::AsRef<'_>> {
             let mut system_locks = SystemLock::default();
             P::init(&mut system_locks);
 
@@ -155,7 +155,7 @@ mod local {
                 return None;
             }
             // Safety: Already checked with locks
-            Some(unsafe { P::get_ref(self.state) })
+            Some(unsafe { P::borrow(self.state) })
         }
 
         pub fn with_remote(self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
@@ -201,13 +201,13 @@ mod local {
     }
 
     impl ParamGetter {
-        pub fn new<P: Param>() -> Self {
+        pub fn new<P: BorrowMutParam>() -> Self {
             let mut lock = SystemLock::default();
             P::init(&mut lock);
 
             Self {
                 lock,
-                getter: |state| Box::new(unsafe { P::get(state) }),
+                getter: |state| Box::new(unsafe { P::borrow_owned(state) }),
             }
         }
     }
@@ -221,7 +221,7 @@ mod local {
             input: SystemIn<'i, S>,
         ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
         where
-            S: TaskSystem,
+            S: BorrowTaskSystem,
         {
             let result = self.0.locks.try_lock(system.id);
             if result.is_err() {
@@ -242,7 +242,7 @@ mod local {
             system: SystemEntryRef<'_, S>,
         ) -> Result<SystemTask<S::In, S::Out>, WorldSystemLockError>
         where
-            S: TaskSystem,
+            S: BorrowTaskSystem,
         {
             self.0.locks.try_lock(system.id)?;
 
@@ -257,13 +257,14 @@ mod local {
         ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
         where
             S: ProtoTaskSystem,
+            S::Param: BorrowMutParam,
         {
             if self.0.locks.try_lock(system.id).is_err() {
                 return Err(input);
             }
 
             // Safety: Already checked with locks
-            let param = unsafe { S::Param::get(self.0.state) };
+            let param = unsafe { S::Param::borrow_owned(self.0.state) };
 
             let fut = <S as ProtoTaskSystem>::run(system.system.clone(), param, input);
             let id = system.id;
@@ -306,7 +307,7 @@ mod local {
 
 mod system_entry {
     use crate::{
-        system::{DynTaskSystem, System, TaskSystem},
+        system::{DynTaskSystem, System, BorrowTaskSystem},
         world::{SystemId, SystemLock},
     };
 
@@ -336,7 +337,7 @@ mod system_entry {
 
         pub fn into_taskbox(self) -> TaskSystemEntry<S::In, S::Out>
         where
-            S: TaskSystem,
+            S: BorrowTaskSystem,
         {
             TaskSystemEntry::new(self.id, Box::new(self.system))
         }
@@ -365,7 +366,7 @@ mod system_entry {
 
         pub fn into_taskbox(self) -> TaskSystemDraft<S::In, S::Out>
         where
-            S: TaskSystem,
+            S: BorrowTaskSystem,
         {
             TaskSystemDraft {
                 system: Box::new(self.system),

@@ -8,7 +8,7 @@ use futures::{
 };
 use wok_core::{
     async_executor::AsyncExecutor,
-    prelude::{Param, Resource},
+    prelude::{BorrowMutParam, Resource},
     runtime::RuntimeAddon,
     world::gateway::{ParamGetter, RemoteWorldMut, WorldMut},
     world::{SystemLock, WorldState},
@@ -31,13 +31,13 @@ pub struct ParamsClient {
     close_sender: mpsc::Sender<ForeignParamsKey>,
 }
 
-pub struct ParamGuard<P: Param> {
+pub struct ParamGuard<P: BorrowMutParam> {
     params: P::Owned,
     key: ForeignParamsKey,
     close_sender: mpsc::Sender<ForeignParamsKey>,
 }
 
-impl<P: Param> Drop for ParamGuard<P> {
+impl<P: BorrowMutParam> Drop for ParamGuard<P> {
     fn drop(&mut self) {
         if self.close_sender.try_send(self.key).is_err() {
             eprintln!("WARNING: failed to close foreign param");
@@ -45,14 +45,14 @@ impl<P: Param> Drop for ParamGuard<P> {
     }
 }
 
-impl<P: Param> ParamGuard<P> {
+impl<P: BorrowMutParam> ParamGuard<P> {
     pub fn get(&mut self) -> P::AsRef<'_> {
         P::from_owned(&mut self.params)
     }
 }
 
 impl ParamsClient {
-    pub async fn get<P: Param>(&mut self) -> ParamGuard<P> {
+    pub async fn get<P: BorrowMutParam>(&mut self) -> ParamGuard<P> {
         let mut lock = SystemLock::default();
         P::init(&mut lock);
 

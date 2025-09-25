@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::param::BorrowMutParam;
 use crate::system::System;
 use crate::system::blocking::{IntoBlockingSystem, ProtoBlockingSystem};
 use crate::{param::Param, system::SystemInput};
@@ -150,6 +151,8 @@ where
 impl<Func, Marker: 'static> ProtoBlockingSystem for FunctionSystem<Func, Marker>
 where
     Func: SystemFn<Marker> + Clone,
+    // TODO: relax this
+    Func::Params: BorrowMutParam,
 {
     type Param = Func::Params;
     fn run(
@@ -164,6 +167,8 @@ where
 impl<Func, Marker: 'static> IntoBlockingSystem<Marker> for Func
 where
     Func: SystemFn<Marker> + Clone,
+    // TODO: relax this
+    Func::Params: BorrowMutParam,
 {
     type System = FunctionSystem<Func, Marker>;
 

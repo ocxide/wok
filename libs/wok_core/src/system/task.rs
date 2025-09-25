@@ -1,34 +1,47 @@
 use std::pin::Pin;
 
-use crate::{param::Param, world::UnsafeWorldState};
+use crate::{
+    param::{BorrowMutParam, Param},
+    world::{UnsafeMutState, UnsafeWorldState},
+};
 
 use super::{IntoBlockingSystem, System, SystemIn, SystemInput, combinators::IntoMapSystem};
 
 pub type ScopedFut<'i, Out> = Pin<Box<dyn Future<Output = Out> + Send + 'i>>;
 pub type SystemFuture<'i, S> = Pin<Box<dyn Future<Output = <S as System>::Out> + Send + 'i>>;
-pub type DynTaskSystem<In, Out> = Box<dyn TaskSystem<In = In, Out = Out> + Send + Sync>;
+pub type DynTaskSystem<In, Out> = Box<dyn BorrowTaskSystem<In = In, Out = Out> + Send + Sync>;
 
 // Dyn compatible
-pub trait TaskSystem: System {
-    /// # Safety
-    /// The caller must ensure no dupliated mutable access is happening
-    unsafe fn run_owned<'i>(
-        self,
-        state: &UnsafeWorldState,
-        input: SystemIn<'i, Self>,
-    ) -> SystemFuture<'i, Self>;
-
+pub unsafe trait BorrowTaskSystem: TaskSystem {
     /// # Safety
     /// The caller must ensure no dupliated mutable access is happening
     unsafe fn run<'i>(
         &self,
         state: &UnsafeWorldState,
         input: SystemIn<'i, Self>,
+    ) -> SystemFuture<'i, Self> {
+        unsafe { <Self as TaskSystem>::owned_run(self, state.as_mut(), input) }
+    }
+
+    /// # Safety
+    /// The caller must ensure no dupliated mutable access is happening
+    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out> {
+        unsafe { <Self as TaskSystem>::owned_create_task(self, state.as_mut()) }
+    }
+}
+
+pub trait TaskSystem: System {
+    /// # Safety
+    /// The caller must ensure no dupliated mutable access is happening
+    unsafe fn owned_run<'i>(
+        &self,
+        state: &UnsafeMutState,
+        input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self>;
 
     /// # Safety
     /// The caller must ensure no dupliated mutable access is happening
-    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out>;
+    unsafe fn owned_create_task(&self, state: &UnsafeMutState) -> SystemTask<Self::In, Self::Out>;
 }
 
 pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
@@ -81,30 +94,25 @@ pub trait IntoSystem<Marker> {
 }
 
 impl<S: ProtoTaskSystem> TaskSystem for S {
-    unsafe fn run_owned<'i>(
-        self,
-        state: &UnsafeWorldState,
-        input: SystemIn<'i, Self>,
-    ) -> SystemFuture<'i, Self> {
-        let param = unsafe { S::Param::get(state) };
-        Box::pin(self.run(param, input))
-    }
-
-    unsafe fn run<'i>(
+    unsafe fn owned_run<'i>(
         &self,
-        state: &UnsafeWorldState,
+        state: &UnsafeMutState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self> {
+        let param = unsafe { S::Param::get_owned(state) };
         let system = self.clone();
-        unsafe { system.run_owned(state, input) }
+
+        Box::pin(system.run(param, input))
     }
 
-    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out> {
+    unsafe fn owned_create_task(&self, state: &UnsafeMutState) -> SystemTask<Self::In, Self::Out> {
         let system = self.clone();
-        let param = unsafe { S::Param::get(state) };
+        let param = unsafe { S::Param::get_owned(state) };
         SystemTask::new(|input, _| Box::pin(system.run(param, input)))
     }
 }
+
+unsafe impl<S: ProtoTaskSystem + TaskSystem> BorrowTaskSystem for S where S::Param: BorrowMutParam {}
 
 impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System for DynTaskSystem<In, Out> {
     type In = In;
@@ -116,23 +124,21 @@ impl<In: SystemInput + 'static, Out: Send + Sync + 'static> System for DynTaskSy
 }
 
 impl<In: SystemInput + 'static, Out: Send + Sync + 'static> TaskSystem for DynTaskSystem<In, Out> {
-    unsafe fn run<'i>(
+    unsafe fn owned_run<'i>(
         &self,
-        state: &UnsafeWorldState,
+        state: &UnsafeMutState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self> {
-        unsafe { self.as_ref().run(state, input) }
+        unsafe { TaskSystem::owned_run(self.as_ref(), state, input) }
     }
 
-    unsafe fn run_owned<'i>(
-        self,
-        state: &UnsafeWorldState,
-        input: SystemIn<'i, Self>,
-    ) -> SystemFuture<'i, Self> {
-        unsafe { self.as_ref().run(state, input) }
+    unsafe fn owned_create_task(&self, state: &UnsafeMutState) -> SystemTask<Self::In, Self::Out> {
+        unsafe { TaskSystem::owned_create_task(self.as_ref(), state) }
     }
+}
 
-    unsafe fn create_task(&self, state: &UnsafeWorldState) -> SystemTask<Self::In, Self::Out> {
-        unsafe { self.as_ref().create_task(state) }
-    }
+// Its ok since DynTaskSystem already implements dyn BorrowTaskSystem
+unsafe impl<In: SystemInput + 'static, Out: Send + Sync + 'static> BorrowTaskSystem
+    for DynTaskSystem<In, Out>
+{
 }

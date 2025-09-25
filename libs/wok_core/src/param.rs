@@ -4,26 +4,47 @@ use crate::{
     any_handle::{Handle, HandleMut},
     prelude::{Immutable, Resource},
     resources::{Mutable, ResourceId},
-    world::{access::SystemLock, UnsafeWorldState},
+    world::{UnsafeMutState, UnsafeWorldState, access::SystemLock},
 };
 
 /// # Safety
 /// Caller must ensure the access is indeed read-only
-pub trait ReadonlyParam: Param {}
+pub trait ReadonlyParam: BorrowMutParam {}
+
+/// # Safety
+/// Caller must ensure this `Param` will not remove / insert resources
+pub unsafe trait BorrowMutParam: Param {
+    /// # Safety
+    /// The caller must ensure that no duplicated mutable access is happening
+    unsafe fn borrow_owned(state: &UnsafeWorldState) -> Self::Owned {
+        // # Safety
+        // We know this param does not remove / insert resources
+        unsafe { Self::get_owned(state.as_mut()) }
+    }
+
+    /// # Safety
+    /// The caller must ensure that no duplicated mutable access is happening
+    unsafe fn borrow(state: &UnsafeWorldState) -> Self::AsRef<'_> {
+        // # Safety
+        // We know this param does not remove / insert resources
+        unsafe { Self::get_ref(state.as_mut()) }
+    }
+}
 
 pub trait Param: Send {
     type Owned: Sync + Send + 'static;
     type AsRef<'r>;
 
     fn init(rw: &mut SystemLock);
+    fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_>;
 
     /// # Safety
-    /// Caller must ensure the access is valid
-    unsafe fn get(state: &UnsafeWorldState) -> Self::Owned;
+    /// Caller must ensure that no duplicated mutable access is happening
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned;
+
     /// # Safety
-    /// Caller must ensure the access is valid
-    unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_>;
-    fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_>;
+    /// Caller must ensure that no duplicated mutable access is happening
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_>;
 }
 
 impl Param for () {
@@ -31,43 +52,51 @@ impl Param for () {
     type AsRef<'r> = ();
 
     fn init(_rw: &mut SystemLock) {}
-    unsafe fn get(_state: &UnsafeWorldState) -> Self::Owned {}
-    unsafe fn get_ref(_state: &UnsafeWorldState) -> Self::AsRef<'_> {}
+    unsafe fn get_owned(_state: &UnsafeMutState) -> Self::Owned {}
+    unsafe fn get_ref(_state: &UnsafeMutState) -> Self::AsRef<'_> {}
     fn from_owned(_owned: &mut Self::Owned) -> Self::AsRef<'_> {}
 }
 
+// We know this does not modify anything
+unsafe impl BorrowMutParam for () {}
+
 macro_rules! impl_param {
     ($($params:ident),*) => {
-    impl<$($params),*> Param for ($($params),*)
-    where
-        $($params: Param),*
-    {
-        type Owned = ($($params::Owned),*);
-        type AsRef<'p> = ($($params::AsRef<'p>),*);
+        impl<$($params),*> Param for ($($params),*)
+        where
+            $($params: Param),*
+        {
+            type Owned = ($($params::Owned),*);
+            type AsRef<'p> = ($($params::AsRef<'p>),*);
 
-        fn init(rw: &mut SystemLock) {
-            $(($params::init(rw)));*
-        }
+            fn init(rw: &mut SystemLock) {
+                $(($params::init(rw)));*
+            }
 
-        unsafe fn get(state: &UnsafeWorldState) -> Self::Owned {
-            unsafe { ($($params::get(state)),*) }
-        }
+            unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+                unsafe { ($($params::get_owned(state)),*) }
+            }
 
-        unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_> {
-            #[allow(non_snake_case)]
-            let ($($params),*) = unsafe { ($($params::get_ref(state)),*) };
-            ($($params),*)
-        }
+            unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+                #[allow(non_snake_case)]
+                let ($($params),*) = unsafe { ($($params::get_ref(state)),*) };
+                ($($params),*)
+            }
 
-        fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
-            #[allow(non_snake_case)]
-            let ($($params),*) = owned;
-            ($($params::from_owned($params)),*)
-        }
+            fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+                #[allow(non_snake_case)]
+                let ($($params),*) = owned;
+                ($($params::from_owned($params)),*)
+            }
+         }
 
-     }
-     };
- }
+        // Only impl if all params are BorrowMutParam
+        unsafe impl<$($params),*> BorrowMutParam for ($($params),*)
+        where
+            $($params: BorrowMutParam),*
+        {}
+    };
+}
 
 impl_param!(A, B);
 impl_param!(A, B, C);
@@ -109,11 +138,11 @@ impl<R: Resource> Param for Res<'_, R> {
         }
     }
 
-    unsafe fn get(state: &UnsafeWorldState) -> Self::Owned {
-        unsafe { <Option<Res<'_, R>> as Param>::get(state) }.expect("to have resource")
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        unsafe { <Option<Res<'_, R>> as Param>::get_owned(state) }.expect("to have resource")
     }
 
-    unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_> {
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
         unsafe { <Option<Res<'_, R>> as Param>::get_ref(state) }.expect("to have resource")
     }
 
@@ -121,6 +150,9 @@ impl<R: Resource> Param for Res<'_, R> {
         Res((*handle).as_ref())
     }
 }
+
+// We know Res does not modify the structure
+unsafe impl<R: Resource> BorrowMutParam for Res<'_, R> {}
 
 // # Safety
 // We know the param is read-only since resource is immutable
@@ -169,11 +201,11 @@ impl<R: Resource<Mutability = Mutable>> Param for ResMut<'_, R> {
         }
     }
 
-    unsafe fn get(state: &UnsafeWorldState) -> Self::Owned {
-        unsafe { <Option<ResMut<'_, R>> as Param>::get(state) }.expect("to have resource")
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        unsafe { <Option<ResMut<'_, R>> as Param>::get_owned(state) }.expect("to have resource")
     }
 
-    unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_> {
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
         unsafe { <Option<ResMut<'_, R>> as Param>::get_ref(state) }.expect("to have resource")
     }
 
@@ -181,6 +213,9 @@ impl<R: Resource<Mutability = Mutable>> Param for ResMut<'_, R> {
         ResMut(owned.as_mut())
     }
 }
+
+// We know ResMut does not modify the structure
+unsafe impl<R: Resource<Mutability = Mutable>> BorrowMutParam for ResMut<'_, R> {}
 
 impl<R: Resource> Param for Option<Res<'_, R>> {
     type Owned = Option<<Res<'static, R> as Param>::Owned>;
@@ -190,19 +225,23 @@ impl<R: Resource> Param for Option<Res<'_, R>> {
         Res::<'_, R>::init(rw);
     }
 
-    unsafe fn get(state: &UnsafeWorldState) -> Self::Owned {
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        let state = state.as_read();
         unsafe { state.resource_handle() }
     }
 
-    unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_> {
-        let state = unsafe { state.get_resource() };
-        state.map(Res)
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+        let state = state.as_read();
+        unsafe { state.get_resource() }.map(Res)
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
         owned.as_mut().map(Res::from_owned)
     }
 }
+
+// We know Res does not modify the structure
+unsafe impl<R: Resource> BorrowMutParam for Option<Res<'_, R>> {}
 
 impl<R: Resource<Mutability = Mutable>> Param for Option<ResMut<'_, R>> {
     type Owned = Option<<ResMut<'static, R> as Param>::Owned>;
@@ -212,16 +251,20 @@ impl<R: Resource<Mutability = Mutable>> Param for Option<ResMut<'_, R>> {
         ResMut::<'_, R>::init(rw);
     }
 
-    unsafe fn get(state: &UnsafeWorldState) -> Self::Owned {
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        let state = state.as_read();
         unsafe { state.resource_handle_mut() }
     }
 
-    unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_> {
-        let state = unsafe { state.get_resource_mut() };
-        state.map(ResMut)
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+        let state = state.as_read();
+        unsafe { state.get_resource_mut() }.map(ResMut)
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
         owned.as_mut().map(ResMut::from_owned)
     }
 }
+
+// We know ResMut does not modify the structure
+unsafe impl<R: Resource<Mutability = Mutable>> BorrowMutParam for Option<ResMut<'_, R>> {}

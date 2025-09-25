@@ -21,7 +21,7 @@ pub trait System: Send + Sync + 'static {
 pub use blocking::*;
 
 pub mod blocking {
-    use crate::{param::Param, world::UnsafeWorldState};
+    use crate::{param::{BorrowMutParam, Param}, world::UnsafeWorldState};
 
     use super::{
         IntoSystem, System, SystemIn, SystemInput,
@@ -54,7 +54,7 @@ pub mod blocking {
     }
 
     pub trait ProtoBlockingSystem: System + Clone {
-        type Param: Param;
+        type Param: BorrowMutParam;
         fn run(
             &self,
             param: <Self::Param as Param>::AsRef<'_>,
@@ -64,7 +64,7 @@ pub mod blocking {
 
     impl<S: ProtoBlockingSystem> BlockingSystem for S {
         unsafe fn run(&self, state: &UnsafeWorldState, input: SystemIn<'_, Self>) -> Self::Out {
-            let param = unsafe { S::Param::get_ref(state) };
+            let param = unsafe { S::Param::borrow(state) };
             self.run(param, input)
         }
 
@@ -72,7 +72,7 @@ pub mod blocking {
             &self,
             state: &UnsafeWorldState,
         ) -> BlockingCaller<Self::In, Self::Out> {
-            let mut param = unsafe { S::Param::get(state) };
+            let mut param = unsafe { S::Param::borrow_owned(state) };
             let this = self.clone();
             BlockingCaller(Box::new(move |input| {
                 this.run(S::Param::from_owned(&mut param), input)

@@ -2,7 +2,8 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use wok_core::{
     error::WokUnknownError,
     prelude::{
-        DynBlockingSystem, DynTaskSystem, IntoBlockingSystem, IntoSystem, ResMut, Resource, System,
+        BorrowMutParam, BorrowTaskSystem, DynBlockingSystem, DynTaskSystem, IntoBlockingSystem,
+        IntoSystem, ProtoTaskSystem, ResMut, Resource, System,
     },
     schedule::{ScheduleConfigure, ScheduleLabel},
     world::{
@@ -38,7 +39,7 @@ pub struct FallibleStartup;
 impl<Marker, S> ScheduleConfigure<S, (FallibleStartup, Marker)> for Startup
 where
     S: IntoSystem<Marker> + 'static,
-    S::System: System<In = (), Out = Result<(), WokUnknownError>>,
+    S::System: System<In = (), Out = Result<(), WokUnknownError>> + BorrowTaskSystem,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.into_system();
@@ -58,7 +59,7 @@ pub struct InfallibleStartup;
 impl<Marker, S> ScheduleConfigure<S, (InfallibleStartup, Marker)> for Startup
 where
     S: IntoSystem<Marker> + 'static,
-    S::System: System<In = (), Out = ()>,
+    S::System: System<In = (), Out = ()> + ProtoTaskSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = system.map(|| Ok(()));

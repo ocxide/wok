@@ -3,9 +3,9 @@ pub mod gateway;
 use std::sync::Arc;
 
 use crate::commands::{self, CommandSender, CommandsReceiver};
-use crate::param::Param;
+use crate::param::BorrowMutParam;
 use crate::prelude::Resource;
-use crate::resources::{Resources, Immutable};
+use crate::resources::{Immutable, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
 use crate::system::System;
 
@@ -30,10 +30,10 @@ pub struct WorldState {
 impl WorldState {
     /// # Panics
     /// Panics if the params are not available
-    pub fn get<P: Param>(&mut self) -> P::AsRef<'_> {
+    pub fn get<P: BorrowMutParam>(&mut self) -> P::AsRef<'_> {
         // Safety: by being the olny owner `&mut self`, this is allowed
 
-        unsafe { P::get_ref(self.as_unsafe_world_state()) }
+        unsafe { P::borrow(self.as_unsafe_world_state()) }
     }
 
     pub fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
@@ -52,7 +52,7 @@ impl WorldState {
             let weak = WeakState(Arc::downgrade(&state));
             // Safety: we are the only owner
             unsafe {
-                state.insert_resource(weak);
+                state.as_mut().insert_resource(weak);
             }
         }
 
@@ -71,7 +71,7 @@ impl WeakState {
     }
 }
 
-pub use unsafe_world_state::UnsafeWorldState;
+pub use unsafe_world_state::{UnsafeMutState, UnsafeWorldState};
 
 mod unsafe_world_state {
     use std::cell::UnsafeCell;
@@ -122,17 +122,6 @@ mod unsafe_world_state {
             Some(unsafe { handle_ref.get_mut() })
         }
 
-        /// # Safety
-        /// Caller must ensure the access is valid
-        pub unsafe fn take_resource<R: Resource>(&self) -> Option<R> {
-            let resources = &mut unsafe { &mut *self.0.get() }.resources;
-            resources.try_take()
-        }
-
-        pub fn try_take_resource<R: Resource>(&mut self) -> Option<R> {
-            self.0.get_mut().resources.try_take()
-        }
-
         pub fn commands(&self) -> CommandSender {
             unsafe { &*self.0.get() }.commands_sx.clone()
         }
@@ -142,9 +131,34 @@ mod unsafe_world_state {
         }
 
         /// # Safety
-        /// Caller must ensure the access is valid
+        /// The caller must ensure it is valid to take / insert resources
+        pub const unsafe fn as_mut(&self) -> &UnsafeMutState {
+            unsafe { &*(self as *const UnsafeWorldState as *const UnsafeMutState) }
+        }
+    }
+
+    #[repr(transparent)]
+    pub struct UnsafeMutState(UnsafeWorldState);
+
+    impl UnsafeMutState {
+        /// # Safety
+        /// creating a UnsafeMutState already allows to take resources
+        pub unsafe fn take_resource<R: Resource>(&self) -> Option<R> {
+            unsafe { &mut *self.0.0.get() }.resources.try_take()
+        }
+
+        pub fn try_take_resource<R: Resource>(&mut self) -> Option<R> {
+            self.0.0.get_mut().resources.try_take()
+        }
+
+        pub fn as_read(&self) -> &UnsafeWorldState {
+            &self.0
+        }
+
+        /// # Safety
+        /// creating a UnsafeMutState already allows to insert resources
         pub unsafe fn insert_resource<R: Resource>(&self, resource: R) {
-            unsafe { &mut *self.0.get() }.resources.insert(resource);
+            unsafe { &mut *self.0.0.get() }.resources.insert(resource);
         }
     }
 }
@@ -224,7 +238,7 @@ impl WorldCenter {
         let id = self.register_system_rw(&system);
         SystemEntry::new(id, system)
     }
-    
+
     pub fn register_draft<S: System>(&mut self, draft: SystemDraft<S>) -> SystemEntry<S> {
         let id = self.system_locks.systems_rw.add(draft.locks);
         SystemEntry::new(id, draft.system)

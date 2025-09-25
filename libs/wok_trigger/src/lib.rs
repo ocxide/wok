@@ -1,10 +1,9 @@
 use futures::{StreamExt, channel::mpsc};
 use wok_core::{
-    prelude::{In, IntoSystem, Resource, System},
+    prelude::{BorrowTaskSystem, In, IntoSystem, Resource, System},
     runtime::RuntimeAddon,
     schedule::{ScheduleConfigure, ScheduleLabel},
-    world::ConfigureWorld,
-    world::gateway::TaskSystemEntry,
+    world::{gateway::TaskSystemEntry, ConfigureWorld},
 };
 
 pub trait Event: Send + Sync + 'static {}
@@ -39,7 +38,7 @@ impl ScheduleLabel for Events {}
 impl<E: Event, Marker, S> ScheduleConfigure<S, (E, Marker)> for Events
 where
     S: IntoSystem<Marker>,
-    S::System: System<In = In<E>, Out = ()>,
+    S::System: System<In = In<E>, Out = ()> + BorrowTaskSystem,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let system = world.register_system(system.into_system()).into_taskbox();

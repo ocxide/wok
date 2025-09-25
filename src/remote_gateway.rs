@@ -1,9 +1,9 @@
-use crate::prelude::Param;
+use crate::prelude::BorrowMutParam;
 use std::{collections::VecDeque, sync::Arc};
 
 use futures::{FutureExt, channel::oneshot};
 use wok_core::{
-    prelude::{DynTaskSystem, ProtoTaskSystem, Res, Resource, SystemIn, SystemInput, TaskSystem},
+    prelude::{DynTaskSystem, ProtoTaskSystem, Res, Resource, SystemIn, SystemInput, BorrowTaskSystem},
     runtime::RuntimeAddon,
     world::{
         SystemId, UnsafeWorldState, WeakState,
@@ -132,7 +132,7 @@ impl<'w, S> SystemTaskPermit<'w, S> {
         S: ProtoTaskSystem,
     {
         // Safety: Already checked with locks
-        let param = unsafe { S::Param::get(self.0.state) };
+        let param = unsafe { S::Param::borrow_owned(self.0.state) };
         let fut = <S as ProtoTaskSystem>::run(self.0.system.clone(), param, input);
         let releaser = self.0.releaser;
 

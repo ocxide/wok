@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use crate::{
     param::Param,
     prelude::Resource,
-    world::{UnsafeWorldState, WorldState},
+    world::{UnsafeMutState, WorldState},
 };
 
 pub type DynCommand = Box<dyn Command>;
@@ -49,20 +49,20 @@ impl<'s> Param for Commands<'s> {
 
     fn init(_rw: &mut crate::world::access::SystemLock) {}
 
-    unsafe fn get(state: &UnsafeWorldState) -> Self::Owned {
-        state.commands()
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        state.as_read().commands()
+    }
+
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+        Commands {
+            sender: state.as_read().commands(),
+            _marker: std::marker::PhantomData,
+        }
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
         Commands {
             sender: owned.clone(),
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    unsafe fn get_ref(state: &UnsafeWorldState) -> Self::AsRef<'_> {
-        Commands {
-            sender: state.commands(),
             _marker: std::marker::PhantomData,
         }
     }

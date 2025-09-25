@@ -2,10 +2,9 @@ use futures::FutureExt;
 use wok_core::{
     async_executor::AsyncExecutor,
     error::WokUnknownError,
-    prelude::{IntoSystem, System},
+    prelude::{BorrowMutParam, IntoSystem, ProtoTaskSystem, System},
     runtime::RuntimeAddon,
-    world::gateway::WorldMut,
-    world::{ConfigureWorld, World},
+    world::{ConfigureWorld, World, gateway::WorldMut},
 };
 
 use crate::{
@@ -30,7 +29,11 @@ impl App {
     pub async fn run<Marker, AsyncRt: AsyncExecutor, RtAddon: RuntimeAddon>(
         self,
         cfg: RuntimeCfg<AsyncRt, RtAddon>,
-        system: impl IntoSystem<Marker, System: System<In = (), Out = Result<(), WokUnknownError>>>,
+        system: impl IntoSystem<
+            Marker,
+            System: System<In = (), Out = Result<(), WokUnknownError>>
+                        + ProtoTaskSystem<Param: BorrowMutParam>,
+        >,
     ) -> Result<(), WokUnknownError> {
         let mut state = self.world.state;
         let mut center = self.world.center;
