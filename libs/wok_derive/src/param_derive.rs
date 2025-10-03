@@ -75,7 +75,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
     let rw = match usage {
         Usage::Core => quote! { crate::world::SystemLock },
         Usage::Lib => quote! { wok_core::world::SystemLock },
-        Usage::Crate => quote! { wok::world::SystemLock },
+        Usage::Crate => quote! { wok::prelude::SystemLock },
     };
 
     let world = match usage {

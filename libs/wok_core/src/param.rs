@@ -33,7 +33,7 @@ pub unsafe trait BorrowMutParam: Param {
 
 pub trait Param: Send {
     type Owned: Sync + Send + 'static;
-    type AsRef<'r>;
+    type AsRef<'r>: Param;
 
     fn init(rw: &mut SystemLock);
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_>;
@@ -309,10 +309,41 @@ impl<R: Resource> Param for ResTake<R> {
     }
 
     unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
-        unsafe { state.take_resource() }.map(ResTake).expect("to have resource")
+        unsafe { state.take_resource() }
+            .map(ResTake)
+            .expect("to have resource")
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
         ResTake(owned.take().expect("to have resource"))
     }
 }
+
+pub struct ResInitMarker<R: Resource>(std::marker::PhantomData<fn(R)>);
+
+impl<R: Resource> Param for ResInitMarker<R> {
+    type Owned = ();
+    type AsRef<'r> = ResInitMarker<R>;
+
+    fn init(rw: &mut SystemLock) {
+        if rw.register_resource_write(ResourceId::new::<R>()).is_err() {
+            panic!(
+                "Resource of type `{}` was already registered",
+                std::any::type_name::<R>()
+            );
+        }
+    }
+
+    unsafe fn get_ref(_state: &UnsafeMutState) -> Self::AsRef<'_> {
+        ResInitMarker(std::marker::PhantomData)
+    }
+
+    unsafe fn get_owned(_state: &UnsafeMutState) -> Self::Owned {}
+
+    fn from_owned(_owned: &mut Self::Owned) -> Self::AsRef<'_> {
+        ResInitMarker(std::marker::PhantomData)
+    }
+}
+
+// We know ResInitMarker does not modify the structure
+unsafe impl<R: Resource> BorrowMutParam for ResInitMarker<R> {}

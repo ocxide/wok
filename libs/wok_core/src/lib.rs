@@ -15,7 +15,7 @@ pub mod prelude {
     pub use crate::param::*;
     pub use crate::resources::{Resource, Immutable, Mutable};
     pub use crate::system::*;
-    pub use crate::world::{ConfigureWorld, World, WorldState, UnsafeWorldState, UnsafeMutState};
+    pub use crate::world::{ConfigureWorld, World, WorldState, UnsafeWorldState, UnsafeMutState, SystemLock};
     pub use wok_derive::Param;
 }
 

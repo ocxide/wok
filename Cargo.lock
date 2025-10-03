@@ -4770,7 +4770,7 @@ dependencies = [
  "serde",
  "tokio",
  "toml",
- "wok_core",
+ "wok",
 ]
 
 [[package]]

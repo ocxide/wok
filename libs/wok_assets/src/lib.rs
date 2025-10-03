@@ -1,55 +1,98 @@
-use wok_core::{
-    error::WokUnknownError,
-    prelude::{Commands, Param, Resource},
+use wok::{
+    plugin::Plugin,
+    prelude::{BorrowMutParam, Commands, Param, Startup, WokUnknownError},
 };
 
-pub use loaders::*;
+pub use origins::*;
 
 #[derive(Param)]
-#[param(usage = lib)]
-pub struct AssetInit<'r, R: Resource> {
+pub struct AssetsCollectionInit<
+    'r,
+    A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>,
+> {
     commands: Commands<'r>,
-    #[param(default)]
-    _marker: std::marker::PhantomData<fn(R)>,
+    _resources_mut: A::Assets,
 }
 
-impl<'r, R: Resource> AssetInit<'r, R> {
-    pub async fn with(mut self, loader: impl AssetLoader<R>) -> Result<(), WokUnknownError> {
-        let resource = loader.load().await?;
-        self.commands.insert_resource(resource);
-
-        Ok(())
+impl<'r, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
+    AssetsCollectionInit<'r, A>
+{
+    pub fn load(&mut self, origin: impl AssetOrigin<A>) -> Result<(), WokUnknownError> {
+        origin
+            .load()
+            .map(|collection| collection.insert_all(&mut self.commands))
     }
 }
 
-pub trait AssetLoader<T> {
-    fn load(self) -> impl Future<Output = Result<T, WokUnknownError>>;
+pub trait AssetOrigin<T>: Send + Sync + Clone {
+    fn load(self) -> Result<T, WokUnknownError>;
 }
 
-pub mod loaders {
+pub mod origins {
     use std::path::Path;
 
-    use wok_core::error::WokUnknownError;
+    use wok::prelude::WokUnknownError;
 
-    use super::AssetLoader;
+    use super::AssetOrigin;
 
-    pub struct TomlLoader<P: AsRef<Path> + 'static + Send>(pub P);
+    pub struct TomlFile<P: AsRef<Path> + Clone + 'static + Send + Sync>(pub P);
 
-    impl<T, P> AssetLoader<T> for TomlLoader<P>
+    impl<P: AsRef<Path> + 'static + Clone + Send + Sync> Clone for TomlFile<P> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    impl<T, P> AssetOrigin<T> for TomlFile<P>
     where
         T: serde::de::DeserializeOwned,
-        P: AsRef<Path> + Send,
+        P: AsRef<Path> + Send + Sync + Clone,
     {
-        async fn load(self) -> Result<T, WokUnknownError> {
-            #[cfg(feature = "tokio")]
-            let buf = tokio::task::spawn_blocking(move || std::fs::read_to_string(self.0.as_ref()))
-                .await??;
-
-            // TODO: make this async
-            #[cfg(not(feature = "tokio"))]
+        fn load(self) -> Result<T, WokUnknownError> {
             let buf = std::fs::read_to_string(self.0.as_ref())?;
 
             toml::from_str(&buf).map_err(Into::into)
         }
+    }
+}
+
+pub trait AssetsCollection: Sized + 'static {
+    type Assets: BorrowMutParam;
+    fn insert_all(self, commands: &mut Commands);
+}
+
+pub struct AssetsPlugin<O, A = ()> {
+    origin: O,
+    _marker: std::marker::PhantomData<fn(A)>,
+}
+
+impl<O> AssetsPlugin<O, ()> {
+    pub const fn origin(origin: O) -> Self {
+        AssetsPlugin {
+            origin,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn assets<A: AssetsCollection>(self) -> AssetsPlugin<O, A>
+    where
+        O: AssetOrigin<A>,
+    {
+        AssetsPlugin {
+            origin: self.origin,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<O: AssetOrigin<A> + 'static, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
+    Plugin for AssetsPlugin<O, A>
+{
+    fn setup(self, app: &mut wok::prelude::App) {
+        use wok::prelude::ConfigureWorld;
+        let origin = self.origin;
+        app.add_system(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
+            init.load(origin.clone())
+        });
     }
 }
