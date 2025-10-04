@@ -4,6 +4,7 @@ use wok::{
 };
 
 pub use origins::*;
+pub use wok_assets_derive::AssetsCollection;
 
 #[derive(Param)]
 pub struct AssetsCollectionInit<

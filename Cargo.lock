@@ -816,6 +816,7 @@ dependencies = [
  "surrealdb",
  "tokio",
  "wok",
+ "wok_assets",
  "wok_clap",
  "wok_db",
  "wok_params_client",
@@ -983,6 +984,15 @@ checksum = "d630bccd429a5bb5a64b5e94f693bfc48c9f8566418fda4c494cc94f911f87cc"
 dependencies = [
  "powerfmt",
  "serde",
+]
+
+[[package]]
+name = "derime"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -4771,6 +4781,17 @@ dependencies = [
  "tokio",
  "toml",
  "wok",
+ "wok_assets_derive",
+]
+
+[[package]]
+name = "wok_assets_derive"
+version = "0.1.0"
+dependencies = [
+ "derime",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
 ]
 
 [[package]]
