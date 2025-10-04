@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use clap::ArgMatches;
+use wok::prelude::BorrowTaskSystem;
 use wok_core::{
-    prelude::{DynTaskSystem, InRef, WokUnknownError, Resource},
+    prelude::{InRef, Resource, WokUnknownError},
     world::SystemId,
 };
 
-pub type ClapHandler = DynTaskSystem<HandlerIn, HandlerOut>;
+pub type ClapHandler = Box<dyn BorrowTaskSystem<In = HandlerIn, Out = HandlerOut> + Send + Sync>;
 pub type HandlerIn = InRef<'static, ArgMatches>;
 pub type HandlerOut = Result<Result<(), WokUnknownError>, clap::error::Error>;
 
@@ -26,4 +27,3 @@ impl Router {
         self.routes.insert(route.into(), (system_id, handler));
     }
 }
-

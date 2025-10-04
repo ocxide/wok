@@ -5,14 +5,13 @@ use futures::{FutureExt, channel::oneshot};
 use wok_core::{
     prelude::{
         BorrowMutParam, BorrowTaskSystem, DynTaskSystem, ProtoTaskSystem, Res, Resource, SystemIn,
-        SystemInput,
+        SystemInput, TaskSystem,
     },
     runtime::RuntimeAddon,
     world::{
-        SystemId, UnsafeWorldState, WeakState,
         gateway::{
             ReleaseSystem, SystemEntryRef, SystemReleaseRx, SystemReleaser, WeakSystemReleaser,
-        },
+        }, SystemId, UnsafeWorldState, WeakState
     },
 };
 

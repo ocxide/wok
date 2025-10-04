@@ -52,13 +52,8 @@ pub async fn clap_runtime(
 
     let world = world.upgrade().expect("to have a world");
 
-    let result = world
-        .reserver()
-        .reserve(route)
-        .await
-        .task()
-        .run_dyn(args)
-        .await;
+    let result = world.reserver().reserve(route).await.task().run_dyn(args).await;
+
     match result {
         Ok(out) => out,
         Err(e) => {
