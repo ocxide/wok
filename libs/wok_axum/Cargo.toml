@@ -9,3 +9,5 @@ wok_core = { path = "../wok_core" }
 axum = "0.8.0"
 tokio = { workspace = true }
 take_mut = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+futures = { workspace = true }

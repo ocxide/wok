@@ -398,14 +398,21 @@ mod handler {
     }
 }
 
-#[derive(Resource)]
-pub struct SocketAddrs(Vec<std::net::SocketAddr>);
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Addr {
+    // try to deserialize plain socket addr first
+    Plain(std::net::SocketAddr),
+    // then allow custom hosts
+    Unresolved(String),
+    HostPort(String, u16),
+}
 
-impl SocketAddrs {
-    pub async fn new(addr: impl tokio::net::ToSocketAddrs) -> std::io::Result<Self> {
-        let addrs = tokio::net::lookup_host(addr).await?;
-        Ok(SocketAddrs(addrs.collect()))
-    }
+#[derive(wok::prelude::Resource, serde::Deserialize)]
+#[serde(untagged)]
+pub enum SocketAddrs {
+    Single(Addr),
+    Multiple(Vec<Addr>),
 }
 
 /// Main runtime for wok_axum
@@ -423,7 +430,32 @@ pub async fn serve(
         .expect("to have `AxumPlugin`")
         .with_state(world);
 
-    let listener = tokio::net::TcpListener::bind(addrs.0.as_slice()).await?;
+    async fn lookup_addr(addr: &Addr) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        match addr {
+            Addr::Plain(addr) => Ok(vec![*addr]),
+            Addr::Unresolved(host) => tokio::net::lookup_host(host)
+                .await
+                .map(|addrs| addrs.collect()),
+            Addr::HostPort(host, port) => tokio::net::lookup_host((host.as_str(), *port))
+                .await
+                .map(|addrs| addrs.collect()),
+        }
+    }
+
+    let addrs = match addrs.as_ref() {
+        SocketAddrs::Single(addr) => lookup_addr(addr).await?,
+        SocketAddrs::Multiple(addrs) => {
+            let mut res = vec![];
+            let set = addrs.iter().map(lookup_addr);
+            for addrs in futures::future::join_all(set).await {
+                res.extend(addrs?);
+            }
+
+            res
+        }
+    };
+
+    let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     axum::serve(listener, router).await?;
 
     Ok(())

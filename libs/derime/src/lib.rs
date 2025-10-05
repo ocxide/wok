@@ -297,8 +297,6 @@ pub fn parse_attrs<Marker, P: AttrsMatch<Marker>>(
         .filter_map(|r| r.transpose())
         .collect::<Result<_, _>>()?;
 
-    dbg!(entries.len());
-
     let key_values = entries.into_iter().flatten();
     parser.attrs_match(span, key_values, namespace)
 }

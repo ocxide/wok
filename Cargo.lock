@@ -4799,6 +4799,7 @@ name = "wok_axum"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures",
  "serde",
  "take_mut",
  "tokio",
