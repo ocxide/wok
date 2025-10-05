@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 use proc_macro2::Span;
 use syn::{
@@ -6,36 +6,42 @@ use syn::{
 };
 
 #[derive(Debug)]
-pub struct CompileError(pub proc_macro2::TokenStream);
+pub struct CompileError(pub syn::Error);
 
 impl From<CompileError> for proc_macro2::TokenStream {
     fn from(err: CompileError) -> Self {
-        err.0
+        err.0.into_compile_error()
     }
 }
 
 #[macro_export]
 macro_rules! span_compile_error(
     ($span: expr => $msg: expr) => {
-        CompileError(quote::quote_spanned! { $span => compile_error!($msg) }.into())
+        CompileError(syn::Error::new($span, $msg))
     };
 
     ($span: expr => $msg: expr, $( $param: expr ),*) => {
-        CompileError(quote::quote_spanned! { $span => compile_error!($msg, $( $param ),*) }.into())
+        CompileError(syn::Error::new($span, format!($msg, $( $param ),*)))
     }
 );
 
 fn key_value(
     attr: &syn::Attribute,
-    _namespace: &str,
-) -> Result<Punctuated<MetaNameValue, Token![,]>, CompileError> {
-    let tokens = match &attr.meta {
-        syn::Meta::List(meta_list) => &meta_list.tokens,
-        _ => return Err(span_compile_error!(attr.span() => "Expected #[{}(...)]", namespace)),
+    namespace: &str,
+) -> Result<Option<Punctuated<MetaNameValue, Token![,]>>, CompileError> {
+    let meta_list = match &attr.meta {
+        syn::Meta::List(meta_list) => meta_list,
+        _ => {
+            return Err(span_compile_error!(attr.span() => "Expected #[{}(...)]", namespace));
+        }
     };
 
+    if !meta_list.path.is_ident(namespace) {
+        return Ok(None);
+    }
+
     let keyvalues = Punctuated::<MetaNameValue, Token![,]>::parse_terminated
-        .parse2(tokens.clone())
+        .parse2(meta_list.tokens.clone())
         .map_err(|_| span_compile_error!(attr.span() => "Invalid attribute syntax"))?;
 
     if keyvalues.is_empty() {
@@ -44,7 +50,7 @@ fn key_value(
         );
     }
 
-    Ok(keyvalues)
+    Ok(Some(keyvalues))
 }
 
 pub trait AttrsMatch<Marker> {
@@ -54,6 +60,7 @@ pub trait AttrsMatch<Marker> {
         self,
         span: Option<Span>,
         key_values: impl Iterator<Item = MetaNameValue>,
+        namespace: &str,
     ) -> Result<Self::Out, CompileError>;
 }
 
@@ -66,6 +73,7 @@ impl<Marker1, K1: PathMatch + ReprValueRef, V1: ValueParser<Marker1>>
         self,
         span: Option<Span>,
         mut key_values: impl Iterator<Item = MetaNameValue>,
+        namespace: &str,
     ) -> Result<Self::Out, CompileError> {
         let Some(span) = span else {
             return Err(
@@ -75,13 +83,13 @@ impl<Marker1, K1: PathMatch + ReprValueRef, V1: ValueParser<Marker1>>
 
         let Some(kv) = key_values.find(|kv| self.0.path_match(&kv.path)) else {
             return Err(
-                span_compile_error!(span => "Expected at least one single {} = ...", K1::repr()),
+                span_compile_error!(span => "Expected at least one single {} = ...", K1::repr(&self.0)),
             );
         };
 
         if key_values.next().is_some() {
             return Err(
-                span_compile_error!(span => "Expected at most one single {} = {}", K1::repr(), V1::repr()),
+                span_compile_error!(span => "Expected at most one single {} = {}", K1::repr(&self.0), V1::repr()),
             );
         };
 
@@ -98,6 +106,7 @@ impl<Marker1, K1: PathMatch + ReprValueRef, V1: ValueParser<Marker1>>
         self,
         span: Option<Span>,
         mut key_values: impl Iterator<Item = MetaNameValue>,
+        _namespace: &str,
     ) -> Result<Self::Out, CompileError> {
         let span = match span {
             Some(span) => span,
@@ -105,12 +114,12 @@ impl<Marker1, K1: PathMatch + ReprValueRef, V1: ValueParser<Marker1>>
         };
 
         let Some(kv) = key_values.find(|kv| self.0.0.path_match(&kv.path)) else {
-            return Err(span_compile_error!(span => "Expected a {} = ...", K1::repr()));
+            return Err(span_compile_error!(span => "Expected a {} = ...", K1::repr(&self.0.0)));
         };
 
         if key_values.next().is_some() {
-            let _k1 = K1::repr(&self.0.0);
-            let _v1 = V1::repr();
+            let k1 = K1::repr(&self.0.0);
+            let v1 = V1::repr();
             return Err(span_compile_error!(span => "Expected at most one single {} = {}", k1, v1));
         };
 
@@ -133,6 +142,7 @@ impl<
         self,
         span: Option<Span>,
         mut key_values: impl Iterator<Item = MetaNameValue>,
+        _namespace: &str,
     ) -> Result<Self::Out, CompileError> {
         let span = match span {
             Some(span) => span,
@@ -154,7 +164,7 @@ impl<
 
         if key_values.next().is_some() {
             return Err(
-                span_compile_error!(span => "Expected at most one single {} = {}", K1::repr(), V1::repr()),
+                span_compile_error!(span => "Expected at most one single {} = {}", K1::repr(&p1.0.0), V1::repr()),
             );
         };
 
@@ -240,13 +250,13 @@ pub trait IdentValueParse<Marker>: Sized {
 }
 
 pub struct IdentFromStr;
-impl<S: FromStr + ReprValue> IdentValueParse<IdentFromStr> for S {
+impl<S: FromStr<Err: Display> + ReprValue> IdentValueParse<IdentFromStr> for S {
     fn repr() -> &'static str {
         S::repr()
     }
 
     fn parse(ident: Ident) -> Result<Self, CompileError> {
-        S::from_str(&ident.to_string()).map_err(|_e| span_compile_error!(ident.span() => "{}", e))
+        S::from_str(&ident.to_string()).map_err(|e| span_compile_error!(ident.span() => "{}", e))
     }
 }
 
@@ -284,8 +294,11 @@ pub fn parse_attrs<Marker, P: AttrsMatch<Marker>>(
     let entries: Vec<_> = attrs
         .iter()
         .map(|attr| key_value(attr, namespace))
+        .filter_map(|r| r.transpose())
         .collect::<Result<_, _>>()?;
 
+    dbg!(entries.len());
+
     let key_values = entries.into_iter().flatten();
-    parser.attrs_match(span, key_values)
+    parser.attrs_match(span, key_values, namespace)
 }

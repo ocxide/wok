@@ -1,4 +1,4 @@
-use crate::{CompileError, derime, span_compile_error};
+use derime::{CompileError, span_compile_error};
 use quote::quote;
 use syn::{Index, Lifetime, spanned::Spanned};
 
@@ -39,7 +39,7 @@ impl std::str::FromStr for Usage {
 
 fn get_usage(attrs: &[syn::Attribute]) -> Result<Usage, CompileError> {
     let usage = derime::parse_attrs(
-        "params",
+        "param",
         attrs,
         derime::OptionalAttr((
             derime::KeyIdent("usage"),
