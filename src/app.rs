@@ -76,7 +76,8 @@ pub trait AppSystem<Marker> {
     ) -> impl Future<Output = Result<(), WokUnknownError>> + 'static;
 }
 
-struct TaskAppSystem;
+#[doc(hidden)]
+pub struct TaskAppSystem;
 
 impl<Marker, S> AppSystem<(Marker, TaskAppSystem)> for S
 where
@@ -100,7 +101,8 @@ where
     }
 }
 
-struct InlineAppSystem;
+#[doc(hidden)]
+pub struct InlineAppSystem;
 
 impl<Marker, S, SChoice> AppSystem<(Marker, SChoice, InlineAppSystem)> for S
 where

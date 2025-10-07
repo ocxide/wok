@@ -236,10 +236,6 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
         self.collect_pending_systems();
 
         loop {
-            if self.systems.pendings.is_empty() {
-                break;
-            };
-
             if let Some((systemid, result)) = self.last_inline.take() {
                 Self::on_finish(systemid, self.center, self.state);
                 result?;
@@ -251,6 +247,10 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
             } else {
                 break;
             }
+
+            if self.systems.pendings.is_empty() {
+                break;
+            };
 
             self.collect_pending_systems();
         }
