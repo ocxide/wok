@@ -48,7 +48,7 @@ impl Resources {
     }
 }
 
-#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct ResourceId(TypeId);
 
 impl ResourceId {

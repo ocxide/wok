@@ -42,6 +42,8 @@ impl App {
             .invoke()
             .await?;
 
+        debug_assert!(center.system_locks.is_all_free(), "All resources must be free after startup");
+
         let state = state.wrap();
 
         // Safety: we are the only owner

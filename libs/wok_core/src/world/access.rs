@@ -18,7 +18,7 @@ pub enum WorldAccess {
     Write,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct WorldLocks {
     resources: HashMap<ResourceId, WorldAccess>,
 }
@@ -96,6 +96,10 @@ impl WorldLocks {
         }
 
         true
+    }
+
+    pub fn is_clean(&self) -> bool {
+        self.resources.is_empty()
     }
 }
 

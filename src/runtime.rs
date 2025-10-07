@@ -117,6 +117,14 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                 break;
             }
 
+            match (foreign_rt_open, release_recv_open, addon_open) {
+                (false, true, false) => {
+                    self.releaser = None;
+                }
+                (false, false, false) => break,
+                _ => (),
+            }
+
             let foreign_fut = if foreign_rt_open {
                 Either::Left(self.foreign_rt.tick())
             } else {
@@ -158,7 +166,6 @@ impl<'w, Addon: RuntimeAddon> Runtime<'w, Addon> {
                     }
                     else {
                         addon_open = false;
-                        self.releaser = None;
                     }
                 }
 

@@ -3,7 +3,6 @@ pub mod gateway;
 use std::sync::Arc;
 
 use crate::commands::{self, CommandSender, CommandsReceiver};
-use crate::param::BorrowMutParam;
 use crate::prelude::Resource;
 use crate::resources::{Immutable, Resources};
 use crate::schedule::{ScheduleConfigure, ScheduleLabel};
@@ -30,10 +29,10 @@ pub struct WorldState {
 impl WorldState {
     /// # Panics
     /// Panics if the params are not available
-    pub fn get<P: BorrowMutParam>(&mut self) -> P::AsRef<'_> {
+    pub fn get<P: crate::param::Param>(&mut self) -> P::AsRef<'_> {
         // Safety: by being the olny owner `&mut self`, this is allowed
 
-        unsafe { P::borrow(self.as_unsafe_world_state()) }
+        unsafe { P::get_ref(self.as_unsafe_mut()) }
     }
 
     pub const fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
@@ -226,6 +225,10 @@ impl SystemLocks {
 
     pub fn release_rw(&mut self, rw: &access::SystemLock) {
         self.rw.release_access(rw);
+    }
+
+    pub fn is_all_free(&self) -> bool {
+        self.rw.is_clean()
     }
 }
 

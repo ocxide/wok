@@ -11,7 +11,7 @@ type Router = axum::Router<RemoteWorldPorts>;
 
 #[derive(Resource)]
 #[resource(mutable = true)]
-pub struct RouterRoot(Option<Router>);
+pub struct RouterRoot(pub Option<Router>);
 
 impl Default for RouterRoot {
     fn default() -> Self {
@@ -398,7 +398,7 @@ mod handler {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Clone)]
 #[serde(untagged)]
 pub enum Addr {
     // try to deserialize plain socket addr first
@@ -408,7 +408,7 @@ pub enum Addr {
     HostPort(String, u16),
 }
 
-#[derive(wok::prelude::Resource, serde::Deserialize)]
+#[derive(wok::prelude::Resource, serde::Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum SocketAddrs {
     Single(Addr),
@@ -454,6 +454,8 @@ pub async fn serve(
             res
         }
     };
+
+    println!("listening on: {addrs:?}");
 
     let listener = tokio::net::TcpListener::bind(addrs.as_slice()).await?;
     axum::serve(listener, router).await?;

@@ -816,7 +816,6 @@ dependencies = [
  "surrealdb",
  "tokio",
  "wok",
- "wok_assets",
  "wok_clap",
  "wok_db",
  "wok_params_client",
