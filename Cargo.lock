@@ -4802,6 +4802,8 @@ dependencies = [
  "serde",
  "take_mut",
  "tokio",
+ "tower-layer",
+ "tower-service",
  "wok",
  "wok_core",
 ]

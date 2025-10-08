@@ -11,3 +11,5 @@ tokio = { workspace = true }
 take_mut = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
+tower-layer = "0.3.3"
+tower-service = "0.3.3"
