@@ -139,7 +139,15 @@ impl<R: Resource> Param for Res<'_, R> {
     }
 
     unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
-        unsafe { <Option<Res<'_, R>> as Param>::get_owned(state) }.expect("to have resource")
+        let out = unsafe { <Option<Res<'_, R>> as Param>::get_owned(state) };
+        match out {
+            Some(handle) => handle,
+            None => panic!(
+                "Res<'_, {}>: Resource of type `{}` was not registered",
+                std::any::type_name::<R>(),
+                std::any::type_name::<R>()
+            ),
+        }
     }
 
     unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {

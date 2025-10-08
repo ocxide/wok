@@ -1,6 +1,6 @@
 pub use storages::*;
 
-pub trait ScheduleLabel: Send + Sync + 'static {}
+pub trait ScheduleLabel: Send + Sync {}
 
 pub trait ScheduleConfigure<T, Marker> {
     fn add(self, world: &mut crate::world::World, thing: T);

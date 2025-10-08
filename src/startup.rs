@@ -244,13 +244,9 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
             if let Some(Ok((systemid, result))) = self.futures.next().await {
                 Self::on_finish(systemid, self.center, self.state);
                 result?;
-            } else {
+            } else if self.systems.pendings.is_empty() {
                 break;
             }
-
-            if self.systems.pendings.is_empty() {
-                break;
-            };
 
             self.collect_pending_systems();
         }
