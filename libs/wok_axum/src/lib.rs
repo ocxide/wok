@@ -28,6 +28,169 @@ mod middleware {
     }
 }
 
+pub mod crud {
+    use std::borrow::Cow;
+
+    use axum::Json;
+    use wok::{
+        plugin::Plugin,
+        prelude::{ConfigureWorld, In, IntoSystem, Res, Resource, WokUnknownError},
+    };
+    use wok_db::{
+        Record,
+        db::{DbCreate, DbList, Query},
+        id_strategy::IdStrategy,
+    };
+
+    use crate::{Route, get, post};
+
+    pub struct CRUDCfgBuilder<Db = (), IdStrategy = ()>(std::marker::PhantomData<(Db, IdStrategy)>);
+
+    impl<Db> Clone for CRUDCfgBuilder<Db> {
+        fn clone(&self) -> Self {
+            *self
+        }
+    }
+
+    impl<Db> Copy for CRUDCfgBuilder<Db> {}
+
+    impl CRUDCfgBuilder<()> {
+        pub const fn new() -> CRUDCfgBuilder<()> {
+            CRUDCfgBuilder(std::marker::PhantomData)
+        }
+    }
+
+    impl<Db, IdStrategy> CRUDCfgBuilder<Db, IdStrategy> {
+        pub const fn db<Db2: Resource>(self) -> CRUDCfgBuilder<Db2> {
+            CRUDCfgBuilder(std::marker::PhantomData)
+        }
+
+        pub const fn id<IdStrategy2>(self) -> CRUDCfgBuilder<Db, IdStrategy2> {
+            CRUDCfgBuilder(std::marker::PhantomData)
+        }
+    }
+
+    impl Default for CRUDCfgBuilder<()> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<Db: Resource, IdStrategy> CrudConfig for CRUDCfgBuilder<Db, IdStrategy> {
+        type Db = Db;
+        type IdStrategy = IdStrategy;
+    }
+
+    pub trait CrudConfig: Sized {
+        type Db: Resource;
+        type IdStrategy;
+
+        fn for_record<R: Record>(self) -> RoutePluginBuilder<R, Self> {
+            RoutePluginBuilder {
+                path: format!("/{}", R::TABLE).into(),
+                _marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    fn handle_wok_err<T: Send>(
+        In(result): In<Result<T, WokUnknownError>>,
+    ) -> Result<T, axum::http::StatusCode> {
+        result.map_err(move |err| {
+            tracing::error!(%err);
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        })
+    }
+
+    pub struct RoutePluginBuilder<R: Record, Config: CrudConfig> {
+        pub path: Cow<'static, str>,
+        _marker: std::marker::PhantomData<fn(R, Config)>,
+    }
+
+    impl<R: Record, Config: CrudConfig> RoutePluginBuilder<R, Config> {
+        pub fn with_path(path: &'static str) -> Self {
+            Self {
+                path: path.into(),
+                _marker: std::marker::PhantomData,
+            }
+        }
+
+        pub const fn list_all<D: serde::Serialize>(&self) -> ListAllPlugin<'_, R, D, Config>
+        where
+            Config::Db: DbList<D>,
+        {
+            ListAllPlugin {
+                builder: self,
+                _marker: std::marker::PhantomData,
+            }
+        }
+
+        pub const fn create_one<D: serde::de::DeserializeOwned>(
+            &self,
+        ) -> CreateOnePlugin<'_, R, D, Config>
+        where
+            Config::Db: DbCreate<R, D>,
+        {
+            CreateOnePlugin {
+                builder: self,
+                _marker: std::marker::PhantomData,
+            }
+        }
+    }
+
+    pub struct ListAllPlugin<'b, R: Record, D: serde::Serialize, Config: CrudConfig>
+    where
+        Config::Db: DbList<D>,
+    {
+        builder: &'b RoutePluginBuilder<R, Config>,
+        _marker: std::marker::PhantomData<fn(D)>,
+    }
+
+    impl<'b, R: Record, D: serde::Serialize + Send + Sync + 'static, Config: CrudConfig> Plugin
+        for ListAllPlugin<'b, R, D, Config>
+    where
+        Config::Db: DbList<D>,
+    {
+        fn setup(self, app: &mut wok::prelude::App) {
+            let system =
+                (async move |db: Res<'_, Config::Db>| -> Result<axum::Json<Vec<D>>, WokUnknownError> {
+                    let data = db.list(R::TABLE).execute().await?;
+                    Ok(axum::Json(data))
+                })
+                .map(handle_wok_err);
+
+            app.add_system(Route(&self.builder.path), get(system));
+        }
+    }
+
+    pub struct CreateOnePlugin<'b, R: Record, D: serde::de::DeserializeOwned, Config: CrudConfig> {
+        builder: &'b RoutePluginBuilder<R, Config>,
+        _marker: std::marker::PhantomData<fn(R, D)>,
+    }
+
+    type Wrap<IdStrat, R, D> = <IdStrat as IdStrategy<R>>::Wrap<D>;
+
+    impl<'b, R: Record, D, Config: CrudConfig> Plugin for CreateOnePlugin<'b, R, D, Config>
+    where
+        D: serde::de::DeserializeOwned + Send + Sync + 'static,
+        Config::Db: DbCreate<R, Wrap<Config::IdStrategy, R, D>>,
+        Config::IdStrategy: IdStrategy<R>,
+        R: serde::de::DeserializeOwned + serde::Serialize,
+    {
+        fn setup(self, app: &mut wok::prelude::App) {
+            let system = (async move |In(Json(data)): In<Json<D>>, db: Res<'_, Config::Db>| {
+                let data = Config::IdStrategy::wrap(data);
+                let id = db.create(R::TABLE, data).execute().await?;
+
+                Ok(axum::Json(id)) as Result<_, WokUnknownError>
+            })
+            .map(handle_wok_err);
+
+            app.add_system(Route(&self.builder.path), post(system));
+        }
+    }
+}
+
 use wok::{
     plugin::Plugin,
     prelude::*,
@@ -256,10 +419,10 @@ mod single_route {
     method_filter_fn!(delete: DELETE);
     method_filter_fn!(patch: PATCH);
 
-    pub struct Route(pub &'static str);
-    impl ScheduleLabel for Route {}
+    pub struct Route<'r>(pub &'r str);
+    impl<'r> ScheduleLabel for Route<'r> {}
 
-    impl<R: ConfigureRoute> ScheduleConfigure<R, ()> for Route {
+    impl<'r, R: ConfigureRoute> ScheduleConfigure<R, ()> for Route<'r> {
         fn add(self, world: &mut wok_core::world::World, thing: R) {
             let mut router = world.state.get::<ResMut<'_, RouterRoot>>();
             let router = router.0.as_mut().expect("router");

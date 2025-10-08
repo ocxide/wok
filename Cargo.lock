@@ -4804,8 +4804,10 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
+ "tracing",
  "wok",
  "wok_core",
+ "wok_db",
 ]
 
 [[package]]
