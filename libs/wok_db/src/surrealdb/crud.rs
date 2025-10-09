@@ -113,9 +113,7 @@ impl<'db, C: Connection, R: SurrealRecord> crate::db::Query<Result<(), DbDeleteE
 
         let result = match response {
             Ok(_) => Ok(()),
-            Err(e) => {
-                println!("Failed to delete: {}", e);
-                dbg!(e);
+            Err(_) => {
                 Err(DbDeleteError::None)
             }
         };

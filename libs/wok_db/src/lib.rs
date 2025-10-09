@@ -6,8 +6,10 @@ pub trait RecordGenerate: Record {
     fn generate() -> Self;
 }
 
+#[derive(serde::Serialize)]
 pub struct RecordEntry<R, D> {
     pub id: R,
+    #[serde(flatten)]
     pub data: D,
 }
 
