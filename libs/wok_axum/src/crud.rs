@@ -142,7 +142,7 @@ where
             Ok(axum::Json(data))
         };
 
-        app.add_system(Route(&self.builder.path), get(system));
+        app.add_systems(Route(&self.builder.path), get(system));
     }
 }
 
@@ -168,7 +168,7 @@ where
             Ok(axum::Json(id)) as Result<_, WokUnknownError>
         };
 
-        app.add_system(Route(&self.builder.path), post(system));
+        app.add_systems(Route(&self.builder.path), post(system));
     }
 }
 
@@ -194,7 +194,7 @@ where
             }) as Result<_, WokUnknownError>
         };
 
-        app.add_system(Route(&format!("{}/{{id}}", self.builder.path)), get(system));
+        app.add_systems(Route(&format!("{}/{{id}}", self.builder.path)), get(system));
     }
 }
 
@@ -218,7 +218,7 @@ where
             }) as Result<_, WokUnknownError>
         };
 
-        app.add_system(
+        app.add_systems(
             Route(&format!("{}/{{id}}", self.builder.path)),
             delete(system),
         );

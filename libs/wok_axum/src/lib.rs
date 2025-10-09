@@ -406,9 +406,9 @@ mod tests {
     struct TestPlugin;
     impl Plugin for TestPlugin {
         fn setup(self, app: &mut wok::prelude::App) {
-            app.add_system(Route("/hello"), get(simple_route).post(parse_req))
-                .add_system(Route("/hello/{data}"), get(parse_req_part))
-                .add_system(Route("/error"), get(input_less_err));
+            app.add_systems(Route("/hello"), get(simple_route).post(parse_req))
+                .add_systems(Route("/hello/{data}"), get(parse_req_part))
+                .add_systems(Route("/error"), get(input_less_err));
         }
     }
 

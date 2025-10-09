@@ -92,7 +92,7 @@ impl<O: AssetOrigin<A> + 'static, A: for<'a> AssetsCollection<Assets: Param<AsRe
     fn setup(self, app: &mut wok::prelude::App) {
         use wok::prelude::ConfigureWorld;
         let origin = self.origin;
-        app.add_system(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
+        app.add_systems(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
             init.load(origin.clone())
         });
     }

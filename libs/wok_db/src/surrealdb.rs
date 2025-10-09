@@ -124,7 +124,7 @@ where
 {
     fn setup(self, app: &mut wok::prelude::App) {
         use wok::prelude::{ConfigureWorld, ResInit, ResTake};
-        app.add_system(
+        app.add_systems(
             wok::prelude::Startup,
             async |creds: ResTake<SurrealCredentials>,
                    config: Option<ResTake<SurrealConfig>>,

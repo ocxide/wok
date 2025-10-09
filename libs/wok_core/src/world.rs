@@ -320,7 +320,7 @@ pub trait ConfigureWorld: Sized {
         self
     }
 
-    fn add_system<Sch, T, Marker>(mut self, schedule: Sch, into_cfg: T) -> Self
+    fn add_systems<Sch, T, Marker>(mut self, schedule: Sch, into_cfg: T) -> Self
     where
         Sch: ScheduleLabel + ScheduleConfigure<T, Marker>,
     {
