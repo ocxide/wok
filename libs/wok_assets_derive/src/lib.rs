@@ -36,7 +36,7 @@ fn do_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream, CompileE
 
     let tokens = quote::quote! {
         impl #impl_generics wok_assets::AssetsCollection for #thing_name #ty_generics #where_clause {
-            type Assets = (#(wok::prelude::ResInitMarker<#types>),*);
+            type Assets = (#(wok::prelude::ResMutMarker<#types>),*);
 
             fn insert_all(self, commands: &mut wok::prelude::Commands) {
                 let Self { #(#fields,)* } = self;
@@ -62,7 +62,7 @@ fn works() {
         result.to_string(),
         quote::quote! {
             impl wok_assets::AssetsCollection for Foo {
-                type Assets = (wok::prelude::ResInitMarker<u32>, wok::prelude::ResInitMarker<u32>);
+                type Assets = (wok::prelude::ResMutMarker<u32>, wok::prelude::ResMutMarker<u32>);
 
                 fn insert_all(self, commands: &mut wok::prelude::Commands) {
                     let Self { a, b, } = self;

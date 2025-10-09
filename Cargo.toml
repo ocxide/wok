@@ -27,6 +27,7 @@ toml = { version = "0.8" }
 tokio = { version = ">=1.2", default-features = false, features = ["rt"] }
 async-channel = "2.5.0"
 take_mut = "0.2.2"
+tracing = "0.1.41"
 # derive only
 proc-macro2 = "1.0.95"
 quote = "1.0.40"

@@ -4840,6 +4840,7 @@ dependencies = [
  "serde",
  "surrealdb",
  "take_mut",
+ "tracing",
  "wok",
  "wok_db_derive",
 ]

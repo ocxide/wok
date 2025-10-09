@@ -6,6 +6,7 @@ use crate::{
     resources::{Mutable, ResourceId},
     world::{UnsafeMutState, UnsafeWorldState, access::SystemLock},
 };
+use wok_derive::Param;
 
 /// # Safety
 /// Caller must ensure the access is indeed read-only
@@ -327,11 +328,32 @@ impl<R: Resource> Param for ResTake<R> {
     }
 }
 
-pub struct ResInitMarker<R: Resource>(std::marker::PhantomData<fn(R)>);
+impl<R: Resource> Param for Option<ResTake<R>> {
+    type Owned = <ResTake<R> as Param>::Owned;
+    type AsRef<'r> = Option<ResTake<R>>;
 
-impl<R: Resource> Param for ResInitMarker<R> {
+    fn init(rw: &mut SystemLock) {
+        ResTake::<R>::init(rw);
+    }
+
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+        unsafe { state.take_resource() }.map(ResTake)
+    }
+
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        unsafe { state.take_resource::<R>() }
+    }
+
+    fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+        owned.take().map(ResTake)
+    }
+}
+
+pub struct ResMutMarker<R: Resource>(std::marker::PhantomData<fn(R)>);
+
+impl<R: Resource> Param for ResMutMarker<R> {
     type Owned = ();
-    type AsRef<'r> = ResInitMarker<R>;
+    type AsRef<'r> = ResMutMarker<R>;
 
     fn init(rw: &mut SystemLock) {
         if rw.register_resource_write(ResourceId::new::<R>()).is_err() {
@@ -343,15 +365,28 @@ impl<R: Resource> Param for ResInitMarker<R> {
     }
 
     unsafe fn get_ref(_state: &UnsafeMutState) -> Self::AsRef<'_> {
-        ResInitMarker(std::marker::PhantomData)
+        ResMutMarker(std::marker::PhantomData)
     }
 
     unsafe fn get_owned(_state: &UnsafeMutState) -> Self::Owned {}
 
     fn from_owned(_owned: &mut Self::Owned) -> Self::AsRef<'_> {
-        ResInitMarker(std::marker::PhantomData)
+        ResMutMarker(std::marker::PhantomData)
     }
 }
 
 // We know ResInitMarker does not modify the structure
-unsafe impl<R: Resource> BorrowMutParam for ResInitMarker<R> {}
+unsafe impl<R: Resource> BorrowMutParam for ResMutMarker<R> {}
+
+#[derive(Param)]
+#[param(usage = core)]
+pub struct ResInit<'r, R: Resource> {
+    commands: crate::commands::Commands<'r>,
+    _marker: ResMutMarker<R>,
+}
+
+impl<'r, R: Resource> ResInit<'r, R> {
+    pub fn init(&mut self, resource: R) {
+        self.commands.insert_resource(resource);
+    }
+}
