@@ -1,18 +1,18 @@
-mod middleware {
+mod layer {
     use std::convert::Infallible;
 
     use axum::{extract::Request, response::IntoResponse, routing::Route};
     use tower_service::Service;
     use wok::prelude::ResMut;
-    use wok_core::schedule::{ScheduleConfigure, ScheduleLabel};
+    use wok_core::schedule::{ConfigureObjects, ScheduleLabel};
 
     use crate::RouterRoot;
 
-    pub struct AxumMiddleware;
+    pub struct Layer;
 
-    impl ScheduleLabel for AxumMiddleware {}
+    impl ScheduleLabel for Layer {}
 
-    impl<L> ScheduleConfigure<L, ()> for AxumMiddleware
+    impl<L> ConfigureObjects<L, ()> for Layer
     where
         L: tower_layer::Layer<Route> + Clone + Send + Sync + 'static,
         L::Service: Service<Request> + Clone + Send + Sync + 'static,
@@ -20,7 +20,7 @@ mod middleware {
         <L::Service as Service<Request>>::Error: Into<Infallible> + 'static,
         <L::Service as Service<Request>>::Future: Send + 'static,
     {
-        fn add(self, world: &mut wok_core::world::World, layer: L) {
+        fn add_objs(self, world: &mut wok_core::world::World, layer: L) {
             let mut router = world.state.get::<ResMut<'_, RouterRoot>>();
             let router = router.0.as_mut().expect("router");
             take_mut::take(router, move |r| r.layer(layer));
@@ -37,7 +37,7 @@ use wok::{
     remote_gateway::{RemoteWorldPorts, RemoteWorldRef},
 };
 
-pub use middleware::*;
+pub use layer::*;
 pub use nest_route::*;
 pub use single_route::*;
 

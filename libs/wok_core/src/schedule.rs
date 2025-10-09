@@ -1,5 +1,10 @@
 pub use storages::*;
 
+/// Stores
+pub trait ConfigureObjects<O, Marker> {
+    fn add_objs(self, world: &mut crate::world::World, objs: O); 
+}
+
 pub trait ScheduleLabel: Send + Sync {}
 
 pub trait ScheduleConfigure<T, Marker> {

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::commands::{self, CommandSender, CommandsReceiver};
 use crate::prelude::Resource;
 use crate::resources::{Immutable, Resources};
-use crate::schedule::{ScheduleConfigure, ScheduleLabel};
+use crate::schedule::{ConfigureObjects, ScheduleConfigure, ScheduleLabel};
 use crate::system::System;
 
 pub use access::SystemLock;
@@ -326,6 +326,12 @@ pub trait ConfigureWorld: Sized {
     {
         schedule.add(self.world_mut(), into_cfg);
 
+        self
+    }
+
+    fn add_objs<O, Marker>(mut self, label: impl ConfigureObjects<O, Marker>, objs: O) -> Self
+    {
+        label.add_objs(self.world_mut(), objs);
         self
     }
 }
