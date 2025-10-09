@@ -34,7 +34,7 @@ pub mod crud {
     use axum::Json;
     use wok::{
         plugin::Plugin,
-        prelude::{ConfigureWorld, In, IntoSystem, Res, Resource, WokUnknownError},
+        prelude::{ConfigureWorld, In, Res, Resource, WokUnknownError},
     };
     use wok_db::{
         Record,
@@ -93,15 +93,6 @@ pub mod crud {
         }
     }
 
-    fn handle_wok_err<T: Send>(
-        In(result): In<Result<T, WokUnknownError>>,
-    ) -> Result<T, axum::http::StatusCode> {
-        result.map_err(move |err| {
-            tracing::error!(%err);
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR
-        })
-    }
-
     pub struct RoutePluginBuilder<R: Record, Config: CrudConfig> {
         pub path: Cow<'static, str>,
         _marker: std::marker::PhantomData<fn(R, Config)>,
@@ -153,11 +144,10 @@ pub mod crud {
     {
         fn setup(self, app: &mut wok::prelude::App) {
             let system =
-                (async move |db: Res<'_, Config::Db>| -> Result<axum::Json<Vec<D>>, WokUnknownError> {
+                async move |db: Res<'_, Config::Db>| -> Result<axum::Json<Vec<D>>, WokUnknownError> {
                     let data = db.list(R::TABLE).execute().await?;
                     Ok(axum::Json(data))
-                })
-                .map(handle_wok_err);
+            };
 
             app.add_system(Route(&self.builder.path), get(system));
         }
@@ -178,13 +168,12 @@ pub mod crud {
         R: serde::de::DeserializeOwned + serde::Serialize,
     {
         fn setup(self, app: &mut wok::prelude::App) {
-            let system = (async move |In(Json(data)): In<Json<D>>, db: Res<'_, Config::Db>| {
+            let system = async move |In(Json(data)): In<Json<D>>, db: Res<'_, Config::Db>| {
                 let data = Config::IdStrategy::wrap(data);
                 let id = db.create(R::TABLE, data).execute().await?;
 
                 Ok(axum::Json(id)) as Result<_, WokUnknownError>
-            })
-            .map(handle_wok_err);
+            };
 
             app.add_system(Route(&self.builder.path), post(system));
         }
@@ -283,7 +272,6 @@ impl<P: Plugin> Plugin for AxumNestPlugin<P> {
 }
 
 mod single_route {
-    use axum::response::IntoResponse;
     use axum::routing::{MethodFilter, MethodRouter};
     use wok::prelude::ResMut;
     use wok::{
@@ -317,11 +305,11 @@ mod single_route {
 
     macro_rules! method_filter_fn {
         (self, $name:ident : $method:ident) => {
-            fn $name<S, SMarker, HMarker>(self, system: S) -> impl ConfigureRoute
+            fn $name<S, SMarker, HMarker, OMarker>(self, system: S) -> impl ConfigureRoute
             where
                 OnRoute<S::System, HMarker>: ConfigureRoute,
                 S: IntoSystem<SMarker>,
-                S::System: System<Out: IntoResponse>,
+                S::System: System<Out: crate::handler::WokIntoResponse<OMarker>>,
             {
                 let route = OnRoute {
                     system: system.into_system(),
@@ -334,11 +322,11 @@ mod single_route {
         };
 
         ($name:ident : $method:ident) => {
-            pub fn $name<S, SMarker, HMarker>(system: S) -> impl ConfigureRoute
+            pub fn $name<S, SMarker, HMarker, OMarker>(system: S) -> impl ConfigureRoute
             where
                 OnRoute<S::System, HMarker>: ConfigureRoute,
                 S: IntoSystem<SMarker>,
-                S::System: System<Out: IntoResponse>,
+                S::System: System<Out: crate::handler::WokIntoResponse<OMarker>>,
             {
                 OnRoute {
                     system: system.into_system(),
@@ -494,103 +482,7 @@ mod nest_route {
     }
 }
 
-mod handler {
-    use axum::{
-        extract::{FromRequest, FromRequestParts},
-        response::IntoResponse,
-    };
-    use wok::{
-        prelude::{BorrowMutParam, In, ProtoTaskSystem, ScopedFut, System},
-        remote_gateway::RemoteWorldPorts,
-    };
-    use wok_core::world::gateway::SystemEntry;
-
-    #[derive(Clone)]
-    pub(crate) struct AxumRouteSystem<S>(pub(crate) SystemEntry<S>);
-
-    #[doc(hidden)]
-    pub struct WithReqInput;
-    impl<Input, RouteSystem> axum::handler::Handler<(WithReqInput, Input), RemoteWorldPorts>
-        for AxumRouteSystem<RouteSystem>
-    where
-        RouteSystem: ProtoTaskSystem<Param: BorrowMutParam>,
-        RouteSystem: System<In = In<Input>, Out: IntoResponse>,
-        Input: FromRequest<RemoteWorldPorts> + Send + Sync + 'static,
-    {
-        type Future = ScopedFut<'static, axum::response::Response>;
-
-        fn call(self, req: axum::extract::Request, state: RemoteWorldPorts) -> Self::Future {
-            Box::pin(async move {
-                let input = match Input::from_request(req, &state).await {
-                    Ok(value) => value,
-                    Err(rejection) => return rejection.into_response(),
-                };
-
-                state
-                    .reserver()
-                    .reserve(self.0.entry_ref())
-                    .await
-                    .task()
-                    .run(input)
-                    .await
-                    .into_response()
-            })
-        }
-    }
-
-    #[doc(hidden)]
-    pub struct WithReqPartsInput;
-    impl<Input, RouteSystem> axum::handler::Handler<(WithReqPartsInput, Input), RemoteWorldPorts>
-        for AxumRouteSystem<RouteSystem>
-    where
-        RouteSystem: ProtoTaskSystem<Param: BorrowMutParam>,
-        RouteSystem: System<In = In<Input>, Out: IntoResponse>,
-        Input: FromRequestParts<RemoteWorldPorts> + Send + Sync + 'static,
-    {
-        type Future = ScopedFut<'static, axum::response::Response>;
-
-        fn call(self, req: axum::extract::Request, state: RemoteWorldPorts) -> Self::Future {
-            Box::pin(async move {
-                let input = match Input::from_request(req, &state).await {
-                    Ok(value) => value,
-                    Err(rejection) => return rejection.into_response(),
-                };
-
-                state
-                    .reserver()
-                    .reserve(self.0.entry_ref())
-                    .await
-                    .task()
-                    .run(input)
-                    .await
-                    .into_response()
-            })
-        }
-    }
-
-    #[doc(hidden)]
-    pub struct NoInput;
-    impl<RouteSystem> axum::handler::Handler<NoInput, RemoteWorldPorts> for AxumRouteSystem<RouteSystem>
-    where
-        RouteSystem: ProtoTaskSystem<Param: BorrowMutParam>,
-        RouteSystem: System<In = (), Out: IntoResponse>,
-    {
-        type Future = ScopedFut<'static, axum::response::Response>;
-
-        fn call(self, _req: axum::extract::Request, state: RemoteWorldPorts) -> Self::Future {
-            Box::pin(async move {
-                state
-                    .reserver()
-                    .reserve(self.0.entry_ref())
-                    .await
-                    .task()
-                    .run(())
-                    .await
-                    .into_response()
-            })
-        }
-    }
-}
+mod handler;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 #[serde(untagged)]
@@ -666,12 +558,17 @@ mod tests {
     impl Plugin for TestPlugin {
         fn setup(self, app: &mut wok::prelude::App) {
             app.add_system(Route("/hello"), get(simple_route).post(parse_req))
-                .add_system(Route("/hello/{data}"), get(parse_req_part));
+                .add_system(Route("/hello/{data}"), get(parse_req_part))
+                .add_system(Route("/error"), get(input_less_err));
         }
     }
 
     async fn simple_route() -> &'static str {
         "hello"
+    }
+
+    async fn input_less_err() -> Result<&'static str, wok::prelude::WokUnknownError> {
+        Ok("hello")
     }
 
     async fn parse_req(_: In<String>) {}
