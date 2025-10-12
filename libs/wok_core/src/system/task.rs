@@ -48,7 +48,7 @@ pub trait TaskSystem: System {
     unsafe fn owned_create_task(&self, state: &UnsafeMutState) -> SystemTask<Self::In, Self::Out>;
 }
 
-pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
+pub struct SystemTask<In: SystemInput + 'static, Out: Send + 'static>(
     #[allow(
         clippy::type_complexity,
         reason = "I am obsuring the type behind type `SystemTask`"
@@ -56,7 +56,7 @@ pub struct SystemTask<In: SystemInput + 'static, Out: Send + Sync + 'static>(
     Box<dyn for<'i> FnOnce(In::Inner<'i>, &'i [(); 0]) -> ScopedFut<'i, Out> + Send + 'static>,
 );
 
-impl<In: SystemInput + 'static, Out: Send + Sync + 'static> SystemTask<In, Out> {
+impl<In: SystemInput + 'static, Out: Send + 'static> SystemTask<In, Out> {
     pub fn run<'i>(self, input: In::Inner<'i>) -> ScopedFut<'i, Out> {
         self.0(input, &[])
     }

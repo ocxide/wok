@@ -13,7 +13,7 @@ pub type SystemIn<'i, S> = <<S as System>::In as SystemInput>::Inner<'i>;
 
 pub trait System: Send + Sync + 'static {
     type In: SystemInput;
-    type Out: Send + Sync + 'static;
+    type Out: Send + 'static;
 
     fn init(&self, rw: &mut SystemLock);
 }

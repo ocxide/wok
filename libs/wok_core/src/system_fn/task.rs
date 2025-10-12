@@ -50,7 +50,7 @@ pub trait SystemFn<Marker>: Sized + Send + Sync + 'static {
 impl<Marker, Func> System for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
+    Func: SystemFn<Marker, Output: Send + 'static, Input: Send> + Clone,
 {
     type In = Func::Input;
     type Out = Func::Output;
@@ -63,7 +63,7 @@ where
 impl<Marker, Func> ProtoSystem for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
+    Func: SystemFn<Marker, Output: Send + 'static, Input: Send> + Clone,
 {
     type Param = Func::Params;
 }
@@ -71,7 +71,7 @@ where
 impl<Marker, Func> ProtoTaskSystem for FunctionSystem<Marker, Func>
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Output: Send + 'static + Sync, Input: Send> + Clone,
+    Func: SystemFn<Marker, Output: Send + 'static, Input: Send> + Clone,
 {
     fn run<'i>(
         self,
@@ -274,7 +274,7 @@ mod impls {
 impl<Marker, Func> IntoSystem<Marker> for Func
 where
     Marker: 'static,
-    Func: SystemFn<Marker, Input: Send, Output: Send + Sync + 'static> + Clone,
+    Func: SystemFn<Marker, Input: Send, Output: Send + 'static> + Clone,
 {
     type System = FunctionSystem<Marker, Func>;
 
