@@ -185,27 +185,24 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
 
             match system {
                 StartupSystem::Async(system) => {
-                    let fut = match world
-                        .local_tasks()
-                        .run_dyn(SystemEntryRef::new(*id, system), ())
-                    {
-                        Ok(fut) => fut,
+                    let permit = match world.reserve(SystemEntryRef::new(*id, system)) {
+                        Ok(permit) => permit,
                         _ => return false,
                     };
+
+                    let fut = permit.local_tasks().run_dyn(());
 
                     let fut = rt.spawn(fut);
                     futures.push(fut);
                 }
 
                 StartupSystem::Blocking(system) => {
-                    let caller = match world
-                        .local_blocking()
-                        .create_caller(SystemEntryRef::new(*id, system))
-                    {
-                        Ok(caller) => caller,
+                    let permit = match world.reserve(SystemEntryRef::new(*id, system)) {
+                        Ok(permit) => permit,
                         _ => return false,
                     };
 
+                    let caller = permit.local_blocking().create_caller();
                     let id = *id;
                     let fut = rt.spawn_blocking(move || {
                         let out = caller.run(());
@@ -216,14 +213,12 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
 
                 StartupSystem::Inline(system) => {
                     let id = *id;
-                    let out = match world
-                        .local_blocking()
-                        .run_dyn(SystemEntryRef::new(id, system), ())
-                    {
-                        Ok(out) => out,
+                    let permit = match world.reserve(SystemEntryRef::new(id, system)) {
+                        Ok(permit) => permit,
                         _ => return false,
                     };
 
+                    let out = permit.local_blocking().run_dyn(());
                     *last_inline = Some((id, out));
                 }
             }

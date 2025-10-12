@@ -42,7 +42,10 @@ impl App {
             .invoke()
             .await?;
 
-        debug_assert!(center.system_locks.is_all_free(), "All resources must be free after startup");
+        debug_assert!(
+            center.system_locks.is_all_free(),
+            "All resources must be free after startup"
+        );
 
         let state = state.wrap();
 
@@ -95,9 +98,10 @@ where
         let mut world = unsafe { state.borrow_world_mut(&mut center.system_locks) };
 
         let fut = world
+            .reserve(system.entry_ref())
+            .expect("to reserve main app system")
             .local_tasks()
-            .run(system.entry_ref(), ())
-            .expect("to run main app system");
+            .run(());
 
         fut.map(|(_, out)| out)
     }
@@ -122,9 +126,10 @@ where
         let choice_result = {
             let mut world = unsafe { state.borrow_world_mut(&mut center.system_locks) };
             world
+                .reserve(system.entry_ref())
+                .expect("to reserve main app system")
                 .local_blocking()
-                .run(system.entry_ref(), ())
-                .expect("to run main app system")
+                .run(())
         };
 
         let choice = match choice_result {
@@ -134,10 +139,9 @@ where
 
         let fut = {
             let mut world = unsafe { state.borrow_world_mut(&mut center.system_locks) };
-            world
+            world.reserve(choice.entry_ref()).expect("to reserve main app system")
                 .local_tasks()
-                .run_dyn(choice.entry_ref(), ())
-                .expect("to run main app system")
+                .run_dyn(())
         };
 
         futures::future::Either::Right(fut.map(|(_, out)| out))

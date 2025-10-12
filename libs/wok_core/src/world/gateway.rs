@@ -312,7 +312,10 @@ mod owned_local {
 
     use crate::{
         param::Param,
-        system::{BlockingCaller, BlockingSystem, ProtoBlockingSystem, ProtoTaskSystem, SystemIn, TaskSystem},
+        system::{
+            BlockingCaller, BlockingSystem, ProtoBlockingSystem, ProtoTaskSystem, SystemIn,
+            TaskSystem,
+        },
         world::{SystemId, WorldSystemLockError},
     };
 
@@ -331,116 +334,122 @@ mod owned_local {
             Self { state, locks }
         }
 
-        pub const fn local_tasks(&'w mut self) -> OwnedLocalTasks<'w> {
-            OwnedLocalTasks(WorldMut {
+        pub const fn reborrow<'w2>(&'w2 mut self) -> WorldMut<'w2> {
+            WorldMut {
                 state: self.state,
                 locks: self.locks,
+            }
+        }
+
+        pub fn reserve<'a, S>(
+            &'a mut self,
+            system: SystemEntryRef<'a, S>,
+        ) -> Result<SystemPermit<'a, S>, WorldSystemLockError> {
+            self.locks.try_lock(system.id)?;
+
+            Ok(SystemPermit {
+                world: self.reborrow(),
+                system,
             })
         }
 
         pub const fn as_borrow(&'w mut self) -> WorldBorrowMut<'w> {
             WorldBorrowMut::new(self.state.as_unsafe_world_state(), self.locks)
         }
+    }
 
-        pub const fn local_blocking(&'w mut self) -> OwnedLocalBlocking<'w> {
-            OwnedLocalBlocking(WorldMut {
-                state: self.state,
-                locks: self.locks,
-            })
+    pub struct SystemPermit<'w, S> {
+        world: WorldMut<'w>,
+        system: SystemEntryRef<'w, S>,
+    }
+
+    impl<'w, S> SystemPermit<'w, S> {
+        pub const fn local_tasks(self) -> OwnedLocalTasks<'w, S> {
+            OwnedLocalTasks(self)
+        }
+
+        pub const fn local_blocking(self) -> OwnedLocalBlocking<'w, S> {
+            OwnedLocalBlocking(self)
         }
     }
 
-    pub struct OwnedLocalTasks<'w>(pub WorldMut<'w>);
+    pub struct OwnedLocalTasks<'w, S>(pub SystemPermit<'w, S>);
 
-    impl<'w> OwnedLocalTasks<'w> {
-        pub fn run_dyn<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
+    impl<'w, S> OwnedLocalTasks<'w, S> {
+        pub fn run_dyn<'i>(
+            self,
             input: SystemIn<'i, S>,
-        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send + use<'i, S>, SystemIn<'i, S>>
+        ) -> impl Future<Output = (SystemId, S::Out)> + 'i + Send + use<'i, S>
         where
             S: TaskSystem,
         {
-            let result = self.0.locks.try_lock(system.id);
-            if result.is_err() {
-                return Err(input);
-            }
-
             // Safety: Already checked with locks
-            let fut = unsafe { system.system.owned_run(self.0.state.as_unsafe_mut(), input) };
-            let id = system.id;
-            Ok(fut.map(move |out| (id, out)))
+            let fut = unsafe {
+                self.0
+                    .system
+                    .system
+                    .owned_run(self.0.world.state.as_unsafe_mut(), input)
+            };
+            let id = self.0.system.id;
+            fut.map(move |out| (id, out))
         }
 
-        pub fn run<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
+        pub fn run<'i>(
+            self,
             input: SystemIn<'i, S>,
-        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + use<'i, S> + Send, SystemIn<'i, S>>
+        ) -> impl Future<Output = (SystemId, S::Out)> + 'i + use<'i, S> + Send
         where
             S: ProtoTaskSystem,
         {
-            let result = self.0.locks.try_lock(system.id);
-            if result.is_err() {
-                return Err(input);
-            }
-
-            let param = unsafe { <S::Param as Param>::get_owned(self.0.state.as_unsafe_mut()) };
+            let param =
+                unsafe { <S::Param as Param>::get_owned(self.0.world.state.as_unsafe_mut()) };
 
             // Safety: Already checked with locks
-            let fut = system.system.clone().run(param, input);
-            let id = system.id;
-            Ok(fut.map(move |out| (id, out)))
+            let fut = self.0.system.system.clone().run(param, input);
+            let id = self.0.system.id;
+            fut.map(move |out| (id, out))
         }
     }
 
-    pub struct OwnedLocalBlocking<'w>(pub WorldMut<'w>);
+    pub struct OwnedLocalBlocking<'w, S>(pub SystemPermit<'w, S>);
 
-    impl<'w> OwnedLocalBlocking<'w> {
-        pub fn create_caller<S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
-        ) -> Result<BlockingCaller<S::In, S::Out>, WorldSystemLockError>
+    impl<'w, S> OwnedLocalBlocking<'w, S> {
+        pub fn create_caller(self) -> BlockingCaller<S::In, S::Out>
         where
             S: BlockingSystem,
         {
-            self.0.locks.try_lock(system.id)?;
-
             // Safety: Already checked with locks
-            Ok(unsafe { system.system.create_caller(self.0.state.as_unsafe_mut()) })
+            unsafe {
+                self.0
+                    .system
+                    .system
+                    .create_caller(self.0.world.state.as_unsafe_mut())
+            }
         }
 
-        pub fn run_dyn<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'i, S>,
-            input: SystemIn<'i, S>,
-        ) -> Result<S::Out, SystemIn<'i, S>>
+        pub fn run_dyn<'i>(&mut self, input: SystemIn<'i, S>) -> S::Out
         where
             S: BlockingSystem,
         {
-            if self.0.locks.try_lock(system.id).is_err() {
-                return Err(input);
-            };
-
             // Safety: Already checked with locks
-            Ok(unsafe { system.system.run(self.0.state.as_unsafe_mut(), input) })
+            unsafe {
+                self.0
+                    .system
+                    .system
+                    .run(self.0.world.state.as_unsafe_mut(), input)
+            }
         }
 
-        pub fn run<'i, S>(
+        pub fn run<'i>(
             &mut self,
-            system: SystemEntryRef<'i, S>,
             input: SystemIn<'i, S>,
-        ) -> Result<S::Out, SystemIn<'i, S>>
+        ) -> S::Out
         where
             S: ProtoBlockingSystem,
         {
-            if self.0.locks.try_lock(system.id).is_err() {
-                return Err(input);
-            };
-
             // Safety: Already checked with locks
-            let param = unsafe { <S::Param as Param>::get_ref(self.0.state.as_unsafe_mut()) };
-            Ok(system.system.run(param, input))
+            let param = unsafe { <S::Param as Param>::get_ref(self.0.world.state.as_unsafe_mut()) };
+            self.0.system.system.run(param, input)
         }
     }
 }
