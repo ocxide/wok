@@ -119,18 +119,12 @@ mod remote {
 }
 
 mod local {
-    use futures::FutureExt;
-
     use crate::{
         param::BorrowMutParam,
-        system::{
-            BlockingBorrowSystem, BlockingCaller, BorrowTaskSystem, ProtoTaskSystem, SystemIn,
-            SystemTask,
-        },
-        world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState, WorldSystemLockError},
+        world::{SystemId, SystemLock, SystemLocks, UnsafeWorldState},
     };
 
-    use super::{RemoteWorldMut, SystemEntryRef, SystemReleaser};
+    use super::{RemoteWorldMut, SystemReleaser};
 
     pub struct WorldBorrowMut<'w> {
         pub(crate) state: &'w UnsafeWorldState,
@@ -138,7 +132,7 @@ mod local {
     }
 
     impl<'w> WorldBorrowMut<'w> {
-        pub fn reborrow(&'w mut self) -> Self {
+        pub const fn reborrow<'w2: 'w>(&'w2 mut self) -> WorldBorrowMut<'w2> {
             Self {
                 state: self.state,
                 locks: self.locks,
@@ -175,20 +169,6 @@ mod local {
             // Safety: Already checked with locks
             Some(unsafe { (getter.getter)(self.state) })
         }
-
-        pub fn local_tasks(&'w mut self) -> LocalTasks<'w> {
-            LocalTasks(WorldBorrowMut {
-                state: self.state,
-                locks: self.locks,
-            })
-        }
-
-        pub fn local_inline(&'w mut self) -> LocalInline<'w> {
-            LocalInline(WorldBorrowMut {
-                state: self.state,
-                locks: self.locks,
-            })
-        }
     }
 
     impl WorldBorrowMut<'_> {
@@ -211,98 +191,6 @@ mod local {
                 lock,
                 getter: |state| Box::new(unsafe { P::borrow_owned(state) }),
             }
-        }
-    }
-
-    pub struct LocalTasks<'w>(pub WorldBorrowMut<'w>);
-
-    impl<'w> LocalTasks<'w> {
-        pub fn run_dyn<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
-            input: SystemIn<'i, S>,
-        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
-        where
-            S: BorrowTaskSystem,
-        {
-            let result = self.0.locks.try_lock(system.id);
-            if result.is_err() {
-                return Err(input);
-            }
-
-            // Safety: Already checked with locks
-            let fut = unsafe { system.system.run(self.0.state, input) };
-            let id = system.id;
-            Ok(async move {
-                let out = fut.await;
-                (id, out)
-            })
-        }
-
-        pub fn create_task<S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
-        ) -> Result<SystemTask<S::In, S::Out>, WorldSystemLockError>
-        where
-            S: BorrowTaskSystem,
-        {
-            self.0.locks.try_lock(system.id)?;
-
-            // Safety: Already checked with locks
-            Ok(unsafe { system.system.create_task(self.0.state) })
-        }
-
-        pub fn run<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
-            input: SystemIn<'i, S>,
-        ) -> Result<impl Future<Output = (SystemId, S::Out)> + 'i + Send, SystemIn<'i, S>>
-        where
-            S: ProtoTaskSystem,
-            S::Param: BorrowMutParam,
-        {
-            if self.0.locks.try_lock(system.id).is_err() {
-                return Err(input);
-            }
-
-            // Safety: Already checked with locks
-            let param = unsafe { S::Param::borrow_owned(self.0.state) };
-
-            let fut = <S as ProtoTaskSystem>::run(system.system.clone(), param, input);
-            let id = system.id;
-            Ok(fut.map(move |out| (id, out)))
-        }
-    }
-
-    pub struct LocalInline<'w>(pub WorldBorrowMut<'w>);
-    impl<'w> LocalInline<'w> {
-        pub fn create_caller<S>(
-            &mut self,
-            system: SystemEntryRef<'_, S>,
-        ) -> Result<BlockingCaller<S::In, S::Out>, WorldSystemLockError>
-        where
-            S: BlockingBorrowSystem,
-        {
-            self.0.locks.try_lock(system.id)?;
-
-            // Safety: Already checked with locks
-            Ok(unsafe { system.system.create_caller_ref(self.0.state) })
-        }
-
-        pub fn run_dyn<'i, S>(
-            &mut self,
-            system: SystemEntryRef<'i, S>,
-            input: SystemIn<'i, S>,
-        ) -> Result<S::Out, SystemIn<'i, S>>
-        where
-            S: BlockingBorrowSystem,
-        {
-            if self.0.locks.try_lock(system.id).is_err() {
-                return Err(input);
-            };
-
-            // Safety: Already checked with locks
-            Ok(unsafe { system.system.run_ref(self.0.state, input) })
         }
     }
 }
@@ -440,10 +328,7 @@ mod owned_local {
             }
         }
 
-        pub fn run<'i>(
-            &mut self,
-            input: SystemIn<'i, S>,
-        ) -> S::Out
+        pub fn run<'i>(&mut self, input: SystemIn<'i, S>) -> S::Out
         where
             S: ProtoBlockingSystem,
         {
