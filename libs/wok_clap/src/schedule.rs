@@ -77,7 +77,8 @@ impl<Arg, S, Marker> ScheduleConfigure<S, (Arg, Marker, SingleRoute)> for Route
 where
     Arg: FromArgMatches + Args + Send + Sync + 'static,
     S: IntoSystem<Marker>,
-    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>> + ProtoSystem<Param: BorrowMutParam>,
+    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>
+        + ProtoSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         self.command().add(world, system);
@@ -101,7 +102,8 @@ impl<Arg, S, Marker> ScheduleConfigure<S, (Arg, Marker, SingleRoute)> for RouteC
 where
     Arg: FromArgMatches + Args + Send + Sync + 'static,
     S: IntoSystem<Marker>,
-    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>> + ProtoSystem<Param: BorrowMutParam>,
+    S::System: System<In = In<Arg>, Out = Result<(), WokUnknownError>>
+        + ProtoSystem<Param: BorrowMutParam>,
 {
     fn add(self, world: &mut wok_core::world::World, system: S) {
         let route = OneRoute::new(system);
@@ -114,14 +116,13 @@ where
     R: ConfigureRoute,
 {
     fn add(self, world: &mut wok_core::world::World, route: R) {
-        let (mut command_root, mut router) = world
-            .state
-            .get::<(ResMut<'_, CommandRoot>, ResMut<'_, Router>)>();
+        let ((mut command_root, mut router), center) =
+            world.get_and_center::<(ResMut<'_, CommandRoot>, ResMut<'_, Router>)>();
 
         let mut command_root = CommmandMut(command_root.0.as_mut().expect("command root"));
 
         let subroute = SubRoute::new(self.0, route);
-        subroute.sub(&[], &mut world.center, &mut command_root, &mut router);
+        subroute.sub(&[], center, &mut command_root, &mut router);
     }
 }
 

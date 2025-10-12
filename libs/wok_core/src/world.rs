@@ -27,14 +27,6 @@ pub struct WorldState {
 }
 
 impl WorldState {
-    /// # Panics
-    /// Panics if the params are not available
-    pub fn get<P: crate::param::Param>(&mut self) -> P::AsRef<'_> {
-        // Safety: by being the olny owner `&mut self`, this is allowed
-
-        unsafe { P::get_ref(self.as_unsafe_mut()) }
-    }
-
     pub const fn as_unsafe_world_state(&mut self) -> &UnsafeWorldState {
         // Safety: by being the olny owner `&mut self`, this is allowed
         unsafe { &*(self as *const WorldState as *const UnsafeWorldState) }
@@ -298,6 +290,32 @@ impl World {
     pub fn into_parts(self) -> (WorldState, WorldCenter) {
         (self.state, self.center)
     }
+
+    pub fn get<P: crate::param::Param>(&mut self) -> P::AsRef<'_> {
+        self.get_and_center::<P>().0
+    }
+
+    pub fn get_and_center<P: crate::param::Param>(&mut self) -> (P::AsRef<'_>, &mut WorldCenter) {
+        match self.try_get_and_center::<P>() {
+            Some((p, c)) => (p, c),
+            None => panic!("Could not get param `{}`", std::any::type_name::<P>()),
+        }
+    }
+
+    pub fn try_get_and_center<P: crate::param::Param>(
+        &mut self,
+    ) -> Option<(P::AsRef<'_>, &mut WorldCenter)> {
+        let mut system_locks = SystemLock::default();
+        P::init(&mut system_locks);
+
+        if !self.center.system_locks.can_lock_rw(&system_locks) {
+            return None;
+        }
+
+        // Safety: Already checked with locks
+        let param = unsafe { P::get_ref(self.state.as_unsafe_mut()) };
+        Some((param, &mut self.center))
+    }
 }
 
 #[test]
@@ -329,8 +347,7 @@ pub trait ConfigureWorld: Sized {
         self
     }
 
-    fn add_objs<O, Marker>(mut self, label: impl ConfigureObjects<O, Marker>, objs: O) -> Self
-    {
+    fn add_objs<O, Marker>(mut self, label: impl ConfigureObjects<O, Marker>, objs: O) -> Self {
         label.add_objs(self.world_mut(), objs);
         self
     }

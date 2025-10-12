@@ -204,7 +204,7 @@ mod owned_local {
             BlockingCaller, BlockingSystem, ProtoBlockingSystem, ProtoTaskSystem, SystemIn,
             TaskSystem,
         },
-        world::{SystemId, WorldSystemLockError},
+        world::{SystemId, SystemLock, WorldSystemLockError},
     };
 
     use super::{SystemEntryRef, WorldBorrowMut};
@@ -243,6 +243,15 @@ mod owned_local {
 
         pub const fn as_borrow(&'w mut self) -> WorldBorrowMut<'w> {
             WorldBorrowMut::new(self.state.as_unsafe_world_state(), self.locks)
+        }
+
+        pub fn get<P: Param>(self) -> P::AsRef<'w> {
+            let mut system_locks = SystemLock::default();
+            P::init(&mut system_locks);
+            self.locks.can_lock_rw(&system_locks);
+
+            // Safety: Already checked with locks
+            unsafe { P::get_ref(self.state.as_unsafe_mut()) }
         }
     }
 

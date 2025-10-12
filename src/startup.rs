@@ -46,7 +46,7 @@ where
         let system = system.into_system();
         let systemid = world.register_system_ref(&system);
 
-        let mut systems = world.state.get::<ResMut<StartupSystems>>();
+        let mut systems = world.get::<ResMut<StartupSystems>>();
 
         systems
             .systems
@@ -80,7 +80,7 @@ where
         let system = system.into_system();
         let systemid = world.register_system_ref(&system);
 
-        let mut systems = world.state.get::<ResMut<StartupSystems>>();
+        let mut systems = world.get::<ResMut<StartupSystems>>();
 
         systems
             .systems
@@ -109,7 +109,7 @@ where
         let system = system.into_system();
         let systemid = world.register_system_ref(&system);
 
-        let mut systems = world.state.get::<ResMut<StartupSystems>>();
+        let mut systems = world.get::<ResMut<StartupSystems>>();
 
         systems
             .systems

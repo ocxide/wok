@@ -28,7 +28,7 @@ where
         let system = system.into_system();
         let entry = world.register_system(system);
 
-        let mut systems = world.state.get::<ResMut<RunSystems>>();
+        let mut systems = world.get::<ResMut<RunSystems>>();
         systems.0.add(entry.into_taskbox(), ());
     }
 }

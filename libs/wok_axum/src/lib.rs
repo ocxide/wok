@@ -235,10 +235,10 @@ mod single_route {
 
     impl<'r, R: ConfigureRoute> ScheduleConfigure<R, ()> for Route<'r> {
         fn add(self, world: &mut wok_core::world::World, thing: R) {
-            let mut router = world.state.get::<ResMut<'_, RouterRoot>>();
+            let (mut router, center) = world.get_and_center::<ResMut<'_, RouterRoot>>();
             let router = router.0.as_mut().expect("router");
 
-            let route = thing.into_route(&mut world.center);
+            let route = thing.into_route(center);
             take_mut::take(router, move |r| r.route(self.0, route));
         }
     }
@@ -296,10 +296,10 @@ mod nest_route {
 
     impl<L: ConfigureRoutesSet> ScheduleConfigure<L, ()> for NestRoutes {
         fn add(self, world: &mut wok_core::world::World, thing: L) {
-            let mut router = world.state.get::<ResMut<'_, RouterRoot>>();
+            let (mut router, center) = world.get_and_center::<ResMut<'_, RouterRoot>>();
             let router = router.0.as_mut().expect("router");
 
-            let axum_router = thing.cfg(axum::Router::new(), &mut world.center);
+            let axum_router = thing.cfg(axum::Router::new(), center);
             take_mut::take(router, move |r| r.nest(self.0, axum_router));
         }
     }

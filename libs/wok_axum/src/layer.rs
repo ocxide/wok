@@ -30,7 +30,7 @@ where
     <L::Service as Service<Request>>::Future: Send + 'static,
 {
     fn add_objs(self, world: &mut wok_core::world::World, layer: L) {
-        let mut router = world.state.get::<ResMut<'_, RouterRoot>>();
+        let mut router = world.get::<ResMut<'_, RouterRoot>>();
         let router = router.0.as_mut().expect("router");
         take_mut::take(router, move |r| r.layer(layer));
     }
