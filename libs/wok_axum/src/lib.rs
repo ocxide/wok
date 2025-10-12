@@ -1,32 +1,4 @@
-mod layer {
-    use std::convert::Infallible;
-
-    use axum::{extract::Request, response::IntoResponse, routing::Route};
-    use tower_service::Service;
-    use wok::prelude::ResMut;
-    use wok_core::schedule::{ConfigureObjects, ScheduleLabel};
-
-    use crate::RouterRoot;
-
-    pub struct Layer;
-
-    impl ScheduleLabel for Layer {}
-
-    impl<L> ConfigureObjects<L, ()> for Layer
-    where
-        L: tower_layer::Layer<Route> + Clone + Send + Sync + 'static,
-        L::Service: Service<Request> + Clone + Send + Sync + 'static,
-        <L::Service as Service<Request>>::Response: IntoResponse + 'static,
-        <L::Service as Service<Request>>::Error: Into<Infallible> + 'static,
-        <L::Service as Service<Request>>::Future: Send + 'static,
-    {
-        fn add_objs(self, world: &mut wok_core::world::World, layer: L) {
-            let mut router = world.state.get::<ResMut<'_, RouterRoot>>();
-            let router = router.0.as_mut().expect("router");
-            take_mut::take(router, move |r| r.layer(layer));
-        }
-    }
-}
+mod layer;
 
 pub mod crud;
 mod handler;
@@ -363,6 +335,7 @@ pub async fn serve(
         .0
         .take()
         .expect("to have `AxumPlugin`")
+        .layer(axum::Extension(world.clone()))
         .with_state(world);
 
     async fn lookup_addr(addr: &Addr) -> std::io::Result<Vec<std::net::SocketAddr>> {

@@ -4,7 +4,7 @@ pub mod prelude {
     pub use wok_core::prelude::*;
 
     pub use crate::run::Run;
-    pub use crate::startup::Startup;
+    pub use crate::startup::{InlineStartup, Startup};
 
     pub use crate::plugin::Plugin;
 }
