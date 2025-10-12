@@ -376,6 +376,9 @@ mod tests {
     #![allow(dead_code)]
     use super::*;
 
+    #[derive(Resource)]
+    struct MyRes;
+
     struct TestPlugin;
     impl Plugin for TestPlugin {
         fn setup(self, app: &mut wok::prelude::App) {
@@ -393,7 +396,7 @@ mod tests {
         Ok("hello")
     }
 
-    async fn parse_req(_: In<String>) {}
+    async fn parse_req(_: In<String>, _: wok::prelude::Res<'_, MyRes>) {}
 
     async fn parse_req_part(_: In<axum::extract::Path<String>>) {}
 }

@@ -149,7 +149,7 @@ impl Startup {
             state,
             systems,
             futures: FuturesUnordered::new(),
-            last_inline: None,
+            last_inline: Vec::new(),
         }
     }
 }
@@ -161,7 +161,7 @@ pub struct StartupInvoke<'w, C: AsyncExecutor> {
     state: &'w mut WorldState,
     systems: StartupSystems,
     futures: FuturesUnordered<FutJoinHandle<C>>,
-    last_inline: Option<(SystemId, Result<(), WokUnknownError>)>,
+    last_inline: Vec<(SystemId, Result<(), WokUnknownError>)>,
 }
 
 impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
@@ -219,7 +219,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                     };
 
                     let out = permit.local_blocking().run_dyn(());
-                    *last_inline = Some((id, out));
+                    last_inline.push((id, out));
                 }
             }
 
@@ -231,7 +231,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
         self.collect_pending_systems();
 
         loop {
-            if let Some((systemid, result)) = self.last_inline.take() {
+            for (systemid, result) in self.last_inline.drain(..) {
                 Self::on_finish(systemid, self.center, self.state);
                 result?;
             };

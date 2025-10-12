@@ -126,6 +126,31 @@ impl<R: Resource> Deref for Res<'_, R> {
     }
 }
 
+struct ResNotFoundErr<R: Resource> {
+    name: &'static str,
+    _marker: std::marker::PhantomData<R>,
+}
+
+impl<R: Resource> ResNotFoundErr<R> {
+    fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<R: Resource> std::fmt::Debug for ResNotFoundErr<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: Resource of type `{}` was not registered",
+            self.name,
+            std::any::type_name::<R>()
+        )
+    }
+}
+
 impl<R: Resource> Param for Res<'_, R> {
     type Owned = Handle<R>;
     type AsRef<'r> = Res<'r, R>;
@@ -141,18 +166,15 @@ impl<R: Resource> Param for Res<'_, R> {
 
     unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
         let out = unsafe { <Option<Res<'_, R>> as Param>::get_owned(state) };
-        match out {
-            Some(handle) => handle,
-            None => panic!(
-                "Res<'_, {}>: Resource of type `{}` was not registered",
-                std::any::type_name::<R>(),
-                std::any::type_name::<R>()
-            ),
-        }
+
+        out.ok_or_else(|| ResNotFoundErr::<R>::new("Res"))
+            .unwrap()
     }
 
     unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
-        unsafe { <Option<Res<'_, R>> as Param>::get_ref(state) }.expect("to have resource")
+        unsafe { <Option<Res<'_, R>> as Param>::get_ref(state) }
+            .ok_or_else(|| ResNotFoundErr::<R>::new("Res"))
+            .unwrap()
     }
 
     fn from_owned(handle: &mut Self::Owned) -> Self::AsRef<'_> {
@@ -211,11 +233,15 @@ impl<R: Resource<Mutability = Mutable>> Param for ResMut<'_, R> {
     }
 
     unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
-        unsafe { <Option<ResMut<'_, R>> as Param>::get_owned(state) }.expect("to have resource")
+        unsafe { <Option<ResMut<'_, R>> as Param>::get_owned(state) }
+            .ok_or_else(|| ResNotFoundErr::<R>::new("ResMut"))
+            .unwrap()
     }
 
     unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
-        unsafe { <Option<ResMut<'_, R>> as Param>::get_ref(state) }.expect("to have resource")
+        unsafe { <Option<ResMut<'_, R>> as Param>::get_ref(state) }
+            .ok_or_else(|| ResNotFoundErr::<R>::new("ResMut"))
+            .unwrap()
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
@@ -320,11 +346,17 @@ impl<R: Resource> Param for ResTake<R> {
     unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
         unsafe { state.take_resource() }
             .map(ResTake)
-            .expect("to have resource")
+            .ok_or_else(|| ResNotFoundErr::<R>::new("ResTake"))
+            .unwrap()
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
-        ResTake(owned.take().expect("to have resource"))
+        ResTake(
+            owned
+                .take()
+                .ok_or_else(|| ResNotFoundErr::<R>::new("ResTake"))
+                .unwrap(),
+        )
     }
 }
 

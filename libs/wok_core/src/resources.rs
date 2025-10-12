@@ -44,6 +44,10 @@ impl Resources {
     }
 
     pub fn init<R: Resource + Default>(&mut self) {
+        if self.0.contains_key(&TypeId::of::<R>()) {
+            return;
+        }
+
         self.insert(R::default());
     }
 }
