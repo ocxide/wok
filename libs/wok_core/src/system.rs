@@ -35,8 +35,7 @@ pub mod blocking {
         combinators::{IntoPipeBlockingSystem, IntoPipeThenSystem, IntoTryThenSystem},
     };
 
-    pub type DynBlockingSystem<In, Out> =
-        Box<dyn BlockingSystem<In = In, Out = Out> + Send + Sync>;
+    pub type DynBlockingSystem<In, Out> = Box<dyn BlockingSystem<In = In, Out = Out> + Send + Sync>;
 
     pub struct BlockingCaller<In: SystemInput + 'static, Out>(
         #[allow(clippy::type_complexity)] Box<dyn for<'i> FnOnce(In::Inner<'i>) -> Out + Send>,

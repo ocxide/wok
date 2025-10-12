@@ -1,12 +1,14 @@
-use wok::prelude::WokUnknownError;
 use surrealdb::{Connection, Surreal};
+use wok::prelude::WokUnknownError;
 
-use crate::db::{DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle};
+use crate::{db::{Db, DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle}, Record};
 
 use super::{
     AsSurrealBind, FromSurrealBind, SurrealDb, SurrealRecord, SurrealSerialize,
     record_serde::ThingOwned,
 };
+
+impl<C: Connection> Db for SurrealDb<C> {}
 
 impl<C, R, D> DbCreate<R, D> for SurrealDb<C>
 where
@@ -14,24 +16,26 @@ where
     D: AsSurrealBind,
     R: SurrealRecord,
 {
-    type CreateQuery<'q> = SurrealCreate<'q, C, D>;
+    type CreateQuery<'q> = SurrealCreate<'q, C, R, D>;
 
     fn create<'q>(&'q self, table: &'static str, data: D) -> Self::CreateQuery<'q> {
         SurrealCreate {
             db: &self.0,
+            _marker: std::marker::PhantomData,
             table,
             data,
         }
     }
 }
 
-pub struct SurrealCreate<'db, C: Connection, D> {
+pub struct SurrealCreate<'db, C: Connection, R: Record, D> {
     db: &'db Surreal<C>,
+    _marker: std::marker::PhantomData<R>,
     table: &'static str,
     data: D,
 }
 
-impl<'db, C, D, R> crate::db::Query<R> for SurrealCreate<'db, C, D>
+impl<'db, C, D, R> crate::db::Query<R> for SurrealCreate<'db, C, R, D>
 where
     D: AsSurrealBind + Send,
     R: SurrealRecord,
@@ -113,9 +117,7 @@ impl<'db, C: Connection, R: SurrealRecord> crate::db::Query<Result<(), DbDeleteE
 
         let result = match response {
             Ok(_) => Ok(()),
-            Err(_) => {
-                Err(DbDeleteError::None)
-            }
+            Err(_) => Err(DbDeleteError::None),
         };
 
         Ok(result)

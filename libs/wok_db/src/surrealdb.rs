@@ -16,7 +16,7 @@ mod from_surreal_bind;
 mod record_serde;
 
 #[derive(wok::prelude::Resource)]
-pub struct SurrealDb<C: Connection>(Surreal<C>);
+pub struct SurrealDb<C: Connection>(pub Surreal<C>);
 
 impl<C: Connection> SurrealDb<C> {
     #[inline]
