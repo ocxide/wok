@@ -280,6 +280,18 @@ impl ValueParser<bool> for BoolParser {
     }
 }
 
+pub struct ExprParser;
+impl ValueParser<Expr> for ExprParser {
+    type Out = Expr;
+    fn repr() -> &'static str {
+        "expr"
+    }
+
+    fn parse(&self, expr: Expr) -> Result<Self::Out, CompileError> {
+        Ok(expr)
+    }
+}
+
 pub fn parse_attrs<Marker, P: AttrsMatch<Marker>>(
     namespace: &str,
     attrs: &[syn::Attribute],

@@ -18,7 +18,7 @@ members = [
 	"libs/wok_params_client",
 	"libs/wok_trigger",
 	"libs/wok_assets"
-, "libs/wok_axum", "libs/wok_assets_derive", "libs/derime"]
+, "libs/wok_axum", "libs/wok_assets_derive", "libs/derime", "libs/valigate", "libs/valigate_derive"]
 
 [workspace.dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
