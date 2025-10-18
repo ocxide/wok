@@ -1,25 +1,43 @@
 use std::{borrow::Cow, collections::HashMap, error::Error as StdError};
 use valigate_derive::{Valid, impl_gates_tup};
 
+pub enum GateResult<T, E> {
+    Ok(T),
+    ErrCut(E),
+    ErrPass(T, E),
+}
+
 pub trait Gate<I> {
     type Out;
     type Err;
 
-    fn parse(self, input: I) -> (Self::Out, Result<(), Self::Err>);
+    fn parse(self, input: I) -> GateResult<Self::Out, Self::Err>;
 }
 
 impl<I> Gate<I> for () {
     type Out = I;
     type Err = SingleErr<std::convert::Infallible>;
 
-    fn parse(self, input: I) -> (Self::Out, Result<(), Self::Err>) {
-        (input, Ok(()))
+    fn parse(self, input: I) -> GateResult<Self::Out, Self::Err> {
+        GateResult::Ok(input)
     }
 }
 
 impl_gates_tup!();
 
 pub struct SingleErr<E: StdError + 'static>(pub E);
+
+#[derive(Debug, thiserror::Error)]
+#[error("field `{0}` is missing")]
+pub struct MissingField(pub &'static str);
+
+#[derive(Default)]
+pub enum MaybeFieldError<E> {
+    Invalid(E),
+    Missing,
+    #[default]
+    None,
+}
 
 pub trait CollectFieldErrs {
     fn collect_errs(self) -> Error;
@@ -81,10 +99,10 @@ pub fn field_pipe<In, G>(input: In, gate: G) -> Result<G::Out, Error>
 where
     G: Gate<In, Err: CollectFieldErrs>,
 {
-    let (out, result) = gate.parse(input);
-    match result {
-        Ok(_) => Ok(out),
-        Err(errs) => Err(errs.collect_errs()),
+    match gate.parse(input) {
+        GateResult::Ok(out) => Ok(out),
+        GateResult::ErrCut(err) => Err(err.collect_errs()),
+        GateResult::ErrPass(_, err) => Err(err.collect_errs()),
     }
 }
 
@@ -94,6 +112,12 @@ where
     gates::Max(4),
 ))]
 pub struct W2(String);
+
+#[derive(Valid)]
+#[valid(usage = crate)]
+pub struct MyData {
+    w2: W2,
+}
 
 mod gates {
     use crate::Gate;
@@ -133,20 +157,20 @@ mod gates {
         type Out = T;
         type Err = MinErr;
 
-        fn parse(self, input: T) -> (Self::Out, Result<(), Self::Err>) {
+        fn parse(self, input: T) -> super::GateResult<Self::Out, Self::Err> {
             if input.count() < self.0 {
                 let actual_len = input.count();
 
-                return (
+                return super::GateResult::ErrPass(
                     input,
-                    Err(MinErr {
+                    MinErr {
                         min: self.0,
                         len: actual_len,
-                    }),
+                    },
                 );
             }
 
-            (input, Ok(()))
+            crate::GateResult::Ok(input)
         }
     }
 
@@ -163,20 +187,20 @@ mod gates {
         type Out = T;
         type Err = MaxErr;
 
-        fn parse(self, input: T) -> (Self::Out, Result<(), Self::Err>) {
+        fn parse(self, input: T) -> super::GateResult<Self::Out, Self::Err> {
             if input.count() > self.0 {
                 let actual_len = input.count();
 
-                return (
+                return super::GateResult::ErrPass(
                     input,
-                    Err(MaxErr {
+                    MaxErr {
                         max: self.0,
                         len: actual_len,
-                    }),
+                    },
                 );
             }
 
-            (input, Ok(()))
+            crate::GateResult::Ok(input)
         }
     }
 }

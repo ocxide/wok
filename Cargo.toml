@@ -31,7 +31,7 @@ tracing = "0.1.41"
 # derive only
 proc-macro2 = "1.0.95"
 quote = "1.0.40"
-syn = "2.0.101"
+syn = { version = "2.0.101", features = ["extra-traits"] }
 
 [dependencies]
 wok_core = { path = "libs/wok_core" }
