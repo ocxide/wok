@@ -177,6 +177,7 @@ mod derive_valid {
                 fields: syn::Fields::Unnamed(FieldsUnnamed { unnamed, .. }),
                 ..
             }) => unnamed,
+            syn::Data::Enum(data) => return enum_derive(span, path, serde_top_attrs.as_deref(), ident, data),
             data => {
                 return multi_field_derive(
                     span,
@@ -412,6 +413,77 @@ mod derive_valid {
                 #derived
             };
         })
+    }
+
+    fn enum_derive(
+        span: proc_macro2::Span,
+        path: proc_macro2::TokenStream,
+        serde_top_attrs: Option<&[syn::Attribute]>,
+        ident: proc_macro2::Ident,
+        data: syn::DataEnum,
+    ) -> Result<proc_macro2::TokenStream, CompileError> {
+        let input_ident = quote::format_ident!("{}Input", &ident);
+
+        struct VariantSingle {
+            ident: syn::Ident,
+            field: syn::Field,
+        }
+
+        let variants = data.variants.iter().map(|v| {
+            let field = match &v.fields {
+                syn::Fields::Unnamed(FieldsUnnamed { unnamed, .. }) if unnamed.len() == 1 => {
+                    unnamed.iter().next().unwrap()
+                }
+                _ => return Err(derime::span_compile_error!(span => "Only single unnamed structs are supported for now!")),
+            };
+
+            Ok(VariantSingle {
+                ident: v.ident.clone(),                
+                field: field.clone(),
+            })
+        }).collect::<Result<Vec<_>, _>>()?;
+
+        let input_variants = data.variants.iter().zip(variants.iter()).map(|(variant, single)| {
+            let ty = &single.field.ty;
+            let mut field = single.field.clone();
+            field.ty = syn::parse_quote!(<#ty as #path::Valid>::In);
+
+            let mut modified = variant.clone();
+            modified.fields = syn::Fields::Unnamed(syn::parse_quote!((#field)));
+
+            modified
+        });
+
+        let serde_top_attrs = serde_top_attrs.unwrap_or(&[]);
+        let variants_mapping = variants.iter().map(|v| {
+            let variant_ident = &v.ident;
+            let ty = &v.field.ty;
+
+            quote! {
+                #input_ident::#variant_ident(v) => #ident::#variant_ident(
+                    <#ty as #path::Valid>::parse(v)?
+                ),
+            }
+        });
+
+        quote! {
+            #(#serde_top_attrs)*
+            pub enum #input_ident {
+                #(#input_variants)*
+            }
+
+            impl #path::Valid for #ident {
+                type In = #input_ident;
+
+                fn parse(input: Self::In) -> Result<Self, #path::Error> {
+                    Ok(match input {
+                        #(#variants_mapping)*
+                    })
+                }
+            }
+        };
+
+        todo!()
     }
 }
 
