@@ -9,6 +9,7 @@ serde = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true, optional = true }
 wok_assets_derive = { path = "../wok_assets_derive" }
+valigate = { path = "../valigate" }
 
 [features]
 tokio = ["dep:tokio"]

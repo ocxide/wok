@@ -256,7 +256,7 @@ mod derive_valid {
 
             quote! {
                 #(#attrs)*
-                #ident: Option<<#ty as Valid>::In>,
+                #ident: Option<<#ty as #path::Valid>::In>,
             }
         });
 
@@ -375,7 +375,7 @@ mod derive_valid {
 
                     #(
                         let #names = match input.#names {
-                            Some(v) => match <#types as Valid>::parse(v) {
+                            Some(v) => match <#types as #path::Valid>::parse(v) {
                                 Ok(v) => Some(v),
                                 Err(e) => {
                                     error.#names = #path::MaybeFieldError::Invalid(e);

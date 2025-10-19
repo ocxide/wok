@@ -23,6 +23,10 @@ impl<'r, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
             .load()
             .map(|collection| collection.insert_all(&mut self.commands))
     }
+
+    pub fn insert_all(&mut self, collection: A) {
+        collection.insert_all(&mut self.commands);
+    }
 }
 
 pub trait AssetOrigin<T>: Send + Sync + Clone {
@@ -62,6 +66,42 @@ pub trait AssetsCollection: Sized + 'static {
     fn insert_all(self, commands: &mut Commands);
 }
 
+pub struct AssetsReadPlugin<O, A = ()> {
+    origin: O,
+    _marker: std::marker::PhantomData<fn(A)>,
+}
+
+impl<O> AssetsReadPlugin<O, ()> {
+    pub const fn origin(origin: O) -> Self {
+        AssetsReadPlugin {
+            origin,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn assets<A: AssetsCollection>(self) -> AssetsReadPlugin<O, A>
+    where
+        O: AssetOrigin<A>,
+    {
+        AssetsReadPlugin {
+            origin: self.origin,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<O: AssetOrigin<A> + 'static, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
+    Plugin for AssetsReadPlugin<O, A>
+{
+    fn setup(self, app: &mut wok::prelude::App) {
+        use wok::prelude::ConfigureWorld;
+        let origin = self.origin;
+        app.add_systems(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
+            init.load(origin.clone())
+        });
+    }
+}
+
 pub struct AssetsPlugin<O, A = ()> {
     origin: O,
     _marker: std::marker::PhantomData<fn(A)>,
@@ -75,9 +115,9 @@ impl<O> AssetsPlugin<O, ()> {
         }
     }
 
-    pub fn assets<A: AssetsCollection>(self) -> AssetsPlugin<O, A>
+    pub fn assets<A: AssetsCollection + valigate::Valid>(self) -> AssetsPlugin<O, A>
     where
-        O: AssetOrigin<A>,
+        O: AssetOrigin<A::In>,
     {
         AssetsPlugin {
             origin: self.origin,
@@ -86,14 +126,20 @@ impl<O> AssetsPlugin<O, ()> {
     }
 }
 
-impl<O: AssetOrigin<A> + 'static, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
-    Plugin for AssetsPlugin<O, A>
+impl<
+    O: AssetOrigin<A::In> + 'static,
+    A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>> + valigate::Valid,
+> Plugin for AssetsPlugin<O, A>
 {
     fn setup(self, app: &mut wok::prelude::App) {
         use wok::prelude::ConfigureWorld;
         let origin = self.origin;
         app.add_systems(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
-            init.load(origin.clone())
+            let input = origin.clone().load()?;
+            let a = A::parse(input).map_err(valigate::ErrorDisplay)?;
+
+            init.insert_all(a);
+            Ok(())
         });
     }
 }

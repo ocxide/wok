@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, error::Error as StdError};
-use valigate_derive::{Valid, impl_gates_tup};
+use valigate_derive::impl_gates_tup;
+pub use valigate_derive::Valid;
 
 pub enum GateResult<T, E> {
     Ok(T),
@@ -95,8 +96,7 @@ pub trait GatedField: Valid {
     type Gate: Gate<Self::In>;
 }
 
-#[derive(Default)]
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct FieldErrors(Vec<Box<dyn StdError + Send + Sync>>);
 
 impl FieldErrors {
@@ -329,6 +329,14 @@ mod valids {
 
     impl_valid!(no: String);
     impl_valid!(no: Box<str>);
+
+    impl_valid!(no: std::path::PathBuf);
+
+    impl_valid!(no: std::time::Duration);
+    impl_valid!(no: std::time::Instant);
+    impl_valid!(no: std::time::SystemTime);
+
+    impl_valid!(no: std::net::SocketAddr);
 
     impl<V: Valid> Valid for Vec<V> {
         type In = Vec<V::In>;
