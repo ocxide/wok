@@ -45,14 +45,14 @@ fn do_impl_gates_tup(limit: usize) -> proc_macro2::TokenStream {
     let implement = quote! {
         impl<I, G0: Gate<I>, #(#clauses),*> Gate<I> for (G0, #(#gates_ty),*) {
             type Out = #last_gate::Out;
-            type Err = (Option<G0::Err>, #(Option<#gates_ty::Err>),*);
+            type Err = GateErrors<(Option<G0::Err>, #(Option<#gates_ty::Err>),*)>;
 
             fn parse(self, input: I) -> GateResult<Self::Out, Self::Err> {
                 let (g0, #(#gates_lets),*) = self;
 
                 let (out, gate0_err) = match g0.parse(input) {
                     GateResult::Ok(out) => (out, None),
-                    GateResult::ErrCut(err) => return GateResult::ErrCut((Some(err), #(#nones),*)),
+                    GateResult::ErrCut(err) => return GateResult::ErrCut(GateErrors((Some(err), #(#nones),*))),
                     GateResult::ErrPass(out, err) => (out, Some(err)),
                 };
 
@@ -64,7 +64,7 @@ fn do_impl_gates_tup(limit: usize) -> proc_macro2::TokenStream {
                         },
                         GateResult::ErrCut(err) => {
                             #gates_errs = Some(err);
-                            return GateResult::ErrCut((#all_errs));
+                            return GateResult::ErrCut(GateErrors((#all_errs)));
                         }
                         GateResult::ErrPass(out, err) => {
                             #gates_errs = Some(err);
@@ -75,7 +75,7 @@ fn do_impl_gates_tup(limit: usize) -> proc_macro2::TokenStream {
 
                 match (gate0_err, #(#gates_errs),*) {
                     (None, #(#nones),*) => GateResult::Ok(out),
-                    errs => GateResult::ErrPass(out, errs),
+                    errs => GateResult::ErrPass(out, GateErrors(errs)),
                 }
             }
         }
@@ -148,7 +148,6 @@ mod derive_valid {
         )?;
 
         let usage = usage.unwrap_or_default();
-        let gate = gate.unwrap_or_else(|| syn::parse_quote!(()));
         let path = match usage {
             Usage::Crate => quote! { crate },
             Usage::Lib => quote! { valigate },
@@ -179,9 +178,10 @@ mod derive_valid {
     fn single_field_derive(
         path: proc_macro2::TokenStream,
         ident: proc_macro2::Ident,
-        gate: syn::Expr,
+        gate: Option<syn::Expr>,
         input: syn::Type,
     ) -> proc_macro2::TokenStream {
+        let gate = gate.unwrap_or_else(|| syn::parse_quote!( #path::gates::NoopField ));
         quote! {
             impl #path::Valid for #ident {
                 type In = #input;
@@ -197,12 +197,17 @@ mod derive_valid {
         span: proc_macro2::Span,
         path: proc_macro2::TokenStream,
         ident: proc_macro2::Ident,
-        gate: syn::Expr,
+        gate: Option<syn::Expr>,
         data: syn::Data,
     ) -> Result<proc_macro2::TokenStream, CompileError> {
         let input_ident = quote::format_ident!("{}Input", &ident);
         let custom_gate_ident = quote::format_ident!("{}Gate", &ident);
         let custom_err_ident = quote::format_ident!("{}Error", &ident);
+
+        let gate: syn::Expr = match gate {
+           Some(gate) => syn::parse_quote!((#custom_gate_ident, #gate)),
+           None => syn::parse_quote!(#custom_gate_ident),
+        };
 
         let fields = match data {
             syn::Data::Struct(syn::DataStruct {
@@ -239,26 +244,23 @@ mod derive_valid {
                 #(#names: #path::MaybeFieldError<#path::Error>),*
             }
 
-            impl #path::CollectFieldErrs for #custom_err_ident {
-                fn collect_errs(self) -> #path::Error {
-                    let mut map = #path::HashMap::new();                    
+            impl #path::CollectsErrors for #custom_err_ident {
+                type Errors = #path::MapErrors;
 
+                fn collect_errs(self, map: &mut Self::Errors) {
                     #(
                         match self.#names {
                             #path::MaybeFieldError::Invalid(e) => {
-                                map.insert(#path::ErrorKey::Field(stringify!(#names).into()), e);    
-                            } 
+                                map.insert_field(stringify!(#names), e);
+                            }
                             #path::MaybeFieldError::Missing => {
-                                let error  = Box::new(#path::MissingField(stringify!(#names))) as Box<dyn std::error::Error>;
-                                let error = vec![error];
-                                map.insert(#path::ErrorKey::Field(stringify!(#names).into()), #path::Error::Field(error));
+                                let error = #path::FieldErrors::from_one(#path::MissingField(stringify!(#names)));
+                                map.insert_field(stringify!(#names), error.into());
                             }
                             _ => {}
                         }
                     )*
-                    
-                    #path::Error::Map(map)
-                }    
+                }
             }
 
             impl #path::Gate<#input_ident> for #custom_gate_ident {
@@ -294,7 +296,7 @@ mod derive_valid {
                 type In = #input_ident;
 
                 fn parse(input: Self::In) -> Result<Self, #path::Error> {
-                    #path::field_pipe(input, #custom_gate_ident)
+                    #path::field_pipe(input, #gate)
                 }
             }
 
@@ -332,15 +334,20 @@ mod tests {
             struct A {
                 a: i32,
             }
-        }).unwrap();
+        })
+        .unwrap();
 
-        assert_eq!(result.to_string(), quote! {
-            impl Valid for A {
-                type In = A;
-                fn parse(input: Self::In) -> Result<Self, Error> {
-                    Ok(input)
+        assert_eq!(
+            result.to_string(),
+            quote! {
+                impl Valid for A {
+                    type In = A;
+                    fn parse(input: Self::In) -> Result<Self, Error> {
+                        Ok(input)
+                    }
                 }
             }
-        }.to_string());
+            .to_string()
+        );
     }
 }

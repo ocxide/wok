@@ -14,18 +14,7 @@ pub trait Gate<I> {
     fn parse(self, input: I) -> GateResult<Self::Out, Self::Err>;
 }
 
-impl<I> Gate<I> for () {
-    type Out = I;
-    type Err = SingleErr<std::convert::Infallible>;
-
-    fn parse(self, input: I) -> GateResult<Self::Out, Self::Err> {
-        GateResult::Ok(input)
-    }
-}
-
 impl_gates_tup!();
-
-pub struct SingleErr<E: StdError + 'static>(pub E);
 
 #[derive(Debug, thiserror::Error)]
 #[error("field `{0}` is missing")]
@@ -39,32 +28,54 @@ pub enum MaybeFieldError<E> {
     None,
 }
 
-pub trait CollectFieldErrs {
-    fn collect_errs(self) -> Error;
+pub struct GateErrors<E>(pub E);
+
+pub trait CollectsErrors {
+    type Errors: sealed::ErrorsSealed + Into<crate::Error> + Default;
+    fn collect_errs(self, errors: &mut Self::Errors);
 }
 
-impl<E: StdError + 'static> CollectFieldErrs for SingleErr<E> {
-    fn collect_errs(self) -> Error {
-        Error::Field(vec![Box::new(self.0) as Box<dyn StdError>])
+mod sealed {
+    use crate::{FieldErrors, MapErrors};
+
+    pub trait ErrorsSealed {}
+    impl ErrorsSealed for MapErrors {}
+    impl ErrorsSealed for FieldErrors {}
+}
+
+pub struct FieldErr<E: StdError + 'static>(pub E);
+
+impl<E: StdError + 'static> CollectsErrors for E {
+    type Errors = FieldErrors;
+
+    fn collect_errs(self, errors: &mut Self::Errors) {
+        errors.0.push(Box::new(self));
     }
 }
 
 macro_rules! collect_errs {
-    ($($err: ident),*) => {
+    ($first_err : ident, $($err: ident),*) => {
         #[allow(unused_parens)]
-        impl<$($err : StdError + 'static),*> CollectFieldErrs for ($(Option<$err>),*)
+        impl<$first_err: CollectsErrors, $($err : CollectsErrors<Errors = $first_err::Errors>),*> CollectsErrors for GateErrors<(Option<$first_err>, $(Option<$err>),*)>
         {
-            fn collect_errs(self) -> Error {
+            type Errors = $first_err::Errors;
+            fn collect_errs(self, errors: &mut Self::Errors) {
                 #[allow(non_snake_case)]
-                let ($($err),*) = self;
-                let errors = [$($err.map(|e| Box::new(e) as Box<dyn StdError>)),*].into_iter().filter_map(|e| e).collect();
-                Error::Field(errors)
+                let (err0, $($err),*) = self.0;
+
+                if let Some(err) = err0 {
+                    err.collect_errs(errors);
+                }
+
+                $(if let Some(err) = $err {
+                    err.collect_errs(errors);
+                })*
             }
         }
     };
 }
 
-collect_errs!(E0);
+collect_errs!(E0,);
 collect_errs!(E0, E1);
 collect_errs!(E0, E1, E2);
 collect_errs!(E0, E1, E2, E3);
@@ -84,9 +95,47 @@ pub trait GatedField: Valid {
     type Gate: Gate<Self::In>;
 }
 
+#[derive(Default)]
+pub struct FieldErrors(Vec<Box<dyn StdError>>);
+
+impl FieldErrors {
+    pub fn push<E: StdError + 'static>(&mut self, err: E) {
+        self.0.push(Box::new(err));
+    }
+
+    pub fn from_one<E: StdError + 'static>(err: E) -> Self {
+        Self(vec![Box::new(err)])
+    }
+}
+
+impl From<FieldErrors> for Error {
+    fn from(value: FieldErrors) -> Self {
+        Error::Field(value)
+    }
+}
+
+#[derive(Default)]
+pub struct MapErrors(HashMap<ErrorKey, Error>);
+
+impl MapErrors {
+    pub fn insert_index(&mut self, index: usize, err: Error) {
+        self.0.insert(ErrorKey::Index(index), err);
+    }
+
+    pub fn insert_field(&mut self, key: impl Into<Cow<'static, str>>, err: Error) {
+        self.0.insert(ErrorKey::Field(key.into()), err);
+    }
+}
+
+impl From<MapErrors> for Error {
+    fn from(value: MapErrors) -> Self {
+        Error::Map(value)
+    }
+}
+
 pub enum Error {
-    Field(Vec<Box<dyn StdError>>),
-    Map(HashMap<ErrorKey, Error>),
+    Field(FieldErrors),
+    Map(MapErrors),
 }
 
 #[derive(Hash, Eq, PartialEq)]
@@ -97,30 +146,34 @@ pub enum ErrorKey {
 
 pub fn field_pipe<In, G>(input: In, gate: G) -> Result<G::Out, Error>
 where
-    G: Gate<In, Err: CollectFieldErrs>,
+    G: Gate<In, Err: CollectsErrors>,
 {
     match gate.parse(input) {
         GateResult::Ok(out) => Ok(out),
-        GateResult::ErrCut(err) => Err(err.collect_errs()),
-        GateResult::ErrPass(_, err) => Err(err.collect_errs()),
+        GateResult::ErrCut(err) => {
+            let mut errors = <G::Err as CollectsErrors>::Errors::default();
+            err.collect_errs(&mut errors);
+            Err(errors.into())
+        }
+        GateResult::ErrPass(_, err) => {
+            let mut errors = <G::Err as CollectsErrors>::Errors::default();
+            err.collect_errs(&mut errors);
+            Err(errors.into())
+        }
     }
 }
 
-#[derive(Valid)]
-#[valid(usage = crate, gate = (
-    gates::Min(2),
-    gates::Max(4),
-))]
-pub struct W2(String);
-
-#[derive(Valid)]
-#[valid(usage = crate)]
-pub struct MyData {
-    w2: W2,
-}
-
-mod gates {
+pub mod gates {
     use crate::Gate;
+
+    pub struct NoopField;
+    impl<T> Gate<T> for NoopField {
+        type Out = T;
+        type Err = std::convert::Infallible;
+        fn parse(self, input: T) -> crate::GateResult<Self::Out, Self::Err> {
+            crate::GateResult::Ok(input)
+        }
+    }
 
     pub trait Count {
         fn count(&self) -> usize;
@@ -267,7 +320,7 @@ mod valids {
                 Err(err) => Some((ErrorKey::Index(i), err)),
             }));
 
-            Err(Error::Map(errors))
+            Err(Error::Map(crate::MapErrors(errors)))
         }
     }
 }
