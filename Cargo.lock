@@ -4797,6 +4797,7 @@ dependencies = [
  "serde",
  "tokio",
  "toml",
+ "valigate",
  "wok",
  "wok_assets_derive",
 ]
@@ -4859,6 +4860,7 @@ dependencies = [
  "surrealdb",
  "take_mut",
  "tracing",
+ "valigate",
  "wok",
  "wok_db_derive",
 ]

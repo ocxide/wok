@@ -252,11 +252,65 @@ mod derive_valid {
         let fields_declaration = fields.iter().map(|field| {
             let ident = field.ident.as_ref().unwrap();
             let attrs = &field.attrs;
-            let ty = &field.ty;
+            let ty = option_type(&field.ty).unwrap_or(&field.ty);
 
             quote! {
                 #(#attrs)*
                 #ident: Option<<#ty as Valid>::In>,
+            }
+        });
+
+        fn option_type(ty: &syn::Type) -> Option<&syn::Type> {
+            let syn::Type::Path(ty) = ty else { return None };
+            if ty.qself.is_some() {
+                return None;
+            }
+
+            let ty = &ty.path;
+
+            if ty.segments.is_empty() || ty.segments.last().unwrap().ident != "Option" {
+                return None;
+            }
+
+            if !(ty.segments.len() == 1
+                || (ty.segments.len() == 3
+                    && ["core", "std"].contains(&ty.segments[0].ident.to_string().as_str())
+                    && ty.segments[1].ident == "option"))
+            {
+                return None;
+            }
+
+            let last_segment = ty.segments.last().unwrap();
+            let syn::PathArguments::AngleBracketed(generics) = &last_segment.arguments else {
+                return None;
+            };
+            if generics.args.len() != 1 {
+                return None;
+            }
+            let syn::GenericArgument::Type(inner_type) = &generics.args[0] else {
+                return None;
+            };
+
+            Some(inner_type)
+        }
+
+        let names_match = fields.iter().map(|field| {
+            let ident = field.ident.as_ref().unwrap();
+
+            if option_type(&field.ty).is_some() {
+                quote! { #ident }
+            } else {
+                quote! { Some(#ident) }
+            }
+        });
+
+        let report_missings = fields.iter().map(|field| {
+            let name = field.ident.as_ref().unwrap();
+            if option_type(&field.ty).is_some() {
+                quote! {}
+            }
+            else {
+                quote! { let error = #path::FieldErrors::from_one(#path::MissingField(stringify!(#name))); }
             }
         });
 
@@ -268,7 +322,7 @@ mod derive_valid {
 
         let types = fields
             .iter()
-            .map(|field| field.ty.clone())
+            .map(|field| option_type(&field.ty).unwrap_or(&field.ty).clone())
             .collect::<Vec<_>>();
 
         let derive_serde = if serde_top_attrs.is_some() {
@@ -329,14 +383,15 @@ mod derive_valid {
                                 }
                             },
                             None => {
-                                error.#names = #path::MaybeFieldError::Missing;
+                                #report_missings
                                 None
                             }
                         };
                     )*
 
                     match (#(#names,)*) {
-                        (#(Some(#names),)*) => #path::GateResult::Ok(#ident { #(#names,)* }),
+                        (#( #names_match,)*) => #path::GateResult::Ok(#ident { #(#names,)* }),
+                        #[allow(unreachable_pattern)]
                         _ => #path::GateResult::ErrCut(error),
                     }
                 }

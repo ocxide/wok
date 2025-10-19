@@ -17,9 +17,9 @@ struct PersonArgs {
 pub async fn main() {
     App::default()
         .add_plugin(ClapPlugin::parser::<AppArgs>())
-        .add_system(Startup, connect_to_db)
-        .add_system(Main, do_main)
-        .add_system(
+        .add_systems(Startup, connect_to_db)
+        .add_systems(Main, do_main)
+        .add_systems(
             Route("person"),
             SubRoutes::default().add(Route("a"), for_person),
         );

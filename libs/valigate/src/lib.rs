@@ -45,7 +45,7 @@ mod sealed {
 
 pub struct FieldErr<E: StdError + 'static>(pub E);
 
-impl<E: StdError + 'static> CollectsErrors for E {
+impl<E: StdError + Sync + Send + 'static> CollectsErrors for E {
     type Errors = FieldErrors;
 
     fn collect_errs(self, errors: &mut Self::Errors) {
@@ -96,14 +96,15 @@ pub trait GatedField: Valid {
 }
 
 #[derive(Default)]
-pub struct FieldErrors(Vec<Box<dyn StdError>>);
+#[derive(Debug)]
+pub struct FieldErrors(Vec<Box<dyn StdError + Send + Sync>>);
 
 impl FieldErrors {
-    pub fn push<E: StdError + 'static>(&mut self, err: E) {
+    pub fn push<E: StdError + Send + Sync + 'static>(&mut self, err: E) {
         self.0.push(Box::new(err));
     }
 
-    pub fn from_one<E: StdError + 'static>(err: E) -> Self {
+    pub fn from_one<E: StdError + Send + Sync + 'static>(err: E) -> Self {
         Self(vec![Box::new(err)])
     }
 }
@@ -114,7 +115,7 @@ impl From<FieldErrors> for Error {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MapErrors(HashMap<ErrorKey, Error>);
 
 impl MapErrors {
@@ -133,15 +134,53 @@ impl From<MapErrors> for Error {
     }
 }
 
+#[derive(Debug)]
 pub enum Error {
     Field(FieldErrors),
     Map(MapErrors),
 }
 
-#[derive(Hash, Eq, PartialEq)]
+#[derive(Debug, thiserror::Error)]
+pub struct ErrorDisplay(pub Error);
+
+impl std::fmt::Display for ErrorDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn display(error: &Error, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match error {
+                Error::Field(errors) => {
+                    for err in &errors.0 {
+                        write!(f, "{}; ", err)?;
+                    }
+                }
+
+                Error::Map(errors) => {
+                    for (key, err) in &errors.0 {
+                        writeln!(f, "{}: ", key)?;
+                        display(err, f)?;
+                    }
+                }
+            }
+
+            Ok(())
+        }
+
+        display(&self.0, f)
+    }
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub enum ErrorKey {
     Index(usize),
     Field(Cow<'static, str>),
+}
+
+impl std::fmt::Display for ErrorKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ErrorKey::Index(i) => write!(f, "{}", i),
+            ErrorKey::Field(field) => write!(f, "{}", field),
+        }
+    }
 }
 
 pub fn field_pipe<In, G>(input: In, gate: G) -> Result<G::Out, Error>
