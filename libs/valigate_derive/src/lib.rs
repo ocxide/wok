@@ -135,7 +135,7 @@ mod derive_valid {
         derive: syn::DeriveInput,
     ) -> Result<proc_macro2::TokenStream, CompileError> {
         let span = derive.span();
-        let (usage, gate) = derime::parse_attrs(
+        let (usage, gate, serde) = derime::parse_attrs(
             "valid",
             &derive.attrs,
             (
@@ -144,6 +144,7 @@ mod derive_valid {
                     derime::IdentValueParser::<Usage>::default(),
                 )),
                 derime::OptionalAttr((derime::KeyIdent("gate"), derime::ExprParser)),
+                derime::OptionalAttr((derime::KeyIdent("serde"), derime::BoolParser)),
             ),
         )?;
 
@@ -154,12 +155,38 @@ mod derive_valid {
         };
         let ident = derive.ident;
 
+        let serde_top_attrs = if serde.unwrap_or(false) {
+            let attrs: Vec<_> = derive
+                .attrs
+                .iter()
+                .filter(|attr| match &attr.meta {
+                    syn::Meta::Path(path) => path.is_ident("serde"),
+                    syn::Meta::List(list) => list.path.is_ident("serde"),
+                    _ => false,
+                })
+                .cloned()
+                .collect();
+
+            Some(attrs)
+        } else {
+            None
+        };
+
         let fields = match derive.data {
             syn::Data::Struct(syn::DataStruct {
                 fields: syn::Fields::Unnamed(FieldsUnnamed { unnamed, .. }),
                 ..
             }) => unnamed,
-            data => return multi_field_derive(span, path, ident, gate, data),
+            data => {
+                return multi_field_derive(
+                    span,
+                    path,
+                    serde_top_attrs.as_deref(),
+                    ident,
+                    gate,
+                    data,
+                );
+            }
         };
 
         let field = match fields.into_iter().next() {
@@ -196,6 +223,7 @@ mod derive_valid {
     fn multi_field_derive(
         span: proc_macro2::Span,
         path: proc_macro2::TokenStream,
+        serde_top_attrs: Option<&[syn::Attribute]>,
         ident: proc_macro2::Ident,
         gate: Option<syn::Expr>,
         data: syn::Data,
@@ -205,8 +233,8 @@ mod derive_valid {
         let custom_err_ident = quote::format_ident!("{}Error", &ident);
 
         let gate: syn::Expr = match gate {
-           Some(gate) => syn::parse_quote!((#custom_gate_ident, #gate)),
-           None => syn::parse_quote!(#custom_gate_ident),
+            Some(gate) => syn::parse_quote!((#custom_gate_ident, #gate)),
+            None => syn::parse_quote!(#custom_gate_ident),
         };
 
         let fields = match data {
@@ -221,6 +249,17 @@ mod derive_valid {
             }
         };
 
+        let fields_declaration = fields.iter().map(|field| {
+            let ident = field.ident.as_ref().unwrap();
+            let attrs = &field.attrs;
+            let ty = &field.ty;
+
+            quote! {
+                #(#attrs)*
+                #ident: Option<<#ty as Valid>::In>,
+            }
+        });
+
         let names = fields
             .iter()
             .map(|field| field.ident.as_ref().unwrap())
@@ -232,9 +271,20 @@ mod derive_valid {
             .map(|field| field.ty.clone())
             .collect::<Vec<_>>();
 
+        let derive_serde = if serde_top_attrs.is_some() {
+            quote! { #[derive(serde::Deserialize)] }
+        } else {
+            quote! {}
+        };
+
+        let empty = [];
+        let serde_top_attrs = serde_top_attrs.unwrap_or(&empty);
+
         let derived = quote! {
+            #derive_serde
+            #(#serde_top_attrs)*
             pub struct #input_ident {
-                #(#names: Option<<#types as Valid>::In>),*
+                #(#fields_declaration)*
             }
 
             struct #custom_gate_ident;

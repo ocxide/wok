@@ -127,50 +127,59 @@ impl<Marker1, K1: PathMatch + ReprValueRef, V1: ValueParser<Marker1>>
     }
 }
 
-impl<
-    Marker1,
-    K1: PathMatch + ReprValueRef,
-    V1: ValueParser<Marker1>,
-    Marker2,
-    K2: PathMatch + ReprValueRef,
-    V2: ValueParser<Marker2>,
-> AttrsMatch<(Marker1, Marker2, OptionalParsing)>
-    for (OptionalAttr<(K1, V1)>, OptionalAttr<(K2, V2)>)
-{
-    type Out = (Option<V1::Out>, Option<V2::Out>);
-    fn attrs_match(
-        self,
-        span: Option<Span>,
-        mut key_values: impl Iterator<Item = MetaNameValue>,
-        _namespace: &str,
-    ) -> Result<Self::Out, CompileError> {
-        let span = match span {
-            Some(span) => span,
-            None => return Ok((None, None)),
-        };
+macro_rules! impl_optionals {
+    ($(($marker:ident, $k:ident, $v:ident));*) => {
+        impl<
+            $( $marker, $k, $v ),*
+        > AttrsMatch<(($( $marker ),*), OptionalParsing)> for ( $(OptionalAttr<($k, $v)>,)* )
+        where
+            $( $k: PathMatch + ReprValueRef, $v: ValueParser<$marker> ),*
+        {
+            type Out = ( $(Option<$v::Out>),* );
 
-        let (p1, p2) = (self.0, self.1);
+            fn attrs_match(
+                self,
+                span: Option<Span>,
+                mut key_values: impl Iterator<Item = MetaNameValue>,
+                _namespace: &str
+            ) -> Result<Self::Out, CompileError> {
 
-        let mut v1 = None;
-        let mut v2 = None;
+                #[allow(non_snake_case)]
+                let ( $($k),* ) = self;
 
-        for kv in &mut key_values {
-            if p1.0.0.path_match(&kv.path) {
-                v1 = Some(p1.0.1.parse(kv.value)?);
-            } else if p2.0.0.path_match(&kv.path) {
-                v2 = Some(p2.0.1.parse(kv.value)?);
+                $(
+                #[allow(non_snake_case)]
+                let mut $v = None; 
+                )*
+
+                let span = match span {
+                    Some(span) => span,
+                    None => return Ok(( $( $v ),* )),
+                };
+
+                for kv in &mut key_values {
+                    $(
+                        if $k.0.0.path_match(&kv.path) {
+                            $v = Some($k.0.1.parse(kv.value)?);
+                        } else
+                    )* {}
+                }
+
+                if key_values.next().is_some() {
+                    return Err(
+                        span_compile_error!(span => "Too many args!"),
+                    );
+                };
+
+                Ok(( $( $v ),* ))
+
             }
         }
-
-        if key_values.next().is_some() {
-            return Err(
-                span_compile_error!(span => "Expected at most one single {} = {}", K1::repr(&p1.0.0), V1::repr()),
-            );
-        };
-
-        Ok((v1, v2))
-    }
+    };
 }
+impl_optionals!( (Marker1, K1, V1); (Marker2, K2, V2) );
+impl_optionals!( (Marker1, K1, V1); (Marker2, K2, V2); (Marker3, K3, V3) );
+impl_optionals!( (Marker1, K1, V1); (Marker2, K2, V2); (Marker3, K3, V3); (Marker4, K4, V4) );
 
 pub struct KeyIdent<'s>(pub &'s str);
 
