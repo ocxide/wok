@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, error::Error as StdError};
-use valigate_derive::impl_gates_tup;
 pub use valigate_derive::Valid;
+use valigate_derive::impl_gates_tup;
 
 pub enum GateResult<T, E> {
     Ok(T),
@@ -145,18 +145,22 @@ pub struct ErrorDisplay(pub Error);
 
 impl std::fmt::Display for ErrorDisplay {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn display(error: &Error, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn display(
+            error: &Error,
+            f: &mut std::fmt::Formatter<'_>,
+            depth: usize,
+        ) -> std::fmt::Result {
             match error {
                 Error::Field(errors) => {
                     for err in &errors.0 {
-                        write!(f, "{}; ", err)?;
+                        write!(f, "{err}; ")?;
                     }
                 }
 
                 Error::Map(errors) => {
                     for (key, err) in &errors.0 {
-                        writeln!(f, "{}: ", key)?;
-                        display(err, f)?;
+                        write!(f, "\n{}{}: ", "\t".repeat(depth), key)?;
+                        display(err, f, depth + 1)?;
                     }
                 }
             }
@@ -164,7 +168,7 @@ impl std::fmt::Display for ErrorDisplay {
             Ok(())
         }
 
-        display(&self.0, f)
+        display(&self.0, f, 0)
     }
 }
 
