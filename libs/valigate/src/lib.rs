@@ -307,6 +307,15 @@ mod valids {
     use crate::{Error, ErrorKey, Valid};
 
     macro_rules! impl_valid {
+        (no: where $($tp: ident : $pt: path),*: for $ty:ty) => {
+            impl< $($tp: $pt),* > Valid for $ty {
+                type In = $ty;
+                fn parse(input: Self::In) -> Result<Self, crate::Error> {
+                    Ok(input)
+                }
+            }
+        };
+
         (no: $ty:ty) => {
             impl Valid for $ty {
                 type In = $ty;
@@ -373,5 +382,19 @@ mod valids {
 
             Err(Error::Map(crate::MapErrors(errors)))
         }
+    }
+
+    #[cfg(feature = "chrono")]
+    mod chrono_impl {
+        use super::Valid;
+
+        impl_valid!(no: where Tz: chrono::TimeZone: for chrono::DateTime<Tz>);
+        impl_valid!(no: chrono::NaiveDate);
+        impl_valid!(no: chrono::Weekday);
+        impl_valid!(no: chrono::TimeDelta);
+        impl_valid!(no: chrono::Months);
+        impl_valid!(no: chrono::Days);
+        impl_valid!(no: chrono::NaiveWeek);
+        impl_valid!(no: chrono::Month);
     }
 }
