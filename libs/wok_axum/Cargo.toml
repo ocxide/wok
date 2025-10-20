@@ -15,3 +15,4 @@ tower-layer = "0.3.3"
 tower-service = "0.3.3"
 wok_db = { path = "../wok_db" }
 tracing = { workspace = true }
+valigate = { path = "../valigate" }

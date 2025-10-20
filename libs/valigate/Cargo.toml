@@ -7,6 +7,7 @@ edition = "2024"
 thiserror = "2.0.17"
 valigate_derive = { path = "../valigate_derive" }
 chrono = { workspace = true, optional = true }
+serde = { workspace = true }
 
 [features]
 default = ["chrono"]

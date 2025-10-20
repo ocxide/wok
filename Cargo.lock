@@ -4235,6 +4235,7 @@ name = "valigate"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "serde",
  "thiserror 2.0.17",
  "valigate_derive",
 ]
@@ -4825,6 +4826,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "valigate",
  "wok",
  "wok_core",
  "wok_db",

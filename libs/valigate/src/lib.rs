@@ -50,7 +50,7 @@ impl<E: StdError + Sync + Send + 'static> CollectsErrors for E {
     type Errors = FieldErrors;
 
     fn collect_errs(self, errors: &mut Self::Errors) {
-        errors.0.push(Box::new(self));
+        errors.0.push(AnyError(Box::new(self)));
     }
 }
 
@@ -96,16 +96,28 @@ pub trait GatedField: Valid {
     type Gate: Gate<Self::In>;
 }
 
-#[derive(Default, Debug)]
-pub struct FieldErrors(Vec<Box<dyn StdError + Send + Sync>>);
+#[derive(Debug)]
+pub struct AnyError(Box<dyn StdError + Send + Sync>);
+
+impl serde::Serialize for AnyError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
+#[derive(Default, Debug, serde::Serialize)]
+pub struct FieldErrors(Vec<AnyError>);
 
 impl FieldErrors {
     pub fn push<E: StdError + Send + Sync + 'static>(&mut self, err: E) {
-        self.0.push(Box::new(err));
+        self.0.push(AnyError(Box::new(err)));
     }
 
     pub fn from_one<E: StdError + Send + Sync + 'static>(err: E) -> Self {
-        Self(vec![Box::new(err)])
+        Self(vec![AnyError(Box::new(err))])
     }
 }
 
@@ -115,7 +127,7 @@ impl From<FieldErrors> for Error {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct MapErrors(HashMap<ErrorKey, Error>);
 
 impl MapErrors {
@@ -134,7 +146,7 @@ impl From<MapErrors> for Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub enum Error {
     Field(FieldErrors),
     Map(MapErrors),
@@ -153,7 +165,7 @@ impl std::fmt::Display for ErrorDisplay {
             match error {
                 Error::Field(errors) => {
                     for err in &errors.0 {
-                        write!(f, "{err}; ")?;
+                        write!(f, "{}; ", err.0)?;
                     }
                 }
 
@@ -172,7 +184,8 @@ impl std::fmt::Display for ErrorDisplay {
     }
 }
 
-#[derive(Debug, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq, serde::Serialize)]
+#[serde(untagged)]
 pub enum ErrorKey {
     Index(usize),
     Field(Cow<'static, str>),

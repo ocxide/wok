@@ -1,5 +1,6 @@
 pub mod crud;
 pub mod response;
+pub mod extract;
 
 mod handler;
 mod layer;
