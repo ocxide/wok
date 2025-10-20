@@ -16,3 +16,4 @@ wok = { path = "../../" }
 wok_db_derive = { path = "../wok_db_derive", optional = true }
 chrono = { version = "^0.4", default-features = false, optional = true }
 tracing = { workspace = true }
+valigate = { path = "../valigate" }

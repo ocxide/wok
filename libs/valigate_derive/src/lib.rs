@@ -84,7 +84,7 @@ fn do_impl_gates_tup(limit: usize) -> proc_macro2::TokenStream {
     implement
 }
 
-#[proc_macro_derive(Valid, attributes(valid))]
+#[proc_macro_derive(Valid, attributes(gate))]
 pub fn derive_valid(tokens: TokenStream) -> TokenStream {
     let ast = syn::parse_macro_input!(tokens as syn::DeriveInput);
     match derive_valid::do_derive_valid(ast) {
@@ -135,8 +135,9 @@ mod derive_valid {
         derive: syn::DeriveInput,
     ) -> Result<proc_macro2::TokenStream, CompileError> {
         let span = derive.span();
-        let (usage, gate, serde) = derime::parse_attrs(
-            "valid",
+        let parser = derime::AttributesParser::new("gate");
+
+        let (usage, gate, serde) = parser.parse(
             &derive.attrs,
             (
                 derime::OptionalAttr((
@@ -177,10 +178,13 @@ mod derive_valid {
                 fields: syn::Fields::Unnamed(FieldsUnnamed { unnamed, .. }),
                 ..
             }) => unnamed,
-            syn::Data::Enum(data) => return enum_derive(span, path, serde_top_attrs.as_deref(), ident, data),
+            syn::Data::Enum(data) => {
+                return enum_derive(span, path, serde_top_attrs.as_deref(), ident, data);
+            }
             data => {
                 return multi_field_derive(
                     span,
+                    &parser,
                     path,
                     serde_top_attrs.as_deref(),
                     ident,
@@ -223,6 +227,7 @@ mod derive_valid {
 
     fn multi_field_derive(
         span: proc_macro2::Span,
+        parser: &derime::AttributesParser,
         path: proc_macro2::TokenStream,
         serde_top_attrs: Option<&[syn::Attribute]>,
         ident: proc_macro2::Ident,
@@ -250,14 +255,58 @@ mod derive_valid {
             }
         };
 
-        let fields_declaration = fields.iter().map(|field| {
+        enum FieldValidType {
+            Required(syn::Type),
+            Optional { inner: syn::Type },
+        }
+
+        struct FieldMeta {
+            skip: bool,
+            ty: FieldValidType,
+        }
+
+        let fields_meta = fields
+            .iter()
+            .map(|field| {
+                let attrs = &field.attrs;
+
+                let skip = parser.parse(
+                    attrs,
+                    derime::OptionalAttr((derime::KeyIdent("skip"), derime::BoolParser)),
+                )?;
+
+                let ty = match option_type(&field.ty) {
+                    None => FieldValidType::Required(field.ty.clone()),
+                    Some(ty) => FieldValidType::Optional { inner: ty.clone() },
+                };
+
+                Ok(FieldMeta {
+                    skip: skip.unwrap_or(false),
+                    ty,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let fields_declaration = fields.iter().zip(fields_meta.iter()).map(|(field, meta)| {
             let ident = field.ident.as_ref().unwrap();
-            let attrs = &field.attrs;
-            let ty = option_type(&field.ty).unwrap_or(&field.ty);
+            let attrs = field.attrs.iter().filter(|attr| {
+                derime::ScopedAttr::parse(attr).is_ok_and(|attr| attr.scope == "serde")
+            });
+
+            let ty = match &meta.ty {
+                FieldValidType::Required(ty) => ty,
+                FieldValidType::Optional { inner } => inner,
+            };
+
+            let in_ty = if meta.skip {
+                quote! { #ty }
+            } else {
+                quote! { <#ty as #path::Valid>::In }
+            };
 
             quote! {
                 #(#attrs)*
-                #ident: Option<<#ty as #path::Valid>::In>,
+                #ident: Option<#in_ty>,
             }
         });
 
@@ -305,13 +354,44 @@ mod derive_valid {
             }
         });
 
-        let report_missings = fields.iter().map(|field| {
-            let name = field.ident.as_ref().unwrap();
-            if option_type(&field.ty).is_some() {
-                quote! {}
-            }
-            else {
-                quote! { let error = #path::FieldErrors::from_one(#path::MissingField(stringify!(#name))); }
+        let field_mappings = fields.iter().zip(fields_meta.iter()).map(|(field, meta)| {
+            let ident = field.ident.as_ref().unwrap();
+            let ty = match &meta.ty {
+                FieldValidType::Required(ty) => ty,
+                FieldValidType::Optional { inner } => inner,
+            };
+
+            let parsing = if meta.skip {
+                quote! {
+                    Some(v)
+                }
+            } else {
+                quote! {
+                    match <#ty as #path::Valid>::parse(v) {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            error.#ident = #path::MaybeFieldError::Invalid(e);
+                            None
+                        }
+                    }
+                }
+            };
+
+            let missing = match meta.ty {
+                FieldValidType::Required(_) => quote! {
+                    error.#ident = #path::MaybeFieldError::Missing;
+                },
+                FieldValidType::Optional { .. } => quote! {},
+            };
+
+            quote! {
+                let #ident = match input.#ident {
+                    Some(v) => #parsing,
+                    None => {
+                        #missing
+                        None
+                    }
+                };
             }
         });
 
@@ -319,11 +399,6 @@ mod derive_valid {
             .iter()
             .map(|field| field.ident.as_ref().unwrap())
             .cloned()
-            .collect::<Vec<_>>();
-
-        let types = fields
-            .iter()
-            .map(|field| option_type(&field.ty).unwrap_or(&field.ty).clone())
             .collect::<Vec<_>>();
 
         let derive_serde = if serde_top_attrs.is_some() {
@@ -374,21 +449,7 @@ mod derive_valid {
                 fn parse(self, input: #input_ident) -> #path::GateResult<Self::Out, Self::Err> {
                     let mut error = #custom_err_ident::default();
 
-                    #(
-                        let #names = match input.#names {
-                            Some(v) => match <#types as #path::Valid>::parse(v) {
-                                Ok(v) => Some(v),
-                                Err(e) => {
-                                    error.#names = #path::MaybeFieldError::Invalid(e);
-                                    None
-                                }
-                            },
-                            None => {
-                                #report_missings
-                                None
-                            }
-                        };
-                    )*
+                    #(#field_mappings)*
 
                     match (#(#names,)*) {
                         (#( #names_match,)*) => #path::GateResult::Ok(#ident { #(#names,)* }),
@@ -438,21 +499,25 @@ mod derive_valid {
             };
 
             Ok(VariantSingle {
-                ident: v.ident.clone(),                
+                ident: v.ident.clone(),
                 field: field.clone(),
             })
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let input_variants = data.variants.iter().zip(variants.iter()).map(|(variant, single)| {
-            let ty = &single.field.ty;
-            let mut field = single.field.clone();
-            field.ty = syn::parse_quote!(<#ty as #path::Valid>::In);
+        let input_variants = data
+            .variants
+            .iter()
+            .zip(variants.iter())
+            .map(|(variant, single)| {
+                let ty = &single.field.ty;
+                let mut field = single.field.clone();
+                field.ty = syn::parse_quote!(<#ty as #path::Valid>::In);
 
-            let mut modified = variant.clone();
-            modified.fields = syn::Fields::Unnamed(syn::parse_quote!((#field)));
+                let mut modified = variant.clone();
+                modified.fields = syn::Fields::Unnamed(syn::parse_quote!((#field)));
 
-            modified
-        });
+                modified
+            });
 
         let serde_top_attrs = serde_top_attrs.unwrap_or(&[]);
         let variants_mapping = variants.iter().map(|v| {

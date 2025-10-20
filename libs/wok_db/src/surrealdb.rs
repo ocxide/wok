@@ -85,7 +85,8 @@ impl<R: SurrealRecord, D: FromSurrealBind> FromSurrealBind for RecordEntry<R, D>
     }
 }
 
-#[derive(serde::Deserialize, wok::prelude::Resource, Debug)]
+#[derive(serde::Deserialize, wok::prelude::Resource, Debug, valigate::Valid)]
+#[gate(serde = true)]
 pub struct SurrealCredentials {
     pub host: String,
     #[serde(flatten)]
@@ -94,7 +95,8 @@ pub struct SurrealCredentials {
     pub using_db: Option<SurrealUsingDb>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, valigate::Valid)]
+#[gate(serde = true)]
 pub struct SurrealSignIn {
     pub username: String,
     pub password: String,
@@ -103,7 +105,8 @@ pub struct SurrealSignIn {
 #[derive(wok::prelude::Resource)]
 pub struct SurrealConfig(pub surrealdb::opt::Config);
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, valigate::Valid)]
+#[gate(serde = true)]
 pub struct SurrealUsingDb {
     pub database: String,
     pub namespace: String,
