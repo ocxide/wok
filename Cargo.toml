@@ -9,16 +9,9 @@ keywords = ["wok", "async", "framework"]
 
 [workspace]
 members = [ 
-	"bin_examples/clappy_by_wok", "libs/wok_assets", 
-	"libs/wok_clap", 
-	"libs/wok_core",
-	"libs/wok_db",
-	"libs/wok_db_derive",
-	"libs/wok_derive",
-	"libs/wok_params_client",
-	"libs/wok_trigger",
-	"libs/wok_assets"
-, "libs/wok_axum", "libs/wok_assets_derive", "libs/derime", "libs/valigate", "libs/valigate_derive"]
+	"examplesbin/*",
+	"crates/*", 
+]
 
 [workspace.dependencies]
 futures = { version = "0.3.31", default-features = false, features = ["std", "async-await"] }
@@ -35,7 +28,7 @@ syn = { version = "2.0.101", features = ["extra-traits"] }
 chrono = { version = "^0.4", default-features = false }
 
 [dependencies]
-wok_core = { path = "libs/wok_core" }
+wok_core = { path = "crates/wok_core" }
 futures = { workspace = true }
 tokio = { workspace = true, optional = true }
 async-channel = { workspace = true }
