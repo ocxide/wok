@@ -12,3 +12,4 @@ wok_assets_derive = { path = "../wok_assets_derive" }
 valigate = { path = "../valigate" }
 envy = "0.4.2"
 dotenv = "0.15.0"
+thiserror = { workspace = true }

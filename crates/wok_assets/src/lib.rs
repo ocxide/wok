@@ -1,18 +1,15 @@
 use wok::{
     plugin::Plugin,
-    prelude::{BorrowMutParam, Commands, Param, Startup, WokUnknownError},
+    prelude::{BorrowMutParam, Commands, Param, ParamRef, Startup, WokUnknownError},
 };
 
 pub use origins::*;
 pub use wok_assets_derive::AssetsCollection;
 
 #[derive(Param)]
-pub struct AssetsCollectionInit<
-    'r,
-    A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>,
-> {
+pub struct AssetsCollectionInit<'r, A: AssetsCollection> {
     commands: Commands<'r>,
-    _resources_mut: A::Assets,
+    _resources_mut: ParamRef<'r, A::Assets>,
 }
 
 impl<'r, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
@@ -29,7 +26,7 @@ impl<'r, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
     }
 }
 
-pub trait AssetOrigin<T>: Send + Sync + Clone {
+pub trait AssetOrigin<T>: Send + Sync + Clone + std::fmt::Display + std::fmt::Debug {
     type ParamMarker: wok::prelude::Param;
 
     fn load(self) -> Result<T, WokUnknownError>;
@@ -45,18 +42,19 @@ pub mod origins {
 
     pub use env::Env;
 
+    #[derive(Clone, Debug)]
     pub struct TomlFile<P: AsRef<Path> + Clone + 'static + Send + Sync>(pub P);
 
-    impl<P: AsRef<Path> + 'static + Clone + Send + Sync> Clone for TomlFile<P> {
-        fn clone(&self) -> Self {
-            Self(self.0.clone())
+    impl<P: AsRef<Path> + Clone + 'static + Send + Sync> std::fmt::Display for TomlFile<P> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0.as_ref().display())
         }
     }
 
     impl<T, P> AssetOrigin<T> for TomlFile<P>
     where
         T: serde::de::DeserializeOwned,
-        P: AsRef<Path> + Send + Sync + Clone,
+        P: AsRef<Path> + Send + Sync + Clone + std::fmt::Debug,
     {
         type ParamMarker = ();
         fn load(self) -> Result<T, WokUnknownError> {
@@ -67,7 +65,10 @@ pub mod origins {
     }
 
     mod env {
-        use wok::{plugin::Plugin, prelude::{ResMutMarker, WokUnknownError}};
+        use wok::{
+            plugin::Plugin,
+            prelude::{ResMutMarker, WokUnknownError},
+        };
 
         use crate::AssetOrigin;
 
@@ -86,8 +87,15 @@ pub mod origins {
             }
         }
 
-        #[derive(Clone)]
+        #[derive(Clone, Debug)]
         pub struct Env;
+
+        impl std::fmt::Display for Env {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "ENV")
+            }
+        }
+
         impl<T> AssetOrigin<T> for Env
         where
             T: serde::de::DeserializeOwned,
@@ -109,75 +117,48 @@ pub trait AssetsCollection: Sized + 'static {
     fn insert_all(self, commands: &mut Commands);
 }
 
-pub struct AssetsReadPlugin<O, A = ()> {
+pub struct AssetsReadPlugin<O, A> {
     origin: O,
     _marker: std::marker::PhantomData<fn(A)>,
-}
-
-impl<O> AssetsReadPlugin<O, ()> {
-    pub const fn origin(origin: O) -> Self {
-        AssetsReadPlugin {
-            origin,
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    pub fn assets<A: AssetsCollection>(self) -> AssetsReadPlugin<O, A>
-    where
-        O: AssetOrigin<A>,
-    {
-        AssetsReadPlugin {
-            origin: self.origin,
-            _marker: std::marker::PhantomData,
-        }
-    }
 }
 
 impl<O: AssetOrigin<A> + 'static, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
     Plugin for AssetsReadPlugin<O, A>
 {
     fn setup(self, app: &mut wok::prelude::App) {
-        use wok::prelude::ConfigureWorld;
+        use wok::prelude::{ConfigureApp, ConfigureWorld};
         let origin = self.origin;
-        app.add_systems(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
-            init.load(origin.clone())
-        });
+
+        app.add_plugin(O::plugin());
+
+        app.add_systems(
+            Startup,
+            move |mut init: AssetsCollectionInit<'_, A>,
+                  _: wok::prelude::ParamRef<'_, O::ParamMarker>| {
+                init.load(origin.clone())
+            },
+        );
     }
 }
 
-pub struct AssetsPlugin<O, A = ()> {
+pub struct AssetsPlugin<O, A> {
     origin: O,
     _marker: std::marker::PhantomData<fn(A)>,
 }
 
-impl<O> AssetsPlugin<O, ()> {
-    pub const fn origin(origin: O) -> Self {
-        AssetsPlugin {
-            origin,
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    pub fn assets<A: AssetsCollection + valigate::Valid>(self) -> AssetsPlugin<O, A>
-    where
-        O: AssetOrigin<A::In>,
-    {
-        AssetsPlugin {
-            origin: self.origin,
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<
+impl<O, A> Plugin for AssetsPlugin<O, A>
+where
     O: AssetOrigin<A::In> + 'static,
     A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>> + valigate::Valid,
-> Plugin for AssetsPlugin<O, A>
 {
     fn setup(self, app: &mut wok::prelude::App) {
         use wok::prelude::{ConfigureApp, ConfigureWorld};
 
         app.add_plugin(O::plugin());
+
+        #[derive(thiserror::Error, Debug)]
+        #[error("`{0}`: {1}")]
+        struct Error<O>(O, valigate::ErrorDisplay);
 
         let origin = self.origin;
         app.add_systems(
@@ -185,11 +166,36 @@ impl<
             move |mut init: AssetsCollectionInit<'_, A>,
                   _: wok::prelude::ParamRef<'_, O::ParamMarker>| {
                 let input = origin.clone().load()?;
-                let a = A::parse(input).map_err(valigate::ErrorDisplay)?;
+                let a = A::parse(input)
+                    .map_err(|err| Error(origin.clone(), valigate::ErrorDisplay(err)))?;
 
                 init.insert_all(a);
                 Ok(())
             },
         );
+    }
+}
+
+pub struct AssetsOrigin<O>(pub O);
+
+impl<O> AssetsOrigin<O> {
+    pub fn load<A: AssetsCollection + valigate::Valid>(self) -> AssetsPlugin<O, A>
+    where
+        O: AssetOrigin<A::In>,
+    {
+        AssetsPlugin {
+            origin: self.0,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn read<A: AssetsCollection>(self) -> AssetsReadPlugin<O, A>
+    where
+        O: AssetOrigin<A>,
+    {
+        AssetsReadPlugin {
+            origin: self.0,
+            _marker: std::marker::PhantomData,
+        }
     }
 }

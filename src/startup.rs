@@ -237,6 +237,7 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
             };
 
             if let Some(Ok((systemid, result))) = self.futures.next().await {
+                dbg!(systemid, &result);
                 Self::on_finish(systemid, self.center, self.state);
                 result?;
             } else if self.systems.pendings.is_empty() {
