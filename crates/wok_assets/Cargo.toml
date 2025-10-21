@@ -5,11 +5,10 @@ edition = "2024"
 
 [dependencies]
 wok = { path = "../../" }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 tokio = { workspace = true, optional = true }
 wok_assets_derive = { path = "../wok_assets_derive" }
 valigate = { path = "../valigate" }
-
-[features]
-tokio = ["dep:tokio"]
+envy = "0.4.2"
+dotenv = "0.15.0"

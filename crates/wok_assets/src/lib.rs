@@ -30,7 +30,10 @@ impl<'r, A: for<'a> AssetsCollection<Assets: Param<AsRef<'a> = A::Assets>>>
 }
 
 pub trait AssetOrigin<T>: Send + Sync + Clone {
+    type ParamMarker: wok::prelude::Param;
+
     fn load(self) -> Result<T, WokUnknownError>;
+    fn plugin() -> impl wok::plugin::Plugin {}
 }
 
 pub mod origins {
@@ -39,6 +42,8 @@ pub mod origins {
     use wok::prelude::WokUnknownError;
 
     use super::AssetOrigin;
+
+    pub use env::Env;
 
     pub struct TomlFile<P: AsRef<Path> + Clone + 'static + Send + Sync>(pub P);
 
@@ -53,10 +58,48 @@ pub mod origins {
         T: serde::de::DeserializeOwned,
         P: AsRef<Path> + Send + Sync + Clone,
     {
+        type ParamMarker = ();
         fn load(self) -> Result<T, WokUnknownError> {
             let buf = std::fs::read_to_string(self.0.as_ref())?;
 
             toml::from_str(&buf).map_err(Into::into)
+        }
+    }
+
+    mod env {
+        use wok::{plugin::Plugin, prelude::{ResMutMarker, WokUnknownError}};
+
+        use crate::AssetOrigin;
+
+        #[derive(wok::prelude::Resource)]
+        pub struct EnvLoaded;
+
+        pub struct EnvPlugin;
+        impl Plugin for EnvPlugin {
+            fn setup(self, app: &mut wok::prelude::App) {
+                use wok::prelude::{ConfigureWorld, Startup};
+
+                app.add_systems(Startup, |_: ResMutMarker<EnvLoaded>| {
+                    dotenv::dotenv().map_err(WokUnknownError::from)?;
+                    Ok(())
+                });
+            }
+        }
+
+        #[derive(Clone)]
+        pub struct Env;
+        impl<T> AssetOrigin<T> for Env
+        where
+            T: serde::de::DeserializeOwned,
+        {
+            type ParamMarker = ResMutMarker<EnvLoaded>;
+            fn load(self) -> Result<T, WokUnknownError> {
+                envy::from_env().map_err(Into::into)
+            }
+
+            fn plugin() -> impl wok::plugin::Plugin {
+                EnvPlugin
+            }
         }
     }
 }
@@ -132,14 +175,21 @@ impl<
 > Plugin for AssetsPlugin<O, A>
 {
     fn setup(self, app: &mut wok::prelude::App) {
-        use wok::prelude::ConfigureWorld;
-        let origin = self.origin;
-        app.add_systems(Startup, move |mut init: AssetsCollectionInit<'_, A>| {
-            let input = origin.clone().load()?;
-            let a = A::parse(input).map_err(valigate::ErrorDisplay)?;
+        use wok::prelude::{ConfigureApp, ConfigureWorld};
 
-            init.insert_all(a);
-            Ok(())
-        });
+        app.add_plugin(O::plugin());
+
+        let origin = self.origin;
+        app.add_systems(
+            Startup,
+            move |mut init: AssetsCollectionInit<'_, A>,
+                  _: wok::prelude::ParamRef<'_, O::ParamMarker>| {
+                let input = origin.clone().load()?;
+                let a = A::parse(input).map_err(valigate::ErrorDisplay)?;
+
+                init.insert_all(a);
+                Ok(())
+            },
+        );
     }
 }

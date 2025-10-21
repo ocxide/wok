@@ -167,8 +167,7 @@ impl<R: Resource> Param for Res<'_, R> {
     unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
         let out = unsafe { <Option<Res<'_, R>> as Param>::get_owned(state) };
 
-        out.ok_or_else(|| ResNotFoundErr::<R>::new("Res"))
-            .unwrap()
+        out.ok_or_else(|| ResNotFoundErr::<R>::new("Res")).unwrap()
     }
 
     unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
@@ -422,3 +421,29 @@ impl<'r, R: Resource> ResInit<'r, R> {
         self.commands.insert_resource(resource);
     }
 }
+
+pub struct ParamRef<'r, P: Param>(pub P::AsRef<'r>);
+
+impl<'p, P: Param> Param for ParamRef<'p, P> {
+    type Owned = P::Owned;
+    type AsRef<'r> = ParamRef<'r, P>;
+
+    fn init(rw: &mut SystemLock) {
+        P::init(rw);
+    }
+
+    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
+        ParamRef(unsafe { P::get_ref(state) })
+    }
+
+    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
+        unsafe { P::get_owned(state) }
+    }
+
+    fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
+        ParamRef(P::from_owned(owned))
+    }
+}
+
+unsafe impl<'p, P: Param> BorrowMutParam for ParamRef<'p, P> where P: BorrowMutParam {}
+impl<'p, P: Param> ReadonlyParam for ParamRef<'p, P> where P: ReadonlyParam {}
