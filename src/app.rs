@@ -53,7 +53,7 @@ impl App {
         let sys_fut = unsafe { system.app_run(state.as_unsafe_mut(), &mut center) };
         let sys_fut = sys_fut.map(move |out| {
             // Keep alive the gateway until the main system is done
-            let _ = gateway;
+            gateway.close();
             let _ = rests;
             out
         });

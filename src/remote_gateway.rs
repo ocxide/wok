@@ -29,6 +29,11 @@ impl LockingGateway {
             releaser: self.releaser.downgrade(),
         }
     }
+
+    pub fn close(self) {
+        self.locker.close();
+        self.releaser.close();
+    }
 }
 
 #[derive(Clone, Resource)]

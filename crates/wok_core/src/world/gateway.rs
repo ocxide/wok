@@ -43,6 +43,10 @@ mod remote {
         pub fn downgrade(&self) -> WeakSystemReleaser {
             WeakSystemReleaser(self.0.downgrade())
         }
+
+        pub fn close(self) {
+            self.0.close();
+        }
     }
 
     #[derive(Clone, Resource)]
