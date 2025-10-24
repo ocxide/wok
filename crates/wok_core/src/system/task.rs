@@ -101,7 +101,7 @@ impl<S: ProtoTaskSystem> TaskSystem for S {
         state: &UnsafeMutState,
         input: SystemIn<'i, Self>,
     ) -> SystemFuture<'i, Self> {
-        let param = unsafe { S::Param::get_owned(state) };
+        let param = unsafe { S::Param::get_owned(state) }.unwrap();
         let system = self.clone();
 
         Box::pin(system.run(param, input))
@@ -109,7 +109,7 @@ impl<S: ProtoTaskSystem> TaskSystem for S {
 
     unsafe fn owned_create_task(&self, state: &UnsafeMutState) -> SystemTask<Self::In, Self::Out> {
         let system = self.clone();
-        let param = unsafe { S::Param::get_owned(state) };
+        let param = unsafe { S::Param::get_owned(state) }.unwrap();
         SystemTask::new(|input, _| Box::pin(system.run(param, input)))
     }
 }

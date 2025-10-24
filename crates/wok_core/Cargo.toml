@@ -8,3 +8,4 @@ async_fn_traits = "0.1.1"
 futures = { workspace = true }
 wok_derive = { path = "../wok_derive" }
 async-channel = { workspace = true }
+thiserror = { workspace = true }

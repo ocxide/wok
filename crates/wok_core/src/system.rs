@@ -89,7 +89,7 @@ pub mod blocking {
 
     impl<S: ProtoBlockingSystem> BlockingSystem for S {
         unsafe fn run(&self, state: &UnsafeMutState, input: SystemIn<'_, Self>) -> Self::Out {
-            let param = unsafe { S::Param::get_ref(state) };
+            let param = unsafe { S::Param::get_ref(state) }.unwrap();
             self.run(param, input)
         }
 
@@ -97,7 +97,7 @@ pub mod blocking {
             &self,
             state: &UnsafeMutState,
         ) -> BlockingCaller<Self::In, Self::Out> {
-            let mut param = unsafe { S::Param::get_owned(state) };
+            let mut param = unsafe { S::Param::get_owned(state) }.unwrap();
             let this = self.clone();
             BlockingCaller(Box::new(move |input| {
                 this.run(S::Param::from_owned(&mut param), input)

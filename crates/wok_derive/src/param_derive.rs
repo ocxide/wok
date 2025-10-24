@@ -157,7 +157,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
                 if has_default_attr(field) {
                     quote! { #name: Default::default() }
                 } else {
-                    quote! { #name: <#ty as #trait_path>::get_ref(state) }
+                    quote! { #name: <#ty as #trait_path>::get_ref(state)? }
                 }
             });
 
@@ -254,7 +254,7 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
                 if has_default_attr(field) {
                     quote! { Default::default() }
                 } else {
-                    quote! { <#ty as #trait_path>::get_owned(state) }
+                    quote! { <#ty as #trait_path>::get_owned(state)? }
                 }
             });
 
@@ -322,12 +322,12 @@ pub fn do_param_derive(ast: syn::DeriveInput) -> Result<proc_macro2::TokenStream
                 #init_impls
             }
 
-            unsafe fn get_owned(state: &#world) -> Self::Owned {
-                unsafe { #get_owned_impl }
+            unsafe fn get_owned(state: &#world) -> Result<Self::Owned, #param_path::ParamGetError> {
+                Ok(unsafe { #get_owned_impl })
             }
 
-           unsafe fn get_ref(state: &#world) -> Self::AsRef<'_> {
-                unsafe { #get_ref_impl }
+           unsafe fn get_ref(state: &#world) -> Result<Self::AsRef<'_>, #param_path::ParamGetError> {
+                Ok(unsafe { #get_ref_impl })
             }
 
             fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {

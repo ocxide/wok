@@ -313,7 +313,7 @@ impl World {
         }
 
         // Safety: Already checked with locks
-        let param = unsafe { P::get_ref(self.state.as_unsafe_mut()) };
+        let param = unsafe { P::get_ref(self.state.as_unsafe_mut()) }.unwrap();
         Some((param, &mut self.center))
     }
 }

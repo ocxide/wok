@@ -155,7 +155,7 @@ mod local {
                 return None;
             }
             // Safety: Already checked with locks
-            Some(unsafe { P::borrow(self.state) })
+            Some(unsafe { P::borrow(self.state) }.unwrap())
         }
 
         pub fn with_remote(self, releaser: &'w SystemReleaser) -> RemoteWorldMut<'w> {
@@ -255,7 +255,7 @@ mod owned_local {
             self.locks.can_lock_rw(&system_locks);
 
             // Safety: Already checked with locks
-            unsafe { P::get_ref(self.state.as_unsafe_mut()) }
+            unsafe { P::get_ref(self.state.as_unsafe_mut()) }.unwrap()
         }
     }
 
@@ -303,7 +303,8 @@ mod owned_local {
             S: ProtoTaskSystem,
         {
             let param =
-                unsafe { <S::Param as Param>::get_owned(self.0.world.state.as_unsafe_mut()) };
+                unsafe { <S::Param as Param>::get_owned(self.0.world.state.as_unsafe_mut()) }
+                    .unwrap();
 
             // Safety: Already checked with locks
             let fut = self.0.system.system.clone().run(param, input);
@@ -333,12 +334,16 @@ mod owned_local {
             S: BlockingSystem,
         {
             // Safety: Already checked with locks
-            unsafe {
+            let out = unsafe {
                 self.0
                     .system
                     .system
                     .run(self.0.world.state.as_unsafe_mut(), input)
-            }
+            };
+
+            self.0.world.locks.release(self.0.system.id);
+
+            out
         }
 
         pub fn run<'i>(&mut self, input: SystemIn<'i, S>) -> S::Out
@@ -346,8 +351,12 @@ mod owned_local {
             S: ProtoBlockingSystem,
         {
             // Safety: Already checked with locks
-            let param = unsafe { <S::Param as Param>::get_ref(self.0.world.state.as_unsafe_mut()) };
-            self.0.system.system.run(param, input)
+            let param = unsafe { <S::Param as Param>::get_ref(self.0.world.state.as_unsafe_mut()) }.unwrap();
+            let out = self.0.system.system.run(param, input);
+
+            self.0.world.locks.release(self.0.system.id);
+
+            out
         }
     }
 }

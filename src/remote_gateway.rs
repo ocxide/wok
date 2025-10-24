@@ -140,7 +140,7 @@ impl<'w, S> SystemTaskPermit<'w, S> {
         S: ProtoTaskSystem<Param: BorrowMutParam>,
     {
         // Safety: Already checked with locks
-        let param = unsafe { S::Param::borrow_owned(self.0.state) };
+        let param = unsafe { S::Param::borrow_owned(self.0.state) }.unwrap();
         let fut = <S as ProtoTaskSystem>::run(self.0.system.clone(), param, input);
         let releaser = self.0.releaser;
 

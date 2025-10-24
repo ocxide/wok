@@ -149,7 +149,6 @@ impl Startup {
             state,
             systems,
             futures: FuturesUnordered::new(),
-            last_inline: Vec::new(),
         }
     }
 }
@@ -161,21 +160,25 @@ pub struct StartupInvoke<'w, C: AsyncExecutor> {
     state: &'w mut WorldState,
     systems: StartupSystems,
     futures: FuturesUnordered<FutJoinHandle<C>>,
-    last_inline: Vec<(SystemId, Result<(), WokUnknownError>)>,
 }
 
 impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
-    fn collect_pending_systems(&mut self) {
+    fn collect_pending_systems(&mut self) -> Result<(), WokUnknownError> {
         let Self {
             center,
             rt,
             state,
             systems,
             futures,
-            last_inline,
         } = self;
 
+        let mut inline_result = Ok(());
         for _ in systems.pendings.extract_if(.., |id| {
+            // Skip all iterations after the first error
+            if inline_result.is_err() {
+                return false;
+            }
+
             let system = match systems.systems.get(id) {
                 Some(system) => system,
                 None => return false,
@@ -218,33 +221,28 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                         _ => return false,
                     };
 
-                    let out = permit.local_blocking().run_dyn(());
-                    last_inline.push((id, out));
+                    inline_result = permit.local_blocking().run_dyn(());
                 }
             }
 
             true
         }) {}
+
+        inline_result
     }
 
     pub async fn invoke(mut self) -> Result<(), WokUnknownError> {
-        self.collect_pending_systems();
-
         loop {
-            for (systemid, result) in self.last_inline.drain(..) {
-                Self::on_finish(systemid, self.center, self.state);
-                result?;
-            };
+            let result = self.collect_pending_systems();
+            self.center.tick_commands(self.state);
+            result?;
 
             if let Some(Ok((systemid, result))) = self.futures.next().await {
-                dbg!(systemid, &result);
                 Self::on_finish(systemid, self.center, self.state);
                 result?;
             } else if self.systems.pendings.is_empty() {
                 break;
             }
-
-            self.collect_pending_systems();
         }
 
         Ok(())

@@ -1,7 +1,7 @@
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use crate::{
-    param::Param,
+    param::{Param, ParamGetError},
     prelude::Resource,
     world::{UnsafeMutState, WorldState},
 };
@@ -49,15 +49,15 @@ impl<'s> Param for Commands<'s> {
 
     fn init(_rw: &mut crate::world::access::SystemLock) {}
 
-    unsafe fn get_owned(state: &UnsafeMutState) -> Self::Owned {
-        state.as_read().commands()
+    unsafe fn get_owned(state: &UnsafeMutState) -> Result<Self::Owned, ParamGetError> {
+        Ok(state.as_read().commands())
     }
 
-    unsafe fn get_ref(state: &UnsafeMutState) -> Self::AsRef<'_> {
-        Commands {
+    unsafe fn get_ref(state: &UnsafeMutState) -> Result<Self::AsRef<'_>, ParamGetError> {
+        Ok(Commands {
             sender: state.as_read().commands(),
             _marker: std::marker::PhantomData,
-        }
+        })
     }
 
     fn from_owned(owned: &mut Self::Owned) -> Self::AsRef<'_> {
