@@ -171,7 +171,7 @@ mod unsafe_world_state {
 #[derive(Default)]
 pub struct SystemLocks {
     rw: access::WorldLocks,
-    systems_rw: meta::SystemsRw,
+    pub systems_rw: meta::SystemsRw,
 }
 
 impl SystemLocks {

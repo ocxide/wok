@@ -11,7 +11,7 @@ pub mod runtime;
 
 pub mod prelude {
     pub use crate::commands::{Command, Commands};
-    pub use crate::error::WokUnknownError;
+    pub use crate::error::{WokUnknownError, LabelledError};
     pub use crate::param::*;
     pub use crate::resources::{Resource, Immutable, Mutable};
     pub use crate::system::*;
@@ -21,6 +21,19 @@ pub mod prelude {
 
 pub mod error {
     use std::{fmt::Display, panic::Location};
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("`{label}`: {error}")]
+    pub struct LabelledError<E> {
+        pub error: E,
+        pub label: &'static str,
+    }
+
+    impl<E> LabelledError<E> {
+        pub fn new(label: &'static str, error: E) -> Self {
+            Self { error, label }
+        }
+    }
 
     #[derive(Debug)]
     pub struct WokUnknownError {

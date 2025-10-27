@@ -145,4 +145,8 @@ impl SystemLock {
         self.resources.insert((resource, AccessMode::Write));
         Ok(())
     }
+
+    pub fn entries(&self) -> impl Iterator<Item = &(ResourceId, AccessMode)> {
+        self.resources.iter()
+    }
 }

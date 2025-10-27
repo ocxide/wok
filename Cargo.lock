@@ -3317,6 +3317,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serdeenv_toml"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.17",
+ "toml",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"

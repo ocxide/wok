@@ -4,7 +4,9 @@ use wok_core::{
     prelude::{
         DynBlockingSystem, IntoBlockingSystem, IntoSystem, ResMut, Resource, System, TaskSystem,
     },
-    schedule::{ScheduleConfigure, ScheduleLabel},
+    schedule::{
+        ScheduleConfigure, ScheduleLabel, dependency_graph::SystemsMutationDependencyGraph,
+    },
     world::{
         ConfigureWorld, SystemId, World, WorldCenter, WorldState,
         gateway::{SystemEntryRef, WorldMut},
@@ -143,12 +145,20 @@ impl Startup {
             .take_resource::<StartupSystems>()
             .expect("Startup schedule was not initialized");
 
+        let graph = wok_core::schedule::dependency_graph::build_sequencial_graph(
+            &systems.pendings,
+            &center.system_locks.systems_rw,
+        )
+        .expect("Dependency graph build failed");
+
         StartupInvoke {
             center,
             rt,
             state,
             systems,
             futures: FuturesUnordered::new(),
+            inline_finshed: vec![],
+            graph,
         }
     }
 }
@@ -160,6 +170,8 @@ pub struct StartupInvoke<'w, C: AsyncExecutor> {
     state: &'w mut WorldState,
     systems: StartupSystems,
     futures: FuturesUnordered<FutJoinHandle<C>>,
+    inline_finshed: Vec<SystemId>,
+    graph: SystemsMutationDependencyGraph,
 }
 
 impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
@@ -170,27 +182,31 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
             state,
             systems,
             futures,
+            graph,
+            inline_finshed,
         } = self;
 
-        let mut inline_result = Ok(());
-        for _ in systems.pendings.extract_if(.., |id| {
-            // Skip all iterations after the first error
-            if inline_result.is_err() {
-                return false;
+        for id in systems.pendings.iter().copied() {
+            let has_pendings = graph
+                .get_dependencies(id)
+                .map(|dependencies| {
+                    // is any of out dependencies in pendings?
+                    dependencies.iter().any(|id| systems.pendings.contains(id))
+                })
+                .unwrap_or(false);
+
+            if has_pendings {
+                continue;
             }
 
-            let system = match systems.systems.get(id) {
-                Some(system) => system,
-                None => return false,
-            };
-
+            let system = systems.systems.get(&id).expect("System not registered");
             let mut world = WorldMut::new(state, &mut center.system_locks);
 
             match system {
                 StartupSystem::Async(system) => {
-                    let permit = match world.reserve(SystemEntryRef::new(*id, system)) {
+                    let permit = match world.reserve(SystemEntryRef::new(id, system)) {
                         Ok(permit) => permit,
-                        _ => return false,
+                        _ => continue,
                     };
 
                     let fut = permit.local_tasks().run_dyn(());
@@ -200,13 +216,12 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 }
 
                 StartupSystem::Blocking(system) => {
-                    let permit = match world.reserve(SystemEntryRef::new(*id, system)) {
+                    let permit = match world.reserve(SystemEntryRef::new(id, system)) {
                         Ok(permit) => permit,
-                        _ => return false,
+                        _ => continue,
                     };
 
                     let caller = permit.local_blocking().create_caller();
-                    let id = *id;
                     let fut = rt.spawn_blocking(move || {
                         let out = caller.run(());
                         (id, out)
@@ -215,30 +230,34 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
                 }
 
                 StartupSystem::Inline(system) => {
-                    let id = *id;
                     let permit = match world.reserve(SystemEntryRef::new(id, system)) {
                         Ok(permit) => permit,
-                        _ => return false,
+                        _ => continue,
                     };
 
-                    inline_result = permit.local_blocking().run_dyn(());
+                    permit.local_blocking().run_dyn(())?;
+                    inline_finshed.push(id);
                 }
             }
+        }
 
-            true
-        }) {}
-
-        inline_result
+        Ok(())
     }
 
     pub async fn invoke(mut self) -> Result<(), WokUnknownError> {
         loop {
-            let result = self.collect_pending_systems();
+            self.collect_pending_systems()?;
+
             self.center.tick_commands(self.state);
-            result?;
+            for systemid in self.inline_finshed.drain(..) {
+                Self::on_finish(systemid, &mut self.systems.pendings);
+            }
 
             if let Some(Ok((systemid, result))) = self.futures.next().await {
-                Self::on_finish(systemid, self.center, self.state);
+                self.center.system_locks.release(systemid);
+
+                self.center.tick_commands(self.state);
+                Self::on_finish(systemid, &mut self.systems.pendings);
                 result?;
             } else if self.systems.pendings.is_empty() {
                 break;
@@ -248,8 +267,9 @@ impl<'w, C: AsyncExecutor> StartupInvoke<'w, C> {
         Ok(())
     }
 
-    fn on_finish(systemid: SystemId, center: &mut WorldCenter, state: &mut WorldState) {
-        center.system_locks.release(systemid);
-        center.tick_commands(state);
+    fn on_finish(systemid: SystemId, pendings: &mut Vec<SystemId>) {
+        if let Some(index) = pendings.iter().position(|id| *id == systemid) {
+            pendings.remove(index);
+        }
     }
 }

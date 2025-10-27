@@ -67,7 +67,7 @@ pub mod origins {
     mod env {
         use wok::{
             plugin::Plugin,
-            prelude::{ResMutMarker, WokUnknownError},
+            prelude::{LabelledError, ResMutMarker, WokUnknownError},
         };
 
         use crate::AssetOrigin;
@@ -81,7 +81,10 @@ pub mod origins {
                 use wok::prelude::{ConfigureWorld, Startup};
 
                 app.add_systems(Startup, |_: ResMutMarker<EnvLoaded>| {
-                    dotenv::dotenv().map_err(WokUnknownError::from)?;
+                    dotenv::dotenv()
+                        .map_err(|e| LabelledError::new("dotenv", e))
+                        .map_err(WokUnknownError::from)?;
+
                     Ok(())
                 });
             }

@@ -2,7 +2,7 @@ pub use storages::*;
 
 /// Stores
 pub trait ConfigureObjects<O, Marker> {
-    fn add_objs(self, world: &mut crate::world::World, objs: O); 
+    fn add_objs(self, world: &mut crate::world::World, objs: O);
 }
 
 pub trait ScheduleLabel: Send + Sync {}
@@ -16,7 +16,7 @@ mod storages {
 
     use crate::{
         system::{DynTaskSystem, SystemInput},
-        world::{gateway::TaskSystemEntry, SystemId},
+        world::{SystemId, gateway::TaskSystemEntry},
     };
 
     pub struct SystemsMap<In: SystemInput + 'static, Out: 'static> {
@@ -80,6 +80,116 @@ mod storages {
 
         pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut (TaskSystemEntry<In, Out>, Meta)> {
             self.0.iter_mut()
+        }
+    }
+}
+
+pub mod dependency_graph {
+    use std::collections::HashMap;
+
+    use crate::{
+        resources::ResourceId,
+        world::{SystemId, access::AccessMode, meta::SystemsRw},
+    };
+
+    /// Signals whenever system `A` (key) requires system `B` mutation (value) to be executed before it.
+    #[derive(Default)]
+    pub struct SystemsMutationDependencyGraph(HashMap<SystemId, Vec<SystemId>>);
+
+    impl SystemsMutationDependencyGraph {
+        pub fn get_dependencies(&self, system: SystemId) -> Option<&[SystemId]> {
+            self.0.get(&system).map(|v| v.as_slice())
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum DependencyGraphError {
+        SystemNotRegistered,
+    }
+
+    pub fn build_sequencial_graph(
+        systems: &[SystemId],
+        rw: &SystemsRw,
+    ) -> Result<SystemsMutationDependencyGraph, DependencyGraphError> {
+        let mut graph = SystemsMutationDependencyGraph(HashMap::with_capacity(systems.len()));
+        let mut write_dependencies = HashMap::<ResourceId, SystemId>::new();
+
+        for system in systems {
+            let rw = rw
+                .get(*system)
+                .ok_or(DependencyGraphError::SystemNotRegistered)?;
+
+            let depend_on_systems = rw
+                .entries()
+                .map(|e| &e.0)
+                .filter_map(|id| write_dependencies.get(id))
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if !depend_on_systems.is_empty() {
+                graph
+                    .0
+                    .insert(*system, depend_on_systems);
+            }
+
+            let write_access = rw
+                .entries()
+                .filter(|e| e.1 == AccessMode::Write)
+                .map(|e| e.0)
+                .map(|id| (id, *system));
+            write_dependencies.extend(write_access);
+        }
+
+        Ok(graph)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::{
+            param::{Param, Res, ResMut},
+            prelude::Resource,
+            world::access,
+        };
+
+        use super::*;
+
+        #[derive(Resource)]
+        #[resource(usage = core, mutable = true)]
+        struct MyResA;
+
+        #[derive(Resource)]
+        #[resource(usage = core, mutable = true)]
+        struct MyResB;
+
+        #[test]
+        fn builds() {
+            let mut rws = SystemsRw::default();
+
+            let a = rws.add({
+                let mut locks = access::SystemLock::default();
+                <ResMut<MyResA> as Param>::init(&mut locks);
+
+                locks
+            });
+
+            let b = rws.add({
+                let mut locks = access::SystemLock::default();
+                <(Res<MyResA>, ResMut<MyResB>) as Param>::init(&mut locks);
+
+                locks
+            });
+
+            let c = rws.add({
+                let mut locks = access::SystemLock::default();
+                <Res<MyResB> as Param>::init(&mut locks);
+
+                locks
+            });
+
+            let graph = build_sequencial_graph(&[a, b, c], &rws).unwrap();
+            assert_eq!(graph.0.get(&a), None);
+            assert_eq!(graph.0.get(&b), Some(&vec![a]));
+            assert_eq!(graph.0.get(&c), Some(&vec![b]));
         }
     }
 }
