@@ -51,6 +51,13 @@ pub mod origins {
         }
     }
 
+    #[derive(Debug, thiserror::Error)]
+    #[error("IO error for toml file `{path}`: {err}")]
+    pub struct TomlFileIo {
+        path: std::path::PathBuf,
+        err: std::io::Error,
+    }
+
     impl<T, P> AssetOrigin<T> for TomlFile<P>
     where
         T: serde::de::DeserializeOwned,
@@ -58,9 +65,12 @@ pub mod origins {
     {
         type ParamMarker = ();
         fn load(self) -> Result<T, WokUnknownError> {
-            let buf = std::fs::read_to_string(self.0.as_ref())?;
+            let buf = std::fs::read_to_string(self.0.as_ref()).map_err(|e| TomlFileIo {
+                path: self.0.as_ref().to_path_buf(),
+                err: e,
+            })?;
 
-            toml::from_str(&buf).map_err(Into::into)
+            toml::from_str(&buf).map_err(|e| WokUnknownError::labelled(e, "tomlparse"))
         }
     }
 

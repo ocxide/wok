@@ -62,6 +62,15 @@ pub mod error {
         pub fn from_message(error: impl Into<std::borrow::Cow<'static, str>>) -> Self {
             Self::new(MessageError(error.into()))
         }
+
+        #[track_caller]
+        #[inline]
+        pub fn labelled<E: std::error::Error + Send + Sync + 'static>(
+            error: E,
+            label: &'static str,
+        ) -> WokUnknownError {
+            LabelledError::new(label, error).into()
+        }
     }
 
     impl Display for WokUnknownError {
