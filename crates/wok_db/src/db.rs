@@ -30,8 +30,8 @@ pub trait DbSelectSingle<R, D>: 'static {
     fn select<'q>(&'q self, table: &'static str, id: R) -> Self::SelectQuery<'q>;
 }
 
-pub trait Db: Sized + 'static {
-    fn record<R: Record>(&self) -> DbRecordManager<Self, R> {
+pub trait RecordDb: Sized + 'static {
+    fn record<R: Record>(&self) -> DbRecordManager<'_, Self, R> {
         DbRecordManager {
             table: R::TABLE,
             db: self,
@@ -62,9 +62,9 @@ impl<'db, Db, R: Record> DbRecordManager<'db, Db, R> {
         self.db.create(self.table, data)
     }
 
-    pub fn list(self) -> Db::ListQuery<'db>
+    pub fn list<D>(self) -> Db::ListQuery<'db>
     where
-        Db: DbList<R>,
+        Db: DbList<D>,
     {
         self.db.list(self.table)
     }

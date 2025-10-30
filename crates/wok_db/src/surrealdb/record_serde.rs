@@ -29,14 +29,14 @@ pub trait SurrealRecord: Record + DeserializeOwned + Serialize {
 }
 
 pub trait IdFlavor<R: Record> {
-    fn create(id: &R) -> IdRef<R>;
+    fn create(id: &R) -> IdRef<'_, R>;
     fn from_owned(id: IdOwned<R>) -> R;
 }
 
 pub struct StringFlavor;
 
 impl<R: Record> IdFlavor<R> for StringFlavor {
-    fn create(id: &R) -> IdRef<R> {
+    fn create(id: &R) -> IdRef<'_, R> {
         IdRef::String(id)
     }
 

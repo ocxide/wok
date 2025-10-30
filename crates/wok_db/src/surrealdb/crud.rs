@@ -1,14 +1,14 @@
 use surrealdb::{Connection, Surreal};
 use wok::prelude::WokUnknownError;
 
-use crate::{db::{Db, DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle}, Record};
+use crate::{db::{RecordDb, DbCreate, DbDelete, DbDeleteError, DbList, DbSelectSingle}, Record};
 
 use super::{
     AsSurrealBind, FromSurrealBind, SurrealDb, SurrealRecord, SurrealSerialize,
     record_serde::ThingOwned,
 };
 
-impl<C: Connection> Db for SurrealDb<C> {}
+impl<C: Connection> RecordDb for SurrealDb<C> {}
 
 impl<C, R, D> DbCreate<R, D> for SurrealDb<C>
 where
@@ -60,12 +60,13 @@ where
     }
 }
 
-pub struct SurrealList<'db, C: Connection> {
+pub struct SurrealList<'db, C: Connection, Out> {
     db: &'db Surreal<C>,
     table: &'static str,
+    _marker: std::marker::PhantomData<Out>,
 }
 
-impl<'db, C: Connection, D> crate::db::Query<Vec<D>> for SurrealList<'db, C>
+impl<'db, C: Connection, D> crate::db::Query<Vec<D>> for SurrealList<'db, C, D>
 where
     D: FromSurrealBind,
 {
@@ -80,9 +81,9 @@ where
     C: Connection,
     D: FromSurrealBind,
 {
-    type ListQuery<'q> = SurrealList<'q, C>;
+    type ListQuery<'q> = SurrealList<'q, C, D>;
     fn list<'q>(&'q self, table: &'static str) -> Self::ListQuery<'q> {
-        SurrealList { db: &self.0, table }
+        SurrealList { db: &self.0, table, _marker: std::marker::PhantomData }
     }
 }
 
