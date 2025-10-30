@@ -67,7 +67,7 @@ pub mod origins {
     mod env {
         use wok::{
             plugin::Plugin,
-            prelude::{LabelledError, ResMutMarker, WokUnknownError},
+            prelude::{ResMutMarker, WokUnknownError},
         };
 
         use crate::AssetOrigin;
@@ -81,13 +81,30 @@ pub mod origins {
                 use wok::prelude::{ConfigureWorld, Startup};
 
                 app.add_systems(Startup, |_: ResMutMarker<EnvLoaded>| {
-                    dotenv::dotenv()
-                        .map_err(|e| LabelledError::new("dotenv", e))
-                        .map_err(WokUnknownError::from)?;
-
-                    Ok(())
+                    dotenvy::Finder::new().find();
+                    if let Err(why) = dotenvy::dotenv() {
+                        tracing::warn!(?why, "Failed to load .env");
+                    }
                 });
             }
+        }
+
+        struct EnvReader<R: std::io::Read>(R);
+
+        impl<R: std::io::Read> std::io::Read for EnvReader<R> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let out = self.0.read(buf)?;
+
+                if let Ok(red) = str::from_utf8(buf) {
+
+                }
+
+                Ok(out)
+            }
+        }
+
+        fn load_env() {
+            dotenvy::Iter::new(reader).load
         }
 
         #[derive(Clone, Debug)]
@@ -105,7 +122,10 @@ pub mod origins {
         {
             type ParamMarker = ResMutMarker<EnvLoaded>;
             fn load(self) -> Result<T, WokUnknownError> {
-                envy::from_env().map_err(Into::into)
+                serdenv_toml::builder_default()
+                    .lowercased()
+                    .deserialize::<T>()
+                    .map_err(Into::into)
             }
 
             fn plugin() -> impl wok::plugin::Plugin {

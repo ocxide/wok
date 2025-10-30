@@ -340,13 +340,19 @@ impl<'de> serde::de::Deserializer<'de> for ValueDeserializer<'de> {
         deserialize_f64,
         deserialize_bytes,
         deserialize_byte_buf,
-        deserialize_option,
         deserialize_unit,
         deserialize_seq,
         deserialize_map,
         deserialize_identifier,
         deserialize_any
     );
+
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_some(self)
+    }
 
     fn deserialize_unit_struct<V>(
         self,
@@ -363,15 +369,13 @@ impl<'de> serde::de::Deserializer<'de> for ValueDeserializer<'de> {
 
     fn deserialize_newtype_struct<V>(
         self,
-        name: &'static str,
+        _name: &'static str,
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        let der = self.toml_parser();
-        let out = der.deserialize_newtype_struct(name, visitor)?;
-        Ok(out)
+        visitor.visit_newtype_struct(self)
     }
 
     fn deserialize_struct<V>(
@@ -596,6 +600,55 @@ mod tests {
                 nested: Nested {
                     message: "hello".to_string(),
                 },
+            }
+        );
+    }
+
+    #[test]
+    fn new_type() {
+        #[derive(Debug, serde::Deserialize, PartialEq)]
+        struct MyString(String);
+
+        #[derive(Debug, serde::Deserialize, PartialEq)]
+        struct Data {
+            my_string: MyString,
+        }
+
+        let data = [("my_string", "hello")];
+
+        let input = data.iter().map(|(k, v)| (k.to_uppercase(), v.to_string()));
+        let data: Data = DeserializerBuilder::new(input)
+            .lowercased()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(
+            data,
+            Data {
+                my_string: MyString("hello".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn option() {
+        #[derive(Debug, serde::Deserialize, PartialEq)]
+        struct Data {
+            val: Option<String>,
+        }
+
+        let data = [("val", "hello")];
+
+        let input = data.iter().map(|(k, v)| (k.to_uppercase(), v.to_string()));
+        let data: Data = DeserializerBuilder::new(input)
+            .lowercased()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(
+            data,
+            Data {
+                val: Some("hello".to_string())
             }
         );
     }

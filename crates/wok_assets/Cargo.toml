@@ -10,6 +10,8 @@ toml = { workspace = true }
 tokio = { workspace = true, optional = true }
 wok_assets_derive = { path = "../wok_assets_derive" }
 valigate = { path = "../valigate" }
-envy = "0.4.2"
 dotenv = "0.15.0"
 thiserror = { workspace = true }
+serdenv_toml = { path = "../serdenv_toml" }
+tracing = { workspace = true }
+dotenvy = "0.15.7"
