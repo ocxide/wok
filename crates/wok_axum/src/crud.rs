@@ -85,11 +85,10 @@ impl<R: Record, Config: CrudConfig> RoutePluginBuilder<R, Config> {
         }
     }
 
-    pub const fn create_one<D: serde::de::DeserializeOwned>(
-        &self,
-    ) -> CreateOnePlugin<'_, R, D, Config>
+    pub const fn create_one<D: valigate::Valid>(&self) -> CreateOnePlugin<'_, R, D, Config>
     where
         Config::Db: DbCreate<R, D>,
+        D::In: serde::de::DeserializeOwned,
     {
         CreateOnePlugin {
             builder: self,
@@ -146,7 +145,12 @@ where
     }
 }
 
-pub struct CreateOnePlugin<'b, R: Record, D: serde::de::DeserializeOwned, Config: CrudConfig> {
+pub struct CreateOnePlugin<
+    'b,
+    R: Record,
+    D: valigate::Valid<In: serde::de::DeserializeOwned>,
+    Config: CrudConfig,
+> {
     builder: &'b RoutePluginBuilder<R, Config>,
     _marker: std::marker::PhantomData<fn(R, D)>,
 }
@@ -155,17 +159,20 @@ type Wrap<IdStrat, R, D> = <IdStrat as IdStrategy<R>>::Wrap<D>;
 
 impl<'b, R: Record, D, Config: CrudConfig> Plugin for CreateOnePlugin<'b, R, D, Config>
 where
-    D: serde::de::DeserializeOwned + Send + Sync + 'static,
+    D: valigate::Valid + Send + Sync + 'static,
+    D::In: serde::de::DeserializeOwned + Send + Sync + 'static,
     Config::Db: DbCreate<R, Wrap<Config::IdStrategy, R, D>>,
     Config::IdStrategy: IdStrategy<R>,
     R: serde::de::DeserializeOwned + serde::Serialize,
 {
     fn setup(self, app: &mut wok::prelude::App) {
-        let system = async move |In(Json(data)): In<Json<D>>, db: Res<'_, Config::Db>| {
+        use crate::{extract::JsonG, response::Created};
+
+        let system = async move |In(JsonG(data)): In<JsonG<D>>, db: Res<'_, Config::Db>| {
             let data = Config::IdStrategy::wrap(data);
             let id = db.create(R::TABLE, data).execute().await?;
 
-            Ok(axum::Json(id)) as Result<_, WokUnknownError>
+            Ok(Created::Created(Json(id))) as Result<_, WokUnknownError>
         };
 
         app.add_systems(Route(&self.builder.path), post(system));
