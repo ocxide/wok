@@ -314,6 +314,24 @@ impl ValueParser<Expr> for ExprParser {
     }
 }
 
+pub struct StringParser;
+impl ValueParser<String> for StringParser {
+    type Out = String;
+    fn repr() -> &'static str {
+        "string"
+    }
+
+    fn parse(&self, expr: Expr) -> Result<Self::Out, CompileError> {
+        match expr {
+            Expr::Lit(syn::ExprLit {
+                lit: Lit::Str(lit),
+                ..
+            }) => Ok(lit.value()),
+            _ => Err(span_compile_error!(expr.span() => "Expected a string literal")),
+        }
+    }
+}
+
 pub fn parse_attrs<Marker, P: AttrsMatch<Marker>>(
     namespace: &str,
     attrs: &[syn::Attribute],

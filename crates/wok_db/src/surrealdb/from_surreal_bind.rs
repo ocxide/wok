@@ -46,6 +46,8 @@ macro_rules! from_bind {
 }
 
 from_bind!(String);
+from_bind!(usize);
+from_bind!(isize);
 from_bind!(u128);
 from_bind!(i128);
 from_bind!(bool);

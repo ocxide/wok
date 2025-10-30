@@ -255,16 +255,16 @@ pub mod gates {
 
     #[derive(thiserror::Error, Debug)]
     #[error("len must be at least {min} but was {len}")]
-    pub struct MinErr {
+    pub struct MinLenErr {
         pub min: usize,
         pub len: usize,
     }
 
-    pub struct Min(pub usize);
+    pub struct MinLen(pub usize);
 
-    impl<T: Count> Gate<T> for Min {
+    impl<T: Count> Gate<T> for MinLen {
         type Out = T;
-        type Err = MinErr;
+        type Err = MinLenErr;
 
         fn parse(self, input: T) -> super::GateResult<Self::Out, Self::Err> {
             if input.count() < self.0 {
@@ -272,7 +272,7 @@ pub mod gates {
 
                 return super::GateResult::ErrPass(
                     input,
-                    MinErr {
+                    MinLenErr {
                         min: self.0,
                         len: actual_len,
                     },
@@ -283,18 +283,18 @@ pub mod gates {
         }
     }
 
-    pub struct Max(pub usize);
+    pub struct MaxLen(pub usize);
 
     #[derive(thiserror::Error, Debug)]
     #[error("len must be at most {max} but was {len}")]
-    pub struct MaxErr {
+    pub struct MaxLenErr {
         pub max: usize,
         pub len: usize,
     }
 
-    impl<T: Count> Gate<T> for Max {
+    impl<T: Count> Gate<T> for MaxLen {
         type Out = T;
-        type Err = MaxErr;
+        type Err = MaxLenErr;
 
         fn parse(self, input: T) -> super::GateResult<Self::Out, Self::Err> {
             if input.count() > self.0 {
@@ -302,11 +302,32 @@ pub mod gates {
 
                 return super::GateResult::ErrPass(
                     input,
-                    MaxErr {
+                    MaxLenErr {
                         max: self.0,
                         len: actual_len,
                     },
                 );
+            }
+
+            crate::GateResult::Ok(input)
+        }
+    }
+
+    pub struct LessThan(pub usize);
+
+    #[derive(thiserror::Error, Debug)]
+    #[error("must be less than {less_than}")]
+    pub struct LessThanErr {
+        pub less_than: usize,
+    }
+
+    impl<T: PartialOrd<usize>> Gate<T> for LessThan {
+        type Out = T;
+        type Err = LessThanErr;
+
+        fn parse(self, input: T) -> crate::GateResult<Self::Out, Self::Err> {
+            if input < self.0 {
+                return crate::GateResult::ErrPass(input, LessThanErr { less_than: self.0 });
             }
 
             crate::GateResult::Ok(input)

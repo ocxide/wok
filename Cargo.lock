@@ -430,8 +430,15 @@ dependencies = [
 name = "axum_person_crud"
 version = "0.1.0"
 dependencies = [
+ "idn",
+ "serde",
+ "thiserror 2.0.17",
  "tokio",
+ "valigate",
  "wok",
+ "wok_assets",
+ "wok_axum",
+ "wok_db",
 ]
 
 [[package]]
@@ -4907,6 +4914,7 @@ dependencies = [
 name = "wok_db_derive"
 version = "0.1.0"
 dependencies = [
+ "derime",
  "proc-macro2",
  "quote",
  "syn 2.0.106",

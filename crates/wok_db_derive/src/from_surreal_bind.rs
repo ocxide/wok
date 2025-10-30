@@ -1,11 +1,7 @@
+use derime::{CompileError, span_compile_error};
 use proc_macro2::{Ident, TokenStream};
-use quote::quote;
-use syn::{DeriveInput, Expr, Index, MetaNameValue, spanned::Spanned};
-
-use crate::{
-    CompileError, span_compile_error,
-    util::{InvalidAttrReason, named_attrs},
-};
+use quote::{format_ident, quote};
+use syn::{DeriveInput, Index, spanned::Spanned};
 
 pub fn from_surreal_db_derive(ast: DeriveInput) -> Result<TokenStream, CompileError> {
     let span = ast.span();
@@ -18,29 +14,12 @@ pub fn from_surreal_db_derive(ast: DeriveInput) -> Result<TokenStream, CompileEr
         }
     };
 
-    let new_name: String;
-    let mapping_name = match named_attrs(&ast.attrs) {
-        Ok(Some(MetaNameValue {
-            path,
-            value: Expr::Path(expr),
-            ..
-        })) if path.is_ident("der") => match expr.path.get_ident() {
-            Some(ident) => ident.clone(),
-            None => {
-                return Err(span_compile_error!(span => "Expected #[surreal_bind(der = ...)]"));
-            }
-        },
-        Ok(Some(_)) => {
-            return Err(span_compile_error!(span => "Expected #[surreal_bind(der = ...)]"));
-        }
-        Ok(None) => {
-            new_name = "Surreal".to_owned() + &ast.ident.to_string();
-            Ident::new(&new_name, ast.ident.span())
-        }
-        Err(InvalidAttrReason::NotScoped) => {
-            return Err(span_compile_error!(span => "Expected #[surreal_bind(...)]"));
-        }
-        Err(InvalidAttrReason::Other(err)) => return Err(err),
+    let mapping_name = match derime::AttributesParser::new("surreal_bind").parse(
+        &ast.attrs,
+        derime::OptionalAttr((derime::KeyIdent("der"), derime::StringParser)),
+    )? {
+        Some(name) => Ident::new(&name, span),
+        None => format_ident!("{}FromSurrealBind", ast.ident),
     };
 
     let thing_name = &ast.ident;

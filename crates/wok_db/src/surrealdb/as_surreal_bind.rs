@@ -1,3 +1,5 @@
+use std::u128;
+
 use serde::{Serialize, ser::SerializeSeq};
 
 use super::{SurrealRecord, record_serde::ThingRef};
@@ -74,10 +76,12 @@ as_bind_copy!(i8);
 as_bind_copy!(i16);
 as_bind_copy!(i32);
 as_bind_copy!(i64);
+as_bind_copy!(isize);
 as_bind_copy!(u8);
 as_bind_copy!(u16);
 as_bind_copy!(u32);
 as_bind_copy!(u64);
+as_bind_copy!(usize);
 
 pub struct SurrealSerialize<T: AsSurrealBind>(pub T);
 

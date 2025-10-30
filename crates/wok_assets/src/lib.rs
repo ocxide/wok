@@ -81,30 +81,11 @@ pub mod origins {
                 use wok::prelude::{ConfigureWorld, Startup};
 
                 app.add_systems(Startup, |_: ResMutMarker<EnvLoaded>| {
-                    dotenvy::Finder::new().find();
                     if let Err(why) = dotenvy::dotenv() {
                         tracing::warn!(?why, "Failed to load .env");
                     }
                 });
             }
-        }
-
-        struct EnvReader<R: std::io::Read>(R);
-
-        impl<R: std::io::Read> std::io::Read for EnvReader<R> {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                let out = self.0.read(buf)?;
-
-                if let Ok(red) = str::from_utf8(buf) {
-
-                }
-
-                Ok(out)
-            }
-        }
-
-        fn load_env() {
-            dotenvy::Iter::new(reader).load
         }
 
         #[derive(Clone, Debug)]

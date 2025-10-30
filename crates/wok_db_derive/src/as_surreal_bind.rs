@@ -1,11 +1,7 @@
+use derime::{span_compile_error, CompileError};
 use proc_macro2::Ident;
 use quote::quote;
-use syn::{Expr, Index, MetaNameValue, spanned::Spanned};
-
-use crate::{
-    CompileError, span_compile_error,
-    util::{InvalidAttrReason, named_attrs},
-};
+use syn::{Index, spanned::Spanned};
 
 pub fn do_as_surreal_bind_derive(
     ast: syn::DeriveInput,
@@ -21,28 +17,18 @@ pub fn do_as_surreal_bind_derive(
     };
 
     let new_name: String;
-    let mapping_name = match named_attrs(&ast.attrs) {
-        Ok(Some(MetaNameValue {
-            path,
-            value: Expr::Path(expr),
-            ..
-        })) if path.is_ident("ser") => match expr.path.get_ident() {
-            Some(ident) => ident.clone(),
-            None => {
-                return Err(span_compile_error!(span => "Expected #[surreal_bind(ser = ...)]"));
-            }
-        },
-        Ok(Some(_)) => {
-            return Err(span_compile_error!(span => "Expected #[surreal_bind(ser = ...)]"));
-        }
-        Ok(None) => {
+
+    let name = derime::AttributesParser::new("surreal_bind").parse(
+        &ast.attrs,
+        derime::OptionalAttr((derime::KeyIdent("ser"), derime::StringParser)),
+    )?;
+
+    let mapping_name = match name {
+        Some(name) => Ident::new(&name, ast.ident.span()),
+        None => {
             new_name = format!("Surreal{}Ref", ast.ident);
             Ident::new(&new_name, ast.ident.span())
         }
-        Err(InvalidAttrReason::NotScoped) => {
-            return Err(span_compile_error!(span => "Expected #[surreal_bind(...)]"));
-        }
-        Err(InvalidAttrReason::Other(err)) => return Err(err),
     };
 
     let thing_name = &ast.ident;
