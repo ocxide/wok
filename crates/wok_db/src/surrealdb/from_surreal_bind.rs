@@ -64,3 +64,9 @@ from_bind!(f64);
 #[cfg(feature = "chrono")]
 from_bind!(chrono::DateTime<chrono::Utc>);
 
+impl<T: FromSurrealBind> FromSurrealBind for Option<T> {
+    type Bind = Option<T::Bind>;
+    fn from_bind(bind: Self::Bind) -> Self {
+        bind.map(T::from_bind)
+    }
+}

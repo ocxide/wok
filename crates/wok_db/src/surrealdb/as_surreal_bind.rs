@@ -83,6 +83,13 @@ as_bind_copy!(u32);
 as_bind_copy!(u64);
 as_bind_copy!(usize);
 
+impl<T: AsSurrealBind> AsSurrealBind for Option<T> {
+    type Bind<'b> = Option<T::Bind<'b>>;
+    fn as_bind(&self) -> Self::Bind<'_> {
+        self.as_ref().map(AsSurrealBind::as_bind)
+    }
+}
+
 pub struct SurrealSerialize<T: AsSurrealBind>(pub T);
 
 impl<T: AsSurrealBind> Serialize for SurrealSerialize<T> {
@@ -93,4 +100,3 @@ impl<T: AsSurrealBind> Serialize for SurrealSerialize<T> {
         self.0.as_bind().serialize(serializer)
     }
 }
-
