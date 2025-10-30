@@ -111,6 +111,7 @@ mod unsafe_world_state {
 
         /// # Safety
         /// Caller must ensure the access is valid
+        #[allow(clippy::mut_from_ref)] // allow this since its unsafe
         pub unsafe fn get_resource_mut<R: Resource>(&self) -> Option<&mut R> {
             let resources = &mut unsafe { &mut *self.0.get() }.resources;
             let handle_ref = resources.handle_ref_mut()?;
