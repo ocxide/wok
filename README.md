@@ -97,6 +97,8 @@ async hello_world() -> String {
 }
 ```
 
+Look at the the axum examples at [example](examplesbin/axum_person_crud) for more information.
+
 ## Warning
 
 This crate is still in development, changes will probably be breaking, so use it at your own risk!
