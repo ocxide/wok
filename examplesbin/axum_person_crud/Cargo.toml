@@ -1,0 +1,17 @@
+[package]
+name = "axum_person_crud"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wok = { path = "../../", features=["tokio"] }
+wok_axum = { path = "../../crates/wok_axum" }
+wok_db = { path = "../../crates/wok_db", features=["surrealdb"] }
+wok_assets = { path = "../../crates/wok_assets" }
+valigate = { path = "../../crates/valigate" }
+idn = { git = "https://github.com/ocxide/idn" }
+surrealdb = { version = "^2.0.0" }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+axum = "0.8.0"
