@@ -7,7 +7,7 @@ use wok::{
 };
 use wok_db::{
     Record,
-    db::{DbCreate, DbDelete, DbList, DbSelectSingle, Query},
+    db::{DbCreate, DbDelete, DbList, DbSelectSingle, DbQuery},
     id_strategy::IdStrategy,
 };
 

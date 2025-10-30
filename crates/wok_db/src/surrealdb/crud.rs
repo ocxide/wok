@@ -35,7 +35,7 @@ pub struct SurrealCreate<'db, C: Connection, R: Record, D> {
     data: D,
 }
 
-impl<'db, C, D, R> crate::db::Query<R> for SurrealCreate<'db, C, R, D>
+impl<'db, C, D, R> crate::db::DbQuery<R> for SurrealCreate<'db, C, R, D>
 where
     D: AsSurrealBind + Send,
     R: SurrealRecord,
@@ -66,7 +66,7 @@ pub struct SurrealList<'db, C: Connection, Out> {
     _marker: std::marker::PhantomData<Out>,
 }
 
-impl<'db, C: Connection, D> crate::db::Query<Vec<D>> for SurrealList<'db, C, D>
+impl<'db, C: Connection, D> crate::db::DbQuery<Vec<D>> for SurrealList<'db, C, D>
 where
     D: FromSurrealBind,
 {
@@ -104,7 +104,7 @@ pub struct SurrealDelete<'db, C: Connection, R: SurrealRecord> {
     id: R,
 }
 
-impl<'db, C: Connection, R: SurrealRecord> crate::db::Query<Result<(), DbDeleteError>>
+impl<'db, C: Connection, R: SurrealRecord> crate::db::DbQuery<Result<(), DbDeleteError>>
     for SurrealDelete<'db, C, R>
 {
     async fn execute(self) -> Result<Result<(), DbDeleteError>, WokUnknownError> {
@@ -131,7 +131,7 @@ pub struct SurrealSelectSingle<'db, C: Connection, R> {
     id: R,
 }
 
-impl<'db, C: Connection, D, R> crate::db::Query<Option<D>> for SurrealSelectSingle<'db, C, R>
+impl<'db, C: Connection, D, R> crate::db::DbQuery<Option<D>> for SurrealSelectSingle<'db, C, R>
 where
     D: FromSurrealBind,
     R: SurrealRecord,

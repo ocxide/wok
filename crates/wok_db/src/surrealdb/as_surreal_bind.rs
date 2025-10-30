@@ -1,5 +1,3 @@
-use std::u128;
-
 use serde::{Serialize, ser::SerializeSeq};
 
 use super::{SurrealRecord, record_serde::ThingRef};
