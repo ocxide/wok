@@ -11,11 +11,13 @@ pub mod runtime;
 
 pub mod prelude {
     pub use crate::commands::{Command, Commands};
-    pub use crate::error::{WokUnknownError, LabelledError};
+    pub use crate::error::{LabelledError, WokUnknownError};
     pub use crate::param::*;
-    pub use crate::resources::{Resource, Immutable, Mutable};
+    pub use crate::resources::{Immutable, Mutable, Resource};
     pub use crate::system::*;
-    pub use crate::world::{ConfigureWorld, World, WorldState, UnsafeWorldState, UnsafeMutState, SystemLock};
+    pub use crate::world::{
+        ConfigureWorld, SystemLock, UnsafeMutState, UnsafeWorldState, World, WorldState,
+    };
     pub use wok_derive::Param;
 }
 
@@ -35,6 +37,10 @@ pub mod error {
         }
     }
 
+    #[derive(Debug, thiserror::Error)]
+    #[error("{0}")]
+    pub struct MessageError(pub std::borrow::Cow<'static, str>);
+
     #[derive(Debug)]
     pub struct WokUnknownError {
         inner: Box<dyn std::error::Error + Send + Sync + 'static>,
@@ -49,6 +55,12 @@ pub mod error {
                 inner: Box::new(value),
                 location: Location::caller(),
             }
+        }
+
+        #[track_caller]
+        #[inline]
+        pub fn from_message(error: impl Into<std::borrow::Cow<'static, str>>) -> Self {
+            Self::new(MessageError(error.into()))
         }
     }
 

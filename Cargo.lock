@@ -430,8 +430,10 @@ dependencies = [
 name = "axum_person_crud"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "idn",
  "serde",
+ "surrealdb",
  "thiserror 2.0.17",
  "tokio",
  "valigate",
