@@ -191,7 +191,7 @@ mod impls {
             #[allow(non_snake_case, unused_parens)]
             ($($params),*): ParamBorrow<'_, Self::Params>,
         ) -> impl Future<Output = Self::Output> + Send {
-            self($($params),*)
+            (self)($($params),*)
         }
 
         #[allow(clippy::manual_async_fn, reason = "listening to clippy causes compile errors, screw you clippy")]
@@ -205,7 +205,7 @@ mod impls {
         {
             async move {
                 let params = Self::Params::from_owned(&mut params);
-                self.run(input, params).await
+                <Self as SystemFn<(InputLessSystem, fn($($params),*) -> O)>>::run(self, input, params).await
             }
         }
     }
@@ -245,14 +245,13 @@ mod impls {
         {
             async move {
                 let params = Self::Params::from_owned(&mut params);
-                self.run(input, params).await
+                <Self as SystemFn<(HasSystemInput, fn(I, $(&'static $params),*, O))>>::run(self, input, params).await
             }
         }
     }
     };
 }
 
-    // // AsyncFn0 is already implemented
     impl_system_fn!(AsyncFn1; P1: 'p1);
     impl_system_fn!(AsyncFn2; P1: 'p1, P2: 'p2);
     impl_system_fn!(AsyncFn3; P1: 'p1, P2: 'p2, P3: 'p3);

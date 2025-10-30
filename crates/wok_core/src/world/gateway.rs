@@ -398,7 +398,7 @@ mod system_entry {
             TaskSystemEntry::new(self.id, Box::new(self.system))
         }
 
-        pub fn entry_ref(&self) -> SystemEntryRef<S> {
+        pub fn entry_ref(&self) -> SystemEntryRef<'_, S> {
             SystemEntryRef {
                 system: &self.system,
                 id: self.id,
