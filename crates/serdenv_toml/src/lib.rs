@@ -343,9 +343,23 @@ impl<'de> serde::de::Deserializer<'de> for ValueDeserializer<'de> {
         deserialize_unit,
         deserialize_seq,
         deserialize_map,
-        deserialize_identifier,
-        deserialize_any
+        deserialize_identifier
     );
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        let Some(char) = self.value.chars().next() else {
+            return visitor.visit_none();
+        };
+
+        match char {
+            '{' | '[' => self.toml_parser().deserialize_any(visitor).map_err(FieldError::Toml),
+            c if c.is_numeric() => self.toml_parser().deserialize_any(visitor).map_err(FieldError::Toml),
+            _ => visitor.visit_str(self.value),
+        }
+    }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -649,6 +663,36 @@ mod tests {
             data,
             Data {
                 val: Some("hello".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn untagged() {
+        #[derive(Debug, serde::Deserialize, PartialEq)]
+        #[serde(untagged)]
+        enum Field {
+            Text(String),
+            Map { a: String, b: String },
+        }
+
+        #[derive(Debug, serde::Deserialize, PartialEq)]
+        struct Data {
+            field: Field,
+        }
+
+        let data = [("field", "aaa")];
+
+        let input = data.iter().map(|(k, v)| (k.to_uppercase(), v.to_string()));
+        let data: Data = DeserializerBuilder::new(input)
+            .lowercased()
+            .deserialize()
+            .unwrap();
+
+        assert_eq!(
+            data,
+            Data {
+                field: Field::Text("aaa".to_string())
             }
         );
     }
