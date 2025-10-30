@@ -85,14 +85,12 @@ impl<R: SurrealRecord, D: FromSurrealBind> FromSurrealBind for RecordEntry<R, D>
     }
 }
 
-#[derive(serde::Deserialize, wok::prelude::Resource, Debug, valigate::Valid)]
+#[derive(wok::prelude::Resource, serde::Deserialize, Debug, valigate::Valid)]
 #[gate(serde = true)]
 pub struct SurrealCredentials {
     pub host: String,
     #[serde(flatten)]
     pub signin: Option<SurrealSignIn>,
-    #[serde(flatten)]
-    pub using_db: Option<SurrealUsingDb>,
 }
 
 #[derive(Debug, serde::Deserialize, valigate::Valid)]
@@ -105,9 +103,9 @@ pub struct SurrealSignIn {
 #[derive(wok::prelude::Resource)]
 pub struct SurrealConfig(pub surrealdb::opt::Config);
 
-#[derive(Debug, serde::Deserialize, valigate::Valid)]
+#[derive(Debug, valigate::Valid, wok::prelude::Resource)]
 #[gate(serde = true)]
-pub struct SurrealUsingDb {
+pub struct SurrealUseDb {
     pub database: String,
     pub namespace: String,
 }
@@ -127,51 +125,55 @@ where
 {
     fn setup(self, app: &mut wok::prelude::App) {
         use wok::prelude::{ConfigureWorld, ResInit, ResTake};
-        app.add_systems(
-            wok::prelude::Startup,
-            async |creds: ResTake<SurrealCredentials>,
-                   config: Option<ResTake<SurrealConfig>>,
-                   mut surreal: ResInit<'_, SurrealDb<surrealdb::engine::remote::ws::Client>>|
-                   -> Result<(), wok::prelude::WokUnknownError> {
-                let creds = creds.into_inner();
-                let config = config.map(|c| c.into_inner().0).unwrap_or_default();
+        async fn configure_surrealdb_connection<P>(
+            creds: ResTake<SurrealCredentials>,
+            use_db: Option<ResTake<SurrealUseDb>>,
+            config: Option<ResTake<SurrealConfig>>,
+            mut surreal: ResInit<'_, SurrealDb<surrealdb::engine::remote::ws::Client>>,
+        ) -> Result<(), wok::prelude::WokUnknownError>
+        where
+            (String, surrealdb::opt::Config):
+                surrealdb::opt::IntoEndpoint<P, Client = surrealdb::engine::remote::ws::Client>,
+        {
+            let creds = creds.into_inner();
+            let config = config.map(|c| c.into_inner().0).unwrap_or_default();
 
-                tracing::info!("Connected to remote SurrealDB at '{}'", &creds.host);
-                let db = surrealdb::Surreal::<surrealdb::engine::remote::ws::Client>::new::<P>((
-                    creds.host, config,
-                ))
+            tracing::info!("Connected to remote SurrealDB at '{}'", &creds.host);
+            let db = surrealdb::Surreal::<surrealdb::engine::remote::ws::Client>::new::<P>((
+                creds.host, config,
+            ))
+            .await?;
+
+            if let Some(signin) = creds.signin {
+                db.signin(surrealdb::opt::auth::Root {
+                    username: &signin.username,
+                    password: &signin.password,
+                })
                 .await?;
 
-                if let Some(signin) = creds.signin {
-                    db.signin(surrealdb::opt::auth::Root {
-                        username: &signin.username,
-                        password: &signin.password,
-                    })
-                    .await?;
+                tracing::info!("Signed in as '{}'", &signin.username);
+            } else {
+                tracing::warn!("Credentials missing for remote SurrealDB");
+            }
 
-                    tracing::info!("Signed in as '{}'", &signin.username);
-                } else {
-                    tracing::warn!("Credentials missing for remote SurrealDB");
-                }
+            if let Some(use_db) = use_db {
+                let use_db = use_db.into_inner();
+                tracing::info!(
+                    "Using namespace '{}' and database '{}'",
+                    &use_db.namespace,
+                    &use_db.database
+                );
 
-                if let Some(using_db) = creds.using_db {
-                    tracing::info!(
-                        "Using namespace '{}' and database '{}'",
-                        &using_db.namespace,
-                        &using_db.database
-                    );
+                db.use_ns(use_db.namespace).use_db(use_db.database).await?;
+            } else {
+                tracing::warn!("Using no database for remote SurrealDB");
+            }
 
-                    db.use_ns(using_db.namespace)
-                        .use_db(using_db.database)
-                        .await?;
-                } else {
-                    tracing::warn!("Using no database for remote SurrealDB");
-                }
+            surreal.init(SurrealDb::new(db));
 
-                surreal.init(SurrealDb::new(db));
+            Ok(())
+        }
 
-                Ok(())
-            },
-        );
+        app.add_systems(wok::prelude::Startup, configure_surrealdb_connection);
     }
 }
