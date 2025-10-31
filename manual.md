@@ -1,7 +1,6 @@
 # wok
-
-`wok` is a an async schedule framework for rust, focused on modularity and extensibility.
-`wok` separated data from logic through `Resources`s and `System`s.
+`wok` is an **async scheduling framework for Rust**, focused on **modularity** and **extensibility**.  
+It separates data from logic through the use of `Resource`s and `System`s.
 
 ```rust
 #[derive(Resource)]
@@ -12,15 +11,14 @@ async fn do_something(counter: ResMut<'_, Counter>) {
     counter.0 += 1; 
 }
 ```
+### Resource access
+Systems can access resources in different ways, depending on their intent:
+- `Res<'_, T>` — read-only access
+- `ResMut<'_, T>` — mutable access
+- `Option<Res<'_, T>>` / `Option<ResMut<'_, T>>` — optional access
+- `ResTake<T>` — takes ownership and removes the resource
 
-Take a look at other posible `Resource` param accessors like:
-
-- `Res<'_, T>`: readonly access
-- `ResMut<'_, T>`: mutable access
-- `Option<Res<'_, T>>`/`Option<ResMut<'_, T>>`: optional access
-- `ResTake<T>`: take ownership
-
-Composed params can also be made through the `Param` derive macro.
+You can also group parameters into a single type using the `#[derive(Param)]` macro:
 
 ```rust
 #[derive(Param)]
@@ -30,24 +28,28 @@ struct Repository<'p> {
 }
 ```
 
-## axum
+## Axum integration
+`wok` integrates with [`axum`](https://crates.io/crates/axum) through the `wok_axum` crate.
+This enables adding routes and middleware as systems, while keeping all of wok’s scheduling and dependency features.
+>Example: [examplesbin/axum_person_crud/](examplesbin/axum_person_crud/)
 
-`wok` does have an integration with axum through the `wok_axum` crate. You can find an example [here](examplesbin/axum_person_crud/).
+## Database integration
+Database support is provided by the `wok_db` crate.
+It offers flexible abstractions over different backends while keeping full control in the user’s hands.
 
-## db
+Currently, the only supported database is `SurrealDB`, available under the surrealdb feature flag.
+>Example: [examplesbin/axum_person_crud/](examplesbin/axum_person_crud/)
 
-`wok` does have a database integration through the `wok_db` crate, that brings nice abstractions over dbs without losing control. 
-You can find an example [here](examplesbin/axum_person_crud/).
+## Validation
+Validation in `wok` is powered by the [`valigate`](crates/valigate/) crate — a composable and type-safe validation library.
+It integrates naturally with `wok_axum` extractors, allowing request data to be validated automatically before reaching systems.
+>Example: [examplesbin/axum_person_crud/](examplesbin/axum_person_crud/)
 
-The only current db supported is `surrealdb` through the `surrealdb` feature flag.
+## Assets and configuration
+Configuration and asset loading are handled by the `wok_assets` crate.
+It uses serde to load data from both TOML files and environment variables, including .env files.
 
-## validation
+>Example: [examplesbin/axum_person_crud/](examplesbin/axum_person_crud/)
 
-`wok_axum` has a close relation with the `valigate` crate found at [here](crates/valigate/). The same axum example does use validation through `valigate` and you can find an example [here](examplesbin/axum_person_crud/).
-
-## assets
-
-`wok` supports the easy load of assets through `serde` and the `wok_assets` crate. You can find an example [here](examplesbin/axum_person_crud/).
-`wok_assets` supports loading data from `toml` files and ENVIROMENT variables (even loading from `.env`).
-
->Note that, when loading from ENV, nested data should be embedded as a `toml` value, look at the example [here](examplesbin/axum_person_crud/sample.env).
+>Note: When loading from environment variables, nested data should be embedded as TOML values.
+>Example: [examplesbin/axum_person_crud/sample.env](examplesbin/axum_person_crud/sample.env)
